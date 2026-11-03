@@ -1,0 +1,256 @@
+// Phase 1 schema: identity, profile, exercise library, workout planning,
+// workout logging. Later-phase tables are documented in docs/ARCHITECTURE.md.
+//
+// Unit convention: all masses are stored in kilograms, all lengths in
+// centimetres, all durations in seconds. Conversion happens at the UI edge.
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Identity ───────────────────────────────────────────────────────────────
+
+model User {
+  id           String   @id @default(cuid())
+  email        String   @unique
+  passwordHash String
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  sessions         Session[]
+  profile          Profile?
+  exercises        Exercise[]
+  templates        WorkoutTemplate[]
+  scheduleSlots    ScheduleSlot[]
+  workoutSessions  WorkoutSession[]
+}
+
+/// Server-side session. `id` is the SHA-256 hash of the random cookie token,
+/// so a database leak does not expose usable session tokens.
+model Session {
+  id        String   @id
+  userId    String
+  expiresAt DateTime
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ─── Profile ────────────────────────────────────────────────────────────────
+
+enum Sex {
+  MALE
+  FEMALE
+}
+
+enum FitnessGoal {
+  FAT_LOSS
+  MUSCLE_GAIN
+  MAINTENANCE
+  STRENGTH
+}
+
+enum ActivityLevel {
+  SEDENTARY
+  LIGHT
+  MODERATE
+  ACTIVE
+  VERY_ACTIVE
+}
+
+enum TrainingExperience {
+  BEGINNER
+  INTERMEDIATE
+  ADVANCED
+}
+
+enum UnitSystem {
+  METRIC
+  IMPERIAL
+}
+
+model Profile {
+  userId             String             @id
+  name               String
+  /// Date of birth rather than age so the value stays correct over time.
+  birthDate          DateTime           @db.Date
+  sex                Sex
+  heightCm           Float
+  currentWeightKg    Float
+  goalWeightKg       Float?
+  goal               FitnessGoal
+  activityLevel      ActivityLevel
+  experience         TrainingExperience
+  workoutDaysPerWeek Int
+  unitSystem         UnitSystem         @default(IMPERIAL)
+  /// IANA time zone, used for day/week boundaries (e.g. "America/New_York").
+  timezone           String             @default("UTC")
+  /// User override of the suggested calorie target (kcal/day). Null = use suggestion.
+  calorieTargetOverride Int?
+  updatedAt          DateTime           @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+// ─── Exercise library ───────────────────────────────────────────────────────
+
+enum MuscleGroup {
+  CHEST
+  BACK
+  SHOULDERS
+  BICEPS
+  TRICEPS
+  FOREARMS
+  QUADS
+  HAMSTRINGS
+  GLUTES
+  CALVES
+  CORE
+  FULL_BODY
+  OTHER
+}
+
+enum Equipment {
+  BARBELL
+  DUMBBELL
+  MACHINE
+  CABLE
+  BODYWEIGHT
+  KETTLEBELL
+  BAND
+  OTHER
+}
+
+/// userId = null → built-in exercise visible to everyone (seeded).
+/// userId set   → custom exercise owned by that user.
+model Exercise {
+  id            String      @id @default(cuid())
+  userId        String?
+  name          String
+  primaryMuscle MuscleGroup
+  equipment     Equipment
+  createdAt     DateTime    @default(now())
+
+  user              User?              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  templateExercises TemplateExercise[]
+  sessionExercises  SessionExercise[]
+
+  @@unique([userId, name])
+  @@index([name])
+}
+
+// ─── Planning ───────────────────────────────────────────────────────────────
+
+/// A reusable workout definition, e.g. "Upper Body A".
+model WorkoutTemplate {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  notes     String?
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  exercises TemplateExercise[]
+  slots     ScheduleSlot[]
+  sessions  WorkoutSession[]
+
+  @@index([userId])
+}
+
+model TemplateExercise {
+  id             String  @id @default(cuid())
+  templateId     String
+  exerciseId     String
+  position       Int
+  targetSets     Int
+  targetRepsMin  Int
+  targetRepsMax  Int
+  targetWeightKg Float?
+  restSeconds    Int?
+  notes          String?
+
+  template WorkoutTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  exercise Exercise        @relation(fields: [exerciseId], references: [id], onDelete: Restrict)
+
+  @@index([templateId, position])
+}
+
+/// Weekly schedule entry. weekday: 0 = Monday … 6 = Sunday (ISO order).
+/// A weekday with no slots is a rest day.
+model ScheduleSlot {
+  id         String @id @default(cuid())
+  userId     String
+  weekday    Int
+  templateId String
+  position   Int    @default(0)
+
+  user     User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  template WorkoutTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@index([userId, weekday])
+}
+
+// ─── Logging ────────────────────────────────────────────────────────────────
+
+enum SessionStatus {
+  IN_PROGRESS
+  COMPLETED
+}
+
+model WorkoutSession {
+  id         String        @id @default(cuid())
+  userId     String
+  templateId String?
+  name       String
+  status     SessionStatus @default(IN_PROGRESS)
+  startedAt  DateTime      @default(now())
+  endedAt    DateTime?
+  notes      String?
+
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  template  WorkoutTemplate?  @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  exercises SessionExercise[]
+
+  @@index([userId, startedAt])
+  @@index([userId, status])
+}
+
+model SessionExercise {
+  id          String  @id @default(cuid())
+  sessionId   String
+  exerciseId  String
+  position    Int
+  restSeconds Int?
+  notes       String?
+
+  session WorkoutSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  exercise Exercise      @relation(fields: [exerciseId], references: [id], onDelete: Restrict)
+  sets    SetEntry[]
+
+  @@index([sessionId, position])
+  @@index([exerciseId])
+}
+
+model SetEntry {
+  id                String   @id @default(cuid())
+  sessionExerciseId String
+  setNumber         Int
+  reps              Int
+  /// External load in kg. 0 for unloaded bodyweight movements.
+  weightKg          Float
+  isWarmup          Boolean  @default(false)
+  /// Rate of perceived exertion (1–10), optional.
+  rpe               Float?
+  createdAt         DateTime @default(now())
+
+  sessionExercise SessionExercise @relation(fields: [sessionExerciseId], references: [id], onDelete: Cascade)
+
+  @@index([sessionExerciseId, setNumber])
+}

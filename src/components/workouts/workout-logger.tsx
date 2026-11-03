@@ -1,0 +1,367 @@
+"use client";
+
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useState } from "react";
+import { api, parseNum } from "@/lib/client/api";
+import { compareToPrevious, summarizeSets } from "@/lib/overload";
+import { formatDuration, fromDisplayMass, massUnit, round, toDisplayMass, type UnitSystem } from "@/lib/units";
+import { Button, Card, ErrorText, Input, Textarea, cx } from "@/components/ui";
+import { CheckIcon, PlusIcon, TimerIcon, TrashIcon } from "@/components/icons";
+import { OverloadBadge } from "@/components/overload-badge";
+import { ExercisePicker, type ExerciseOption } from "./exercise-picker";
+
+export interface LoggedSet {
+  id: string;
+  setNumber: number;
+  reps: number;
+  weightKg: number;
+  isWarmup: boolean;
+}
+
+export interface LoggerExercise {
+  id: string;
+  exercise: { id: string; name: string; equipment: string };
+  notes: string | null;
+  restSeconds: number | null;
+  sets: LoggedSet[];
+  prev: { date: string; sets: LoggedSet[] } | null;
+  target: { sets: number; repsMin: number; repsMax: number; weightKg: number | null } | null;
+}
+
+interface Props {
+  sessionId: string;
+  name: string;
+  startedAt: string;
+  units: UnitSystem;
+  initial: LoggerExercise[];
+}
+
+const DEFAULT_REST = 90;
+
+export function WorkoutLogger({ sessionId, name, startedAt, units, initial }: Props) {
+  const router = useRouter();
+  const [exercises, setExercises] = useState(initial);
+  const [error, setError] = useState<string | null>(null);
+  const [picker, setPicker] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [now, setNow] = useState(() => Date.now());
+  const [restEnd, setRestEnd] = useState<number | null>(null);
+
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, []);
+  useEffect(() => {
+    if (restEnd && now >= restEnd) {
+      setRestEnd(null);
+      if (typeof navigator !== "undefined" && "vibrate" in navigator) navigator.vibrate?.(200);
+    }
+  }, [now, restEnd]);
+
+  const base = `/api/sessions/${sessionId}/exercises`;
+  const patchEx = (id: string, fn: (e: LoggerExercise) => LoggerExercise) => setExercises((xs) => xs.map((x) => (x.id === id ? fn(x) : x)));
+
+  async function run<T>(fn: () => Promise<T>): Promise<T | undefined> {
+    setError(null);
+    try {
+      return await fn();
+    } catch (e) {
+      setError((e as Error).message);
+    }
+  }
+
+  async function logSet(ex: LoggerExercise, weightKg: number, reps: number, isWarmup: boolean) {
+    const res = await run(() => api<{ set: LoggedSet }>("POST", `${base}/${ex.id}/sets`, { weightKg, reps, isWarmup }));
+    if (!res) return false;
+    patchEx(ex.id, (e) => ({ ...e, sets: [...e.sets, res.set] }));
+    if (!isWarmup) setRestEnd(Date.now() + (ex.restSeconds ?? DEFAULT_REST) * 1000);
+    return true;
+  }
+
+  async function updateSet(ex: LoggerExercise, set: LoggedSet, patch: Partial<LoggedSet>) {
+    const res = await run(() => api<{ set: LoggedSet }>("PATCH", `${base}/${ex.id}/sets/${set.id}`, patch));
+    if (res) patchEx(ex.id, (e) => ({ ...e, sets: e.sets.map((s) => (s.id === set.id ? res.set : s)) }));
+  }
+
+  async function deleteSet(ex: LoggerExercise, set: LoggedSet) {
+    const ok = await run(() => api("DELETE", `${base}/${ex.id}/sets/${set.id}`));
+    if (ok) patchEx(ex.id, (e) => ({ ...e, sets: e.sets.filter((s) => s.id !== set.id).map((s, i) => ({ ...s, setNumber: i + 1 })) }));
+  }
+
+  async function addExercise(opt: ExerciseOption) {
+    setPicker(false);
+    const res = await run(() =>
+      api<{ sessionExercise: { id: string; restSeconds: number | null; notes: string | null } }>("POST", base, { exerciseId: opt.id }),
+    );
+    if (!res) return;
+    const prevRes = await api<{ previous: { date: string; sets: LoggedSet[] } | null }>(
+      "GET", `/api/exercises/${opt.id}/previous?exclude=${encodeURIComponent(sessionId)}`,
+    ).catch(() => null);
+    const prev = prevRes?.previous ?? null;
+    setExercises((xs) => [
+      ...xs,
+      { id: res.sessionExercise.id, exercise: { id: opt.id, name: opt.name, equipment: opt.equipment }, notes: null, restSeconds: null, sets: [], prev, target: null },
+    ]);
+  }
+
+  async function removeExercise(ex: LoggerExercise) {
+    if (ex.sets.length && !confirm(`Remove ${ex.exercise.name} and its ${ex.sets.length} logged set(s)?`)) return;
+    const ok = await run(() => api("DELETE", `${base}/${ex.id}`));
+    if (ok) setExercises((xs) => xs.filter((x) => x.id !== ex.id));
+  }
+
+  async function moveExercise(i: number, dir: "up" | "down") {
+    const ex = exercises[i];
+    const j = dir === "up" ? i - 1 : i + 1;
+    if (j < 0 || j >= exercises.length) return;
+    const ok = await run(() => api("PATCH", `${base}/${ex.id}`, { move: dir }));
+    if (ok) setExercises((xs) => { const c = [...xs]; [c[i], c[j]] = [c[j], c[i]]; return c; });
+  }
+
+  async function saveExerciseMeta(ex: LoggerExercise, patch: { notes?: string | null; restSeconds?: number | null }) {
+    const ok = await run(() => api("PATCH", `${base}/${ex.id}`, patch));
+    if (ok) patchEx(ex.id, (e) => ({ ...e, ...patch }));
+  }
+
+  async function finish() {
+    const total = exercises.reduce((n, e) => n + e.sets.length, 0);
+    if (total === 0) return setError("Log at least one set before finishing.");
+    const skipped = exercises.filter((e) => e.sets.length === 0).length;
+    if (!confirm(skipped ? `Finish workout? ${skipped} exercise(s) with no sets will be removed.` : "Finish workout?")) return;
+    setBusy(true);
+    const ok = await run(() => api("PATCH", `/api/sessions/${sessionId}`, { finish: true }));
+    if (ok) {
+      router.replace(`/workouts/history/${sessionId}?done=1`);
+      router.refresh();
+    } else setBusy(false);
+  }
+
+  async function discard() {
+    if (!confirm("Discard this workout? Logged sets will be deleted.")) return;
+    setBusy(true);
+    const ok = await run(() => api("DELETE", `/api/sessions/${sessionId}`));
+    if (ok) {
+      router.replace("/workouts");
+      router.refresh();
+    } else setBusy(false);
+  }
+
+  const elapsed = (now - new Date(startedAt).getTime()) / 1000;
+  const restLeft = restEnd ? Math.max(0, Math.ceil((restEnd - now) / 1000)) : 0;
+
+  return (
+    <div className="pb-24">
+      <header className="sticky top-0 z-30 -mx-4 flex items-center justify-between border-b border-line bg-bg/90 px-4 py-3 backdrop-blur-xl">
+        <div className="min-w-0">
+          <p className="truncate font-bold">{name}</p>
+          <p className="num text-xs text-muted">{formatDuration(elapsed)} elapsed</p>
+        </div>
+        <Button onClick={finish} disabled={busy}>Finish</Button>
+      </header>
+
+      <div className="mt-4 space-y-3">
+        {error && <ErrorText>{error}</ErrorText>}
+        {exercises.map((ex, i) => (
+          <ExerciseCard
+            key={ex.id}
+            ex={ex}
+            units={units}
+            first={i === 0}
+            last={i === exercises.length - 1}
+            onLog={(w, r, wu) => logSet(ex, w, r, wu)}
+            onUpdate={(s, p) => updateSet(ex, s, p)}
+            onDelete={(s) => deleteSet(ex, s)}
+            onRemove={() => removeExercise(ex)}
+            onMove={(d) => moveExercise(i, d)}
+            onMeta={(p) => saveExerciseMeta(ex, p)}
+          />
+        ))}
+        {exercises.length === 0 && (
+          <Card className="p-6 text-center text-sm text-muted">Add your first exercise to start logging.</Card>
+        )}
+        <Button variant="secondary" size="lg" className="w-full" onClick={() => setPicker(true)}>
+          <PlusIcon width={18} height={18} /> Add exercise
+        </Button>
+        <Button variant="ghost" className="w-full text-down" onClick={discard} disabled={busy}>Discard workout</Button>
+      </div>
+
+      {restEnd && (
+        <div className="fixed inset-x-0 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-40 px-4">
+          <div className="mx-auto flex max-w-xl items-center gap-3 rounded-2xl bg-fg px-4 py-3 text-bg shadow-xl">
+            <TimerIcon width={20} height={20} />
+            <span className="num flex-1 text-lg font-bold">Rest {Math.floor(restLeft / 60)}:{String(restLeft % 60).padStart(2, "0")}</span>
+            <button type="button" className="rounded-lg px-2 py-1 text-sm font-semibold opacity-80" onClick={() => setRestEnd((r) => (r ? Math.max(Date.now(), r - 15000) : r))}>−15</button>
+            <button type="button" className="rounded-lg px-2 py-1 text-sm font-semibold opacity-80" onClick={() => setRestEnd((r) => (r ? r + 15000 : r))}>+15</button>
+            <button type="button" className="rounded-lg bg-bg/15 px-3 py-1 text-sm font-semibold" onClick={() => setRestEnd(null)}>Skip</button>
+          </div>
+        </div>
+      )}
+
+      <ExercisePicker open={picker} onClose={() => setPicker(false)} onPick={addExercise} />
+    </div>
+  );
+}
+
+function fmtSets(sets: LoggedSet[], units: UnitSystem) {
+  return sets
+    .filter((s) => !s.isWarmup)
+    .map((s) => (s.weightKg > 0 ? `${toDisplayMass(s.weightKg, units)}×${s.reps}` : `${s.reps}`))
+    .join(", ");
+}
+
+function ExerciseCard({ ex, units, first, last, onLog, onUpdate, onDelete, onRemove, onMove, onMeta }: {
+  ex: LoggerExercise;
+  units: UnitSystem;
+  first: boolean;
+  last: boolean;
+  onLog: (weightKg: number, reps: number, warmup: boolean) => Promise<boolean>;
+  onUpdate: (s: LoggedSet, p: Partial<LoggedSet>) => void;
+  onDelete: (s: LoggedSet) => void;
+  onRemove: () => void;
+  onMove: (d: "up" | "down") => void;
+  onMeta: (p: { notes?: string | null; restSeconds?: number | null }) => void;
+}) {
+  const mu = massUnit(units);
+  const working = ex.sets.filter((s) => !s.isWarmup);
+  const prevWorking = ex.prev?.sets.filter((s) => !s.isWarmup) ?? [];
+  const idx = working.length; // index of the next working set
+  const prevAtIdx = prevWorking[idx] ?? prevWorking.at(-1);
+  const lastLogged = working.at(-1);
+
+  const suggestedWeightKg = lastLogged?.weightKg ?? prevAtIdx?.weightKg ?? ex.target?.weightKg ?? null;
+  const suggestedReps = prevAtIdx?.reps ?? ex.target?.repsMin ?? null;
+
+  const [weight, setWeight] = useState("");
+  const [reps, setReps] = useState("");
+  const [warmup, setWarmup] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [showMeta, setShowMeta] = useState(false);
+  const [notes, setNotes] = useState(ex.notes ?? "");
+  const [rest, setRest] = useState(ex.restSeconds != null ? String(ex.restSeconds) : "");
+
+  const comparison = useMemo(() => {
+    if (!working.length) return null;
+    return compareToPrevious(ex.prev ? summarizeSets(ex.prev.sets) : null, summarizeSets(ex.sets));
+  }, [ex.sets, ex.prev, working.length]);
+
+  async function submit() {
+    const w = weight.trim() === "" ? (suggestedWeightKg != null ? toDisplayMass(suggestedWeightKg, units) : 0) : parseNum(weight);
+    const r = reps.trim() === "" ? suggestedReps ?? NaN : parseInt(reps);
+    if (!Number.isFinite(w) || w < 0 || !Number.isFinite(r) || r < 0) return;
+    setBusy(true);
+    const ok = await onLog(round(fromDisplayMass(w, units), 4), r, warmup);
+    setBusy(false);
+    if (ok) {
+      setReps("");
+      setWarmup(false);
+    }
+  }
+
+  const targetLabel = ex.target
+    ? `${ex.target.sets} × ${ex.target.repsMin === ex.target.repsMax ? ex.target.repsMin : `${ex.target.repsMin}–${ex.target.repsMax}`}${ex.target.weightKg != null ? ` @ ${toDisplayMass(ex.target.weightKg, units)} ${mu}` : ""}`
+    : null;
+
+  return (
+    <Card className="overflow-hidden">
+      <div className="flex items-start justify-between gap-2 px-4 pt-4">
+        <div className="min-w-0">
+          <h3 className="font-bold leading-tight">{ex.exercise.name}</h3>
+          <p className="mt-0.5 text-xs text-muted">
+            {targetLabel && <>Target {targetLabel} · </>}
+            {ex.prev ? <>Last: {fmtSets(ex.prev.sets, units) || "—"}</> : "No previous data"}
+          </p>
+        </div>
+        {comparison && <OverloadBadge status={comparison.status} />}
+      </div>
+      {comparison && comparison.status !== "first" && <p className="px-4 pt-1 text-xs text-muted">{comparison.headline}</p>}
+
+      <div className="mt-3 grid grid-cols-[2rem_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_2.75rem] items-center gap-x-2 px-4 text-[11px] font-semibold uppercase tracking-wide text-muted">
+        <span>Set</span><span>Previous</span><span>{mu}</span><span>Reps</span><span />
+      </div>
+
+      <div className="px-4 pb-2">
+        {ex.sets.map((s) => {
+          const wIdx = working.indexOf(s);
+          const p = wIdx >= 0 ? prevWorking[wIdx] : undefined;
+          return <LoggedRow key={s.id} set={s} label={s.isWarmup ? "W" : String(wIdx + 1)} prev={p} units={units} onUpdate={(patch) => onUpdate(s, patch)} onDelete={() => onDelete(s)} />;
+        })}
+
+        <div className="grid grid-cols-[2rem_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_2.75rem] items-center gap-x-2 py-1.5">
+          <button type="button" onClick={() => setWarmup((w) => !w)} aria-pressed={warmup} title="Toggle warm-up"
+            className={cx("h-8 rounded-lg text-sm font-bold", warmup ? "bg-info/15 text-info" : "text-muted")}>
+            {warmup ? "W" : idx + 1}
+          </button>
+          <span className="num truncate text-sm text-muted">{prevWorking[idx] && !warmup ? (prevWorking[idx].weightKg > 0 ? `${toDisplayMass(prevWorking[idx].weightKg, units)}×${prevWorking[idx].reps}` : `${prevWorking[idx].reps}`) : "—"}</span>
+          <Input inputMode="decimal" aria-label="Weight" className="num h-10 px-2 text-center"
+            placeholder={suggestedWeightKg != null ? String(toDisplayMass(suggestedWeightKg, units)) : "0"}
+            value={weight} onChange={(e) => setWeight(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
+          <Input inputMode="numeric" aria-label="Reps" className="num h-10 px-2 text-center"
+            placeholder={suggestedReps != null ? String(suggestedReps) : "0"}
+            value={reps} onChange={(e) => setReps(e.target.value)} onKeyDown={(e) => e.key === "Enter" && submit()} />
+          <button type="button" onClick={submit} disabled={busy} aria-label="Log set"
+            className="grid h-10 w-11 place-items-center rounded-xl bg-accent text-accent-fg disabled:opacity-50">
+            <CheckIcon width={20} height={20} />
+          </button>
+        </div>
+      </div>
+
+      <div className="flex items-center justify-between border-t border-line px-2 py-1">
+        <Button variant="ghost" size="sm" className="text-muted" onClick={() => setShowMeta((v) => !v)}>
+          {ex.notes ? "Notes ✓" : "Notes"} · Rest {ex.restSeconds ?? DEFAULT_REST}s
+        </Button>
+        <div className="flex">
+          <Button variant="ghost" size="sm" aria-label="Move up" onClick={() => onMove("up")} disabled={first}>↑</Button>
+          <Button variant="ghost" size="sm" aria-label="Move down" onClick={() => onMove("down")} disabled={last}>↓</Button>
+          <Button variant="ghost" size="sm" aria-label={`Remove ${ex.exercise.name}`} onClick={onRemove}><TrashIcon width={16} height={16} /></Button>
+        </div>
+      </div>
+      {showMeta && (
+        <div className="space-y-2 border-t border-line p-4">
+          <Textarea placeholder="Exercise notes (seat height, cues, how it felt…)" value={notes} onChange={(e) => setNotes(e.target.value)}
+            onBlur={() => notes !== (ex.notes ?? "") && onMeta({ notes: notes.trim() || null })} />
+          <label className="flex items-center gap-2 text-sm">
+            Rest timer (sec)
+            <Input inputMode="numeric" className="w-24" value={rest} placeholder={String(DEFAULT_REST)} onChange={(e) => setRest(e.target.value)}
+              onBlur={() => {
+                const v = rest.trim() ? parseInt(rest) : null;
+                if (v === null || (v >= 0 && v <= 1800)) onMeta({ restSeconds: v });
+              }} />
+          </label>
+        </div>
+      )}
+    </Card>
+  );
+}
+
+function LoggedRow({ set, label, prev, units, onUpdate, onDelete }: {
+  set: LoggedSet;
+  label: string;
+  prev?: LoggedSet;
+  units: UnitSystem;
+  onUpdate: (p: Partial<LoggedSet>) => void;
+  onDelete: () => void;
+}) {
+  const [w, setW] = useState(String(toDisplayMass(set.weightKg, units)));
+  const [r, setR] = useState(String(set.reps));
+  useEffect(() => { setW(String(toDisplayMass(set.weightKg, units))); setR(String(set.reps)); }, [set.weightKg, set.reps, units]);
+
+  const commit = () => {
+    const wn = parseNum(w), rn = parseInt(r);
+    const patch: Partial<LoggedSet> = {};
+    if (Number.isFinite(wn) && wn >= 0 && Math.abs(wn - toDisplayMass(set.weightKg, units)) > 1e-9) patch.weightKg = round(fromDisplayMass(wn, units), 4);
+    if (Number.isFinite(rn) && rn >= 0 && rn !== set.reps) patch.reps = rn;
+    if (Object.keys(patch).length) onUpdate(patch);
+  };
+
+  return (
+    <div className="grid grid-cols-[2rem_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_2.75rem] items-center gap-x-2 py-1">
+      <span className={cx("text-center text-sm font-bold", set.isWarmup ? "text-info" : "text-fg")}>{label}</span>
+      <span className="num truncate text-sm text-muted">{prev ? (prev.weightKg > 0 ? `${toDisplayMass(prev.weightKg, units)}×${prev.reps}` : `${prev.reps}`) : "—"}</span>
+      <input inputMode="decimal" aria-label={`Set ${label} weight`} className="num h-9 w-full min-w-0 rounded-lg bg-up/8 text-center text-sm font-semibold focus:outline-none focus:ring-1 focus:ring-fg/30"
+        value={w} onChange={(e) => setW(e.target.value)} onBlur={commit} />
+      <input inputMode="numeric" aria-label={`Set ${label} reps`} className="num h-9 w-full min-w-0 rounded-lg bg-up/8 text-center text-sm font-semibold focus:outline-none focus:ring-1 focus:ring-fg/30"
+        value={r} onChange={(e) => setR(e.target.value)} onBlur={commit} />
+      <button type="button" onClick={onDelete} aria-label={`Delete set ${label}`} className="grid h-9 w-11 place-items-center rounded-lg text-muted hover:text-down">✕</button>
+    </div>
+  );
+}

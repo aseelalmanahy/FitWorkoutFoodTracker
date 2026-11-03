@@ -1,0 +1,104 @@
+import { z } from "zod";
+import { EQUIPMENT, MUSCLE_GROUPS } from "./labels";
+
+export { EQUIPMENT, MUSCLE_GROUPS };
+
+// Shared between client forms and server routes. Server is authoritative.
+
+export const credentialsSchema = z.object({
+  email: z.string().trim().toLowerCase().pipe(z.email("Enter a valid email").max(254)),
+  // NIST SP 800-63B: minimum 8, allow long passphrases.
+  password: z.string().min(8, "Password must be at least 8 characters").max(256),
+});
+
+const isValidTimeZone = (tz: string) => {
+  try {
+    new Intl.DateTimeFormat("en-US", { timeZone: tz });
+    return true;
+  } catch {
+    return false;
+  }
+};
+
+export const profileSchema = z.object({
+  name: z.string().trim().min(1, "Required").max(80),
+  birthDate: z.iso.date().refine((d) => {
+    const age = (Date.now() - new Date(d).getTime()) / (365.25 * 86400000);
+    return age >= 13 && age <= 110;
+  }, "Age must be between 13 and 110"),
+  sex: z.enum(["MALE", "FEMALE"]),
+  heightCm: z.number().min(100).max(250),
+  currentWeightKg: z.number().min(30).max(300),
+  goalWeightKg: z.number().min(30).max(300).nullable(),
+  goal: z.enum(["FAT_LOSS", "MUSCLE_GAIN", "MAINTENANCE", "STRENGTH"]),
+  activityLevel: z.enum(["SEDENTARY", "LIGHT", "MODERATE", "ACTIVE", "VERY_ACTIVE"]),
+  experience: z.enum(["BEGINNER", "INTERMEDIATE", "ADVANCED"]),
+  workoutDaysPerWeek: z.number().int().min(0).max(7),
+  unitSystem: z.enum(["METRIC", "IMPERIAL"]),
+  timezone: z.string().max(64).refine(isValidTimeZone, "Unknown time zone"),
+  calorieTargetOverride: z.number().int().min(800).max(8000).nullable(),
+});
+export type ProfileInput = z.infer<typeof profileSchema>;
+
+export const exerciseSchema = z.object({
+  name: z.string().trim().min(2).max(80),
+  primaryMuscle: z.enum(MUSCLE_GROUPS),
+  equipment: z.enum(EQUIPMENT),
+});
+
+const id = z.string().min(1).max(40);
+const notes = z.string().trim().max(1000).nullable().optional();
+const weightKg = z.number().min(0).max(1000);
+const restSeconds = z.number().int().min(0).max(1800).nullable().optional();
+
+export const templateExerciseSchema = z
+  .object({
+    exerciseId: id,
+    targetSets: z.number().int().min(1).max(20),
+    targetRepsMin: z.number().int().min(1).max(100),
+    targetRepsMax: z.number().int().min(1).max(100),
+    targetWeightKg: weightKg.nullable().optional(),
+    restSeconds,
+    notes,
+  })
+  .refine((e) => e.targetRepsMax >= e.targetRepsMin, { message: "Max reps must be ≥ min reps", path: ["targetRepsMax"] });
+
+export const templateSchema = z.object({
+  name: z.string().trim().min(1).max(80),
+  notes,
+  exercises: z.array(templateExerciseSchema).max(30),
+});
+export type TemplateInput = z.infer<typeof templateSchema>;
+
+export const scheduleSchema = z.object({
+  days: z
+    .array(z.array(id).max(3))
+    .length(7, "Provide all 7 weekdays (Monday first)"),
+});
+
+export const startSessionSchema = z.union([
+  z.object({ templateId: id }),
+  z.object({ fromSessionId: id }),
+  z.object({ name: z.string().trim().min(1).max(80) }),
+]);
+
+export const updateSessionSchema = z.object({
+  name: z.string().trim().min(1).max(80).optional(),
+  notes,
+  finish: z.boolean().optional(),
+});
+
+export const addSessionExerciseSchema = z.object({ exerciseId: id, restSeconds });
+export const updateSessionExerciseSchema = z.object({
+  notes,
+  restSeconds,
+  move: z.enum(["up", "down"]).optional(),
+});
+
+export const setSchema = z.object({
+  reps: z.number().int().min(0).max(1000),
+  weightKg,
+  isWarmup: z.boolean().optional(),
+  rpe: z.number().min(1).max(10).nullable().optional(),
+});
+export const updateSetSchema = setSchema.partial();
