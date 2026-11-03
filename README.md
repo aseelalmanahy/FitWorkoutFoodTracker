@@ -84,7 +84,8 @@ BASE_URL=http://localhost:3000 node scripts/e2e-smoke.cjs
 Start the server for the general suites with `FOOD_RATE_LIMIT_MULTIPLIER=100` (test-only). Run
 `scripts/provider-protection.test.cjs` against a *fresh* server with default budgets and the stub started with
 `STUB_LOG_FILE`. Run `scripts/provider-config.test.cjs` against a server started without `FDC_API_KEY` and with
-`SERVER_LOG_FILE` pointing at its log.
+`SERVER_LOG_FILE` pointing at its log. Run `scripts/provider-malformed.test.cjs` against another *fresh* server (same setup as
+provider-protection; takes about 35 s because it waits for a circuit to close).
 
 Each suite registers new accounts. The server's in-memory sign-up throttle (10 per IP per 15 min) means you should
 restart the server between suites.

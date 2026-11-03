@@ -38,15 +38,27 @@ export async function fetchJson(source: ExternalSource, url: string, init: Reque
   }
 }
 
+/** Structural check of a parsed provider body; returning false marks it malformed. */
+export type ResponseValidator = (data: unknown) => boolean;
+
+export const isObject = (v: unknown): v is Record<string, unknown> => typeof v === "object" && v !== null && !Array.isArray(v);
+
 /**
  * fetchJson behind the provider guard: budgets are checked and charged first,
- * and the outcome feeds the circuit breaker.
+ * and the outcome feeds the circuit breaker. Success is recorded only after
+ * `validate` accepts the body. Well-formed JSON with an unexpected structure is
+ * an `invalid_response` failure and counts toward opening the circuit.
  */
-export async function guardedFetchJson(op: ProviderOp, userId: string | undefined, url: string, init: RequestInit = {}): Promise<unknown> {
+export async function guardedFetchJson(
+  op: ProviderOp, userId: string | undefined, url: string, init: RequestInit, validate: ResponseValidator,
+): Promise<unknown> {
   const source: ExternalSource = op === "USDA" ? "USDA" : "OPEN_FOOD_FACTS";
   acquire(op, userId);
   try {
     const data = await fetchJson(source, url, init);
+    if (!validate(data)) {
+      throw new ExternalFoodError(source, "invalid_response", "The food database returned an unexpected response.");
+    }
     record(op, "success");
     return data;
   } catch (e) {

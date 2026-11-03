@@ -8,6 +8,8 @@
 // STUB_LOG=1 logs each request URL and whether an X-Api-Key header was present.
 // STUB_LOG_FILE=<path> also appends those lines to a file (used by provider-protection tests).
 // "ratelimit" → HTTP 429 with Retry-After: 30; barcode 0000000000500 → HTTP 500.
+// Malformed-but-valid-JSON (HTTP 200): search query "malformed" (USDA and OFF), USDA food id
+// 990000, OFF barcode 0000000000600. Barcodes 77 + 11 digits return a generated valid product.
 const http = require("node:http");
 const port = Number(process.argv[2] || 4010);
 
@@ -65,6 +67,11 @@ http.createServer((req, res) => {
   if (q === "error") return send(res, 500, { error: "internal" });
   if (q === "ratelimit") { res.writeHead(429, { "Content-Type": "application/json", "Retry-After": "30" }); return res.end(JSON.stringify({ error: "OVER_RATE_LIMIT" })); }
   if (url.pathname.endsWith("/product/0000000000500.json")) return send(res, 500, { error: "internal" });
+  if (q === "malformed") return send(res, 200, url.pathname.startsWith("/fdc/") ? { unexpected: true } : { count: 1, products: "nope" });
+  if (url.pathname === "/fdc/v1/food/990000") return send(res, 200, { foo: 1 });
+  if (url.pathname.endsWith("/product/0000000000600.json")) return send(res, 200, { status: 1 });
+  const gen = url.pathname.match(/^\/off\/api\/v2\/product\/(77\d{11})\.json$/); // generated valid product (never cached)
+  if (gen) return send(res, 200, { status: 1, code: gen[1], product: { code: gen[1], product_name: `Generated ${gen[1]}`, nutriments: { "energy-kcal_100g": 100 } } });
   if (url.pathname.startsWith("/fdc/v1/")) {
     if (!req.headers["x-api-key"]) return send(res, 403, { error: { code: "API_KEY_MISSING" } });
     if (url.pathname === "/fdc/v1/foods/search") {

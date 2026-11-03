@@ -1,8 +1,8 @@
 // Payloads follow the documented response shapes of the FDC and OFF APIs.
 // Live network calls are not made in unit tests.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { _resetUsdaCache, _resetUsdaConfigLog, extractNutrients, getUsdaFood, normalizeUsdaFood, searchUsda } from "./usda";
-import { _resetOffCache, extractOffNutrients, getOffProduct, normalizeOffProduct, searchOff } from "./openfoodfacts";
+import { _resetUsdaCache, _resetUsdaConfigLog, extractNutrients, getUsdaFood, isUsdaFoodResponse, isUsdaSearchResponse, normalizeUsdaFood, searchUsda } from "./usda";
+import { _resetOffCache, extractOffNutrients, getOffProduct, isOffProductResponse, isOffSearchResponse, normalizeOffProduct, searchOff } from "./openfoodfacts";
 import { ExternalFoodError } from "./types";
 import { _resetGuard } from "./guard";
 
@@ -269,5 +269,64 @@ describe("D7: Open Food Facts energy normalisation (current, conservative behavi
   });
   it("no energy fields → missing", () => {
     expect(extractOffNutrients({ proteins_100g: 5 }).kcal).toBeNull();
+  });
+});
+
+describe("circuit breaker counts malformed (valid JSON, wrong structure) responses", () => {
+  let n = 0;
+  const uniq = () => `m${++n}`;
+  // [name, call, malformed body, valid body]
+  const ops: [string, () => Promise<unknown>, unknown, unknown][] = [
+    ["USDA search", () => searchUsda(uniq()), { unexpected: true }, { totalHits: 0, foods: [] }],
+    ["USDA detail", () => getUsdaFood(String(100000 + ++n)), { foo: 1 }, usdaDetail],
+    ["OFF search", () => searchOff(uniq()), { count: 1, products: "nope" }, { count: 0, products: [] }],
+    ["OFF product", () => getOffProduct(String(4000000000000 + ++n)), { status: 1 }, { status: 1, product: offProduct }],
+  ];
+
+  for (const [name, call, malformed, valid] of ops) {
+    it(`${name}: 3 malformed responses open the circuit and stop provider requests`, async () => {
+      const f = mockFetch(() => json(malformed));
+      for (let i = 0; i < 3; i++) await expect(call()).rejects.toMatchObject({ kind: "invalid_response" });
+      await expect(call()).rejects.toMatchObject({ kind: "unavailable" });
+      await expect(call()).rejects.toMatchObject({ kind: "unavailable" });
+      expect(f).toHaveBeenCalledTimes(3); // 4th and 5th never reached the provider
+    });
+    it(`${name}: a successful response resets the failure count`, async () => {
+      let body: unknown = malformed;
+      const f = mockFetch(() => json(body));
+      for (let i = 0; i < 2; i++) await call().catch(() => {});
+      body = valid;
+      await call().catch(() => {}); // success (or a valid not-found) resets
+      body = malformed;
+      for (let i = 0; i < 2; i++) await expect(call()).rejects.toMatchObject({ kind: "invalid_response" });
+      expect(f).toHaveBeenCalledTimes(5); // still closed: every call reached the provider
+      await expect(call()).rejects.toMatchObject({ kind: "invalid_response" }); // 3rd consecutive
+      await expect(call()).rejects.toMatchObject({ kind: "unavailable" });
+      expect(f).toHaveBeenCalledTimes(6);
+    });
+  }
+
+  it("validators: accepted and rejected structures", () => {
+    expect(isUsdaSearchResponse({ foods: [] })).toBe(true);
+    for (const bad of [null, [], "x", 1, {}, { foods: {} }]) expect(isUsdaSearchResponse(bad)).toBe(false);
+    expect(isUsdaFoodResponse(usdaDetail)).toBe(true);
+    for (const bad of [null, [], {}, { fdcId: 1 }, { description: "x" }, { fdcId: 1, description: "  " }]) expect(isUsdaFoodResponse(bad)).toBe(false);
+    expect(isOffSearchResponse({ products: [] })).toBe(true);
+    for (const bad of [null, [], {}, { products: {} }]) expect(isOffSearchResponse(bad)).toBe(false);
+    expect(isOffProductResponse({ status: 0 })).toBe(true);
+    expect(isOffProductResponse({ status: 1, product: {} })).toBe(true);
+    for (const bad of [null, [], {}, { status: 1 }, { status: 1, product: [] }, { status: "1", product: {} }, { status: 2 }]) expect(isOffProductResponse(bad)).toBe(false);
+  });
+
+  it("OFF product not found (status 0) is a healthy answer and doesn't count", async () => {
+    const f = mockFetch(() => json({ status: 0, status_verbose: "product not found" }));
+    for (let i = 0; i < 5; i++) await expect(getOffProduct(String(5000000000000 + i))).rejects.toMatchObject({ kind: "not_found" });
+    expect(f).toHaveBeenCalledTimes(5);
+  });
+
+  it("a well-formed product without a name is reported but doesn't trip the circuit", async () => {
+    const f = mockFetch(() => json({ status: 1, product: { code: "1", nutriments: {} } }));
+    for (let i = 0; i < 5; i++) await expect(getOffProduct(String(6000000000000 + i))).rejects.toMatchObject({ kind: "invalid_response" });
+    expect(f).toHaveBeenCalledTimes(5);
   });
 });

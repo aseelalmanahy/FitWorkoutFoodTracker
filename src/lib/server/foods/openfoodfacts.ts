@@ -6,7 +6,16 @@
  */
 import "server-only";
 import { MAX_SERVING_AMOUNT, sanitizePer100, type Nutrients } from "@/lib/nutrition";
-import { guardedFetchJson, TtlCache } from "./http";
+import { guardedFetchJson, isObject, TtlCache } from "./http";
+
+/** /cgi/search.pl must return an object with a `products` array. */
+export const isOffSearchResponse = (d: unknown) => isObject(d) && Array.isArray(d.products);
+/**
+ * /api/v2/product/{code} must return an object with status 0 (not found) or 1
+ * (found), and when found, a `product` object.
+ */
+export const isOffProductResponse = (d: unknown) =>
+  isObject(d) && (d.status === 0 || (d.status === 1 && isObject(d.product)));
 import { ExternalFoodError, num, type NormalizedFood, type ServingOption } from "./types";
 
 const base = () => (process.env.OFF_BASE_URL ?? "https://world.openfoodfacts.org").replace(/\/$/, "");
@@ -79,8 +88,7 @@ export async function searchOff(query: string, userId?: string, pageSize = 20): 
   const params = new URLSearchParams({
     search_terms: query, search_simple: "1", action: "process", json: "1", page_size: String(pageSize), fields: OFF_FIELDS,
   });
-  const data = (await guardedFetchJson("OFF_SEARCH", userId, `${base()}/cgi/search.pl?${params}`, { headers: headers() })) as Record<string, unknown>;
-  if (!data || !Array.isArray(data.products)) throw new ExternalFoodError("OPEN_FOOD_FACTS", "invalid_response", "Unexpected response from Open Food Facts.");
+  const data = (await guardedFetchJson("OFF_SEARCH", userId, `${base()}/cgi/search.pl?${params}`, { headers: headers() }, isOffSearchResponse)) as Record<string, unknown>;
   const foods = (data.products as Record<string, unknown>[]).map(normalizeOffProduct).filter((f): f is NormalizedFood => f !== null);
   searchCache.set(cacheKey, foods);
   return foods;
@@ -89,9 +97,11 @@ export async function searchOff(query: string, userId?: string, pageSize = 20): 
 /** Product by barcode (also the entry point for future camera barcode scanning). */
 export async function getOffProduct(code: string, userId?: string): Promise<NormalizedFood> {
   if (!/^\d{6,14}$/.test(code)) throw new ExternalFoodError("OPEN_FOOD_FACTS", "not_found", "Invalid barcode.");
-  const data = (await guardedFetchJson("OFF_PRODUCT", userId, `${base()}/api/v2/product/${code}.json?fields=${OFF_FIELDS}`, { headers: headers() })) as Record<string, unknown>;
-  if (!data || data.status !== 1 || !data.product) throw new ExternalFoodError("OPEN_FOOD_FACTS", "not_found", "No product found for this barcode.");
+  const data = (await guardedFetchJson("OFF_PRODUCT", userId, `${base()}/api/v2/product/${code}.json?fields=${OFF_FIELDS}`, { headers: headers() }, isOffProductResponse)) as Record<string, unknown>;
+  if (data.status !== 1) throw new ExternalFoodError("OPEN_FOOD_FACTS", "not_found", "No product found for this barcode.");
   const food = normalizeOffProduct({ code, ...(data.product as Record<string, unknown>) });
+  // A well-formed record without a name is incomplete crowd-sourced data, not a provider
+  // malfunction, so it is reported to the caller but doesn't count toward the circuit breaker.
   if (!food) throw new ExternalFoodError("OPEN_FOOD_FACTS", "invalid_response", "The product record has no name.");
   return food;
 }

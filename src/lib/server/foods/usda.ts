@@ -6,7 +6,12 @@
  */
 import "server-only";
 import { MAX_SERVING_AMOUNT, sanitizePer100, type Nutrients } from "@/lib/nutrition";
-import { guardedFetchJson, logProviderConfigError, PROVIDER_UNAVAILABLE, TtlCache } from "./http";
+import { guardedFetchJson, isObject, logProviderConfigError, PROVIDER_UNAVAILABLE, TtlCache } from "./http";
+
+/** /foods/search must return an object with a `foods` array. */
+export const isUsdaSearchResponse = (d: unknown) => isObject(d) && Array.isArray(d.foods);
+/** /food/{id} must return a food object with an id and a description. */
+export const isUsdaFoodResponse = (d: unknown) => isObject(d) && d.fdcId != null && typeof d.description === "string" && d.description.trim() !== "";
 import { ExternalFoodError, num, type NormalizedFood, type ServingOption } from "./types";
 
 const base = () => (process.env.FDC_BASE_URL ?? "https://api.nal.usda.gov/fdc/v1").replace(/\/$/, "");
@@ -135,8 +140,7 @@ export async function searchUsda(query: string, userId?: string, pageSize = 20):
   const cached = searchCache.get(cacheKey);
   if (cached) return cached;
   const params = new URLSearchParams({ query, pageSize: String(pageSize), dataType: USDA_GENERIC_TYPES.join(",") });
-  const data = (await guardedFetchJson("USDA", userId, `${base()}/foods/search?${params}`, { headers: { "X-Api-Key": key, Accept: "application/json" } })) as Record<string, unknown>;
-  if (!data || !Array.isArray(data.foods)) throw new ExternalFoodError("USDA", "invalid_response", "Unexpected response from USDA.");
+  const data = (await guardedFetchJson("USDA", userId, `${base()}/foods/search?${params}`, { headers: { "X-Api-Key": key, Accept: "application/json" } }, isUsdaSearchResponse)) as Record<string, unknown>;
   const foods = (data.foods as Record<string, unknown>[]).map(normalizeUsdaFood).filter((f): f is NormalizedFood => f !== null);
   searchCache.set(cacheKey, foods);
   return foods;
@@ -145,8 +149,8 @@ export async function searchUsda(query: string, userId?: string, pageSize = 20):
 export async function getUsdaFood(fdcId: string, userId?: string): Promise<NormalizedFood> {
   if (!/^\d{1,10}$/.test(fdcId)) throw new ExternalFoodError("USDA", "not_found", "Invalid USDA food id.");
   const key = apiKey();
-  const data = (await guardedFetchJson("USDA", userId, `${base()}/food/${fdcId}`, { headers: { "X-Api-Key": key, Accept: "application/json" } })) as Record<string, unknown>;
-  const food = data && typeof data === "object" ? normalizeUsdaFood(data) : null;
-  if (!food) throw new ExternalFoodError("USDA", "invalid_response", "Unexpected response from USDA.");
+  const data = (await guardedFetchJson("USDA", userId, `${base()}/food/${fdcId}`, { headers: { "X-Api-Key": key, Accept: "application/json" } }, isUsdaFoodResponse)) as Record<string, unknown>;
+  const food = normalizeUsdaFood(data);
+  if (!food) throw new ExternalFoodError("USDA", "invalid_response", "The food database returned an unexpected response.");
   return food;
 }

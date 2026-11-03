@@ -316,3 +316,52 @@ Current behaviour, now pinned by tests:
 ## Remaining
 - Live USDA/OFF verification still blocked (egress policy, no `FDC_API_KEY`). D7 case 4 depends on it.
 - In-memory limits are single-instance (see above).
+
+---
+
+# Phase 2.4.1 — Circuit-breaker accounting for malformed responses (2026-11-03)
+
+**Gap (code review):** `guardedFetchJson` recorded *success* as soon as the body parsed as JSON. The structural checks ran afterwards in the clients, so well-formed JSON with an unexpected structure **reset** the failure count instead of incrementing it, and could never open the circuit.
+
+**Fix:** `guardedFetchJson` now takes a required `ResponseValidator`. Success is recorded only after the validator accepts the body. Otherwise an `invalid_response` failure is recorded and thrown.
+
+| Operation | Validator | Malformed means |
+|---|---|---|
+| USDA search | `isUsdaSearchResponse` | not an object with a `foods` array |
+| USDA detail | `isUsdaFoodResponse` | not an object with `fdcId` and a non-empty `description` |
+| OFF search | `isOffSearchResponse` | not an object with a `products` array |
+| OFF product | `isOffProductResponse` | not an object with `status` 0, or `status` 1 plus a `product` object |
+
+Deliberately **not** counted:
+- OFF `status: 0` (product not found): a healthy answer.
+- A well-formed OFF product without a name: incomplete crowd-sourced data. It's still reported to the caller as before, but counting it would let a few incomplete products disable barcode lookup for everyone.
+
+Budgets, schema and circuit thresholds are unchanged.
+
+## Tests added
+- `src/lib/server/foods/clients.test.ts` (+11): for each of the 4 operations, (a) 3 malformed → circuit opens, and the 4th/5th calls don't reach `fetch`; (b) 2 malformed → success → 2 malformed stays closed, and the 3rd consecutive opens it. Plus validator accept/reject tables, `status: 0` not counted, and nameless product not counted.
+- `scripts/provider-malformed.test.cjs` (new, 4, fresh server, stub hit-counting): USDA detail ×3 malformed → next resolve 503, not sent. After the 30 s window, a valid search resets, then 3 malformed searches reopen it (shared across users). OFF search ×3 → 4th not sent. OFF product: 2 malformed + success + 2 malformed stays closed, the 3rd opens it, the next request is not sent.
+- `scripts/stub-food-apis.cjs`: malformed triggers (`malformed` search query, USDA id 990000, OFF barcode 0000000000600) and generated never-cached valid products (barcodes `77` + 11 digits).
+
+## Evidence that the tests detect the gap
+- Unit: with the old ordering temporarily reintroduced, **8/8** new circuit tests failed. With the fix restored: 112/112.
+- Integration: against a build of `697baa7` (git worktree), **0/4** passed. Against the fix: **4/4**.
+- Two first-run failures were test mistakes, not code faults. Both the "success" step and the final probe used barcodes already cached in the test DB, which (correctly) are served without contacting the provider. Fixed by using generated, never-cached barcodes.
+
+## Results (all executed)
+| Check | Result |
+|---|---|
+| `npm run lint` (tsc) | exit 0 |
+| `npx vitest run` | 6 files, **112/112** |
+| `npm run build` | exit 0 |
+| `provider-malformed.test.cjs` (fresh server) | **4/4** |
+| `provider-protection.test.cjs` (fresh server) | **7/7** |
+| `provider-config.test.cjs` (no key) | **1/1** |
+| `nutrition-api.test.cjs` (multiplier 100) | **31/31** |
+| `e2e-nutrition.cjs` / `e2e-smoke.cjs` | exit 0 / exit 0 |
+| `prisma validate` / `migrate status` / drift diff | valid / up to date / no difference |
+
+## Remaining limitations
+- In-memory, per-process budgets and circuits (unchanged; Redis not introduced).
+- USDA search and detail share one circuit (`USDA` operation), as before: malformed detail responses also pause search.
+- Live USDA/OFF verification still blocked (egress policy, no `FDC_API_KEY`). Validators follow the documented response shapes only.
