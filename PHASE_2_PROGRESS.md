@@ -365,3 +365,67 @@ Budgets, schema and circuit thresholds are unchanged.
 - In-memory, per-process budgets and circuits (unchanged; Redis not introduced).
 - USDA search and detail share one circuit (`USDA` operation), as before: malformed detail responses also pause search.
 - Live USDA/OFF verification still blocked (egress policy, no `FDC_API_KEY`). Validators follow the documented response shapes only.
+
+---
+
+# Phase 2 — Final release-readiness verification (2026-11-03)
+
+**Commit tested:** `7e4be426784dd1f7dfa898581ca2c888c645ae00` on `claude/ai-fitness-tracker-spec-r9uk32` (clean tree, equal to origin), plus the new test file listed below. No application code was changed.
+
+**Conclusion: NOT READY — LIVE PROVIDER VERIFICATION BLOCKED.** No code defects remain open. Live USDA and Open Food Facts checks could not be performed.
+
+## Environment (at time of test)
+- Egress to `api.nal.usda.gov`, `world.openfoodfacts.org` and `search.openfoodfacts.org` is refused by the session proxy: `CONNECT` → 403 `connect_rejected` (latest 18:44:15Z). Control: `registry.npmjs.org` → 200.
+- `FDC_API_KEY`: not set in the process environment, empty in `.env` (value never printed).
+- Databases: dev `fitdb` (from `.env`) and test `fitdb_test` are separate. All suites ran against `fitdb_test`. Dev DB user count before/after: 0/0.
+
+## 1. Verified and passed
+| Check | Command | Result | Provider data |
+|---|---|---|---|
+| Clean install | `rm -rf node_modules .next && npm ci` | exit 0, 162 packages; Playwright 1.63.0 resolved locally | — |
+| Type check | `npm run lint` (= `tsc --noEmit`) | exit 0 | — |
+| ESLint | — | **not configured** (no dependency, no config) | — |
+| Unit tests | `npx vitest run` | 6 files, **112/112** | mocked `fetch` |
+| Production build | `npm run build` | exit 0 | — |
+| Prisma validate | `npx prisma validate` | valid | — |
+| Migration status | `npx prisma migrate status` (dev and test DB) | up to date / up to date | — |
+| Fresh DB migration | `prisma migrate deploy` + `db seed` on new `fitdb_fresh` | 4 migrations applied, 47 exercises seeded | — |
+| Schema drift | `prisma migrate diff --from-migrations … --to-schema-datamodel … --exit-code` | No difference, exit 0 | — |
+| Nutrition API integration | `node --test scripts/nutrition-api.test.cjs` | **31/31** | **local stub** |
+| Release workflow (new) | `node --test scripts/release-workflow.test.cjs` | **8/8** | **local stub** (USDA banana) + custom foods |
+| Provider protection | `node --test scripts/provider-protection.test.cjs` (fresh server, default budgets) | **7/7** | **local stub** |
+| Malformed responses | `node --test scripts/provider-malformed.test.cjs` (fresh server) | **4/4** | **local stub** |
+| Provider configuration | `node --test scripts/provider-config.test.cjs` (no key) | **1/1** | **local stub** (OFF) |
+| Phase 2 E2E | `node scripts/e2e-nutrition.cjs` | exit 0, 13 steps, ALL UI CHECKS PASSED | **local stub** |
+| Phase 1 E2E | `node scripts/e2e-smoke.cjs` | exit 0, ALL PHASE 1 CHECKS PASSED | — |
+| Secret handling | sentinel `FDC_API_KEY`; success/500/429/timeout/circuit/not-configured paths | sentinel in responses+pages (53 KB): 0; server log: 0; `.next/static`: 0; provider URLs: 0. `FDC_API_KEY` string in client bundles: 0 | **local stub** |
+| Key server-side only | code inspection | read only in `src/lib/server/foods/usda.ts`; all 14 `src/lib/server` modules import `server-only`; no `NEXT_PUBLIC_*`; no client component imports server food modules | — |
+| Committed secrets | `git log --all --diff-filter=A`, `git grep` for key/secret/token literals | only `.env.example` ever committed; no secret literals | — |
+
+### Task 4 workflow coverage (all automated, against stub provider data)
+1–2 search + detail/servings (release-workflow 1). 3, 5, 14 all four meals, several foods in one meal, serving scaling (release-workflow 2). 6–7 daily and per-meal totals, and remaining for kcal/protein/carbs/fat with exact values (release-workflow 3). 4 edit quantity/meal + delete (release-workflow 4; nutrition-api). 8–9 per-day history with that day's own target, weekly averages, protein consistency, 56-day trend window (release-workflow 6). 10 manual targets (release-workflow 3; nutrition-api). 11 suggested targets follow profile changes, past days keep the old suggestion (release-workflow 7). 12 backdated entries (release-workflow 5; nutrition-api D4). 13 custom-food validation (nutrition-api D2). 15 isolation of entries, custom foods and targets (release-workflow 8; nutrition-api).
+
+### Task 5 provider protection (all automated, against stub provider data or mocked `fetch`)
+Per-user limits, global budgets, Retry-After header and parsing, provider 429 handling, timeouts (8 s client timeout vs 15 s stub delay), circuit breaker (failures, 429, malformed ×3), reset on success, blocking while open (provider hit counts), cached results not consuming budget, generic configuration errors without secrets. Rate limits are unchanged.
+
+## 2. Verified and failed
+None in application code. The new `release-workflow` suite failed 2/8 on its first run because of **an error in my test expectation**, not a defect. The test set a manual target on the same day as the seeded suggestion, which (by design, one row per effective date) replaced the seed. The backdated days were then correctly covered by that first (manual) target. The expectations were corrected, and the seed and suggestion paths are still asserted (release-workflow 2 and 7). Re-run: 8/8.
+
+## 3. Not verified
+- Behaviour of the real providers' responses: normalisation of real USDA/OFF payloads, real missing-nutrient patterns, OFF `energy_unit` semantics (D7 case 4), real 429/Retry-After values, real latency and timeouts.
+- Multi-instance behaviour of the in-memory limits and circuits (single instance by design).
+
+## 4. Blocked by environment or credentials
+| Required live check | Blocker |
+|---|---|
+| USDA search "banana", Foundation detail, Atwater energy ids (2047/2048), protein/carbs/fat, nulls, error handling | egress to `api.nal.usda.gov` refused (403); `FDC_API_KEY` not set |
+| OFF search "Nutella", barcode 3017624010966, serving and nutrition normalisation, kJ-only conversion, nulls, nonexistent barcode, errors/rate limits | egress to `world.openfoodfacts.org` / `search.openfoodfacts.org` refused (403) |
+
+To unblock: allow those hosts in the environment's network settings, and provide `FDC_API_KEY` as an environment secret.
+
+## Files changed in this verification
+- `scripts/release-workflow.test.cjs` (new): end-to-end workflow assertions with hand-computed values.
+- `PHASE_2_PROGRESS.md`: this section.
+
+## Defects
+Found: none. Fixed: none (no application code changes).
