@@ -5,15 +5,15 @@ import { Prisma } from "@prisma/client";
 import { getCurrentUser, type AuthUser } from "./auth";
 
 export class HttpError extends Error {
-  constructor(public status: number, message: string, public details?: unknown) {
+  constructor(public status: number, message: string, public details?: unknown, public headers?: Record<string, string>) {
     super(message);
   }
 }
 
 export const notFound = (what = "Resource") => new HttpError(404, `${what} not found`);
 
-export function jsonError(status: number, error: string, details?: unknown) {
-  return NextResponse.json({ error, ...(details ? { details } : {}) }, { status });
+export function jsonError(status: number, error: string, details?: unknown, headers?: Record<string, string>) {
+  return NextResponse.json({ error, ...(details ? { details } : {}) }, { status, headers });
 }
 
 const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
@@ -37,7 +37,7 @@ function checkOrigin(req: NextRequest): boolean {
 type Ctx<P> = { params: Promise<P> };
 
 function handleError(err: unknown) {
-  if (err instanceof HttpError) return jsonError(err.status, err.message, err.details);
+  if (err instanceof HttpError) return jsonError(err.status, err.message, err.details, err.headers);
   if (err instanceof ZodError) return jsonError(400, "Invalid input", z.flattenError(err));
   if (err instanceof Prisma.PrismaClientKnownRequestError) {
     if (err.code === "P2025") return jsonError(404, "Not found");

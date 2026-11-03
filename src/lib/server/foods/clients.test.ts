@@ -1,9 +1,10 @@
 // Payloads follow the documented response shapes of the FDC and OFF APIs.
 // Live network calls are not made in unit tests.
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { _resetUsdaCache, extractNutrients, getUsdaFood, normalizeUsdaFood, searchUsda } from "./usda";
+import { _resetUsdaCache, _resetUsdaConfigLog, extractNutrients, getUsdaFood, normalizeUsdaFood, searchUsda } from "./usda";
 import { _resetOffCache, extractOffNutrients, getOffProduct, normalizeOffProduct, searchOff } from "./openfoodfacts";
 import { ExternalFoodError } from "./types";
+import { _resetGuard } from "./guard";
 
 const usdaSearchFood = {
   fdcId: 173944,
@@ -54,6 +55,7 @@ beforeEach(() => {
   process.env.OFF_BASE_URL = "https://off.test";
   _resetUsdaCache();
   _resetOffCache();
+  _resetGuard();
 });
 afterEach(() => vi.unstubAllGlobals());
 
@@ -108,6 +110,7 @@ describe("USDA client", () => {
     await expect(searchUsda("a")).rejects.toMatchObject({ kind: "http" });
     mockFetch(() => new Response("slow down", { status: 429 }));
     await expect(searchUsda("b")).rejects.toMatchObject({ kind: "rate_limited" });
+    _resetGuard(); // the 429 opened the circuit (tested separately in guard.test.ts); keep checking mapping
     mockFetch(() => new Response("<html>", { status: 200 }));
     await expect(searchUsda("c")).rejects.toMatchObject({ kind: "invalid_response" });
     mockFetch(() => json({ unexpected: true }));
@@ -176,5 +179,95 @@ describe("implausible provider data is not persisted as real values (D1)", () =>
     expect(off.servings).toEqual([{ label: "100 g", amount: 100 }]);
     const usda = normalizeUsdaFood({ fdcId: 2, description: "x", foodNutrients: [], foodPortions: [{ gramWeight: 1e9, amount: 1, modifier: "silo" }] })!;
     expect(usda.servings).toEqual([{ label: "100 g", amount: 100 }]);
+  });
+});
+
+describe("S2: configuration errors are generic for clients and logged server-side without secrets", () => {
+  it("missing FDC_API_KEY: generic message, detail logged, no network call", async () => {
+    delete process.env.FDC_API_KEY;
+    _resetUsdaConfigLog();
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    const f = mockFetch(() => json({}));
+    const e = await searchUsda("banana").catch((x) => x);
+    expect(e.kind).toBe("not_configured");
+    expect(e.message).toBe("This food database is currently unavailable. Try again later.");
+    expect(e.message).not.toMatch(/FDC_API_KEY|key|configur/i);
+    expect(f).not.toHaveBeenCalled();
+    expect(log.mock.calls.flat().join(" ")).toMatch(/FDC_API_KEY is not set/);
+    log.mockRestore();
+  });
+  it("detail is logged at most once a minute (no log flooding)", async () => {
+    delete process.env.FDC_API_KEY;
+    _resetUsdaConfigLog();
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    for (let i = 0; i < 5; i++) await searchUsda(`q${i}`).catch(() => {});
+    expect(log).toHaveBeenCalledTimes(1);
+    log.mockRestore();
+  });
+  it("credentials rejected (401/403): generic message; the key value never appears in logs or errors", async () => {
+    process.env.FDC_API_KEY = "secret-key-value-123";
+    const log = vi.spyOn(console, "error").mockImplementation(() => {});
+    for (const status of [401, 403]) {
+      _resetUsdaCache();
+      mockFetch(() => new Response("forbidden", { status }));
+      const e = await searchUsda(`cred${status}`).catch((x) => x);
+      expect(e.kind).toBe("not_configured");
+      expect(e.message).not.toContain("secret-key-value-123");
+      expect(e.message).not.toMatch(/credential|key/i);
+    }
+    const logged = log.mock.calls.flat().map(String).join(" ");
+    expect(logged).toMatch(/HTTP 401/);
+    expect(logged).not.toContain("secret-key-value-123");
+    log.mockRestore();
+  });
+});
+
+describe("D3: provider backoff through the real clients", () => {
+  it("a provider 429 with Retry-After stops further calls until it expires", async () => {
+    const f = mockFetch(() => new Response("slow down", { status: 429, headers: { "Retry-After": "120" } }));
+    const first = await searchOff("rl1").catch((x) => x);
+    expect(first).toMatchObject({ kind: "rate_limited", retryAfterMs: 120_000 });
+    const second = await searchOff("rl2").catch((x) => x);
+    expect(second.kind).toBe("unavailable");
+    expect(f).toHaveBeenCalledTimes(1); // fail fast: provider not contacted again
+  });
+  it("3 consecutive failures stop further calls", async () => {
+    const f = mockFetch(() => new Response("oops", { status: 503 }));
+    for (let i = 0; i < 3; i++) await getOffProduct(`300000000000${i}`).catch(() => {});
+    const e = await getOffProduct("3000000000009").catch((x) => x);
+    expect(e.kind).toBe("unavailable");
+    expect(f).toHaveBeenCalledTimes(3);
+  });
+  it("cached results don't consume budget", async () => {
+    const f = mockFetch(() => json({ count: 1, products: [offProduct] }));
+    for (let i = 0; i < 10; i++) await searchOff("nutella", "user-x");
+    expect(f).toHaveBeenCalledTimes(1);
+    for (let i = 0; i < 3; i++) await searchOff(`other${i}`, "user-x");
+    await expect(searchOff("one-too-many", "user-x")).rejects.toMatchObject({ kind: "user_rate_limited" });
+  });
+});
+
+describe("D7: Open Food Facts energy normalisation (current, conservative behaviour)", () => {
+  it("energy-kcal_100g is used directly when present, whatever energy_unit says", () => {
+    expect(extractOffNutrients({ "energy-kcal_100g": 250, energy_unit: "kJ", energy_100g: 1046 }).kcal).toBe(250);
+    expect(extractOffNutrients({ "energy-kcal_100g": 250, energy_unit: "kcal" }).kcal).toBe(250);
+  });
+  it("energy-kj_100g is converted exactly (÷ 4.184) when kcal is absent", () => {
+    expect(extractOffNutrients({ "energy-kj_100g": 1046 }).kcal).toBe(250);
+    expect(extractOffNutrients({ "energy-kj_100g": 1046, energy_unit: "kcal" }).kcal).toBe(250);
+  });
+  it('energy_100g is converted from kJ when energy_unit is "kJ" or absent', () => {
+    expect(extractOffNutrients({ energy_100g: 1046, energy_unit: "kJ" }).kcal).toBe(250);
+    expect(extractOffNutrients({ energy_100g: 1046 }).kcal).toBe(250);
+  });
+  it('energy_100g with energy_unit "kcal" (or any other unit) is NOT guessed: kcal stays missing', () => {
+    // Whether OFF normalises energy_100g to kJ in this case is unconfirmed without live data.
+    // Treating it as kJ could understate energy 4.184×; treating it as kcal could overstate it.
+    expect(extractOffNutrients({ energy_100g: 250, energy_unit: "kcal" }).kcal).toBeNull();
+    expect(extractOffNutrients({ energy_100g: 250, energy_unit: "kj" }).kcal).toBeNull();
+    expect(extractOffNutrients({ energy_100g: 250, energy_unit: "Cal" }).kcal).toBeNull();
+  });
+  it("no energy fields → missing", () => {
+    expect(extractOffNutrients({ proteins_100g: 5 }).kcal).toBeNull();
   });
 });

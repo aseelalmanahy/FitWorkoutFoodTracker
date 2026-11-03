@@ -122,24 +122,39 @@ export async function upsertExternalFood(n: NormalizedFood): Promise<FoodWithSer
   });
 }
 
-export function toHttpError(e: unknown): unknown {
-  if (!(e instanceof ExternalFoodError)) return e;
-  const status = e.kind === "not_found" ? 404 : e.kind === "not_configured" ? 503 : e.kind === "rate_limited" ? 429 : e.kind === "timeout" ? 504 : 502;
-  return new HttpError(status, e.message, { source: e.source, kind: e.kind });
+/**
+ * Client-safe view of a provider error. Configuration problems are reported
+ * as a generic "unavailable" (the detail is logged server-side), and a
+ * provider-side 429 is "unavailable" too, since it affects everyone. Only the
+ * caller's own budget is reported as `user_rate_limited`.
+ */
+export function publicError(e: ExternalFoodError): { kind: string; message: string; retryAfterSec?: number } {
+  const kind = e.kind === "not_configured" || e.kind === "rate_limited" ? "unavailable" : e.kind;
+  const retryAfterSec = e.retryAfterMs ? Math.ceil(e.retryAfterMs / 1000) : undefined;
+  return { kind, message: e.message, ...(retryAfterSec ? { retryAfterSec } : {}) };
 }
 
-const fetchers: Record<ExternalSource, (id: string) => Promise<NormalizedFood>> = { USDA: getUsdaFood, OPEN_FOOD_FACTS: getOffProduct };
+export function toHttpError(e: unknown): unknown {
+  if (!(e instanceof ExternalFoodError)) return e;
+  const p = publicError(e);
+  const status = e.kind === "not_found" ? 404 : e.kind === "user_rate_limited" ? 429
+    : e.kind === "not_configured" || e.kind === "rate_limited" || e.kind === "unavailable" ? 503 : e.kind === "timeout" ? 504 : 502;
+  return new HttpError(status, p.message, { source: e.source, kind: p.kind, ...(p.retryAfterSec ? { retryAfterSec: p.retryAfterSec } : {}) },
+    p.retryAfterSec ? { "Retry-After": String(p.retryAfterSec) } : undefined);
+}
+
+const fetchers: Record<ExternalSource, (id: string, userId?: string) => Promise<NormalizedFood>> = { USDA: getUsdaFood, OPEN_FOOD_FACTS: getOffProduct };
 
 /**
  * Return a cached external food, fetching or refreshing it from the source when
  * needed. If the refresh fails but a cached copy exists, the cached copy is used.
  */
-export async function resolveExternalFood(source: ExternalSource, sourceId: string): Promise<FoodWithServings> {
+export async function resolveExternalFood(source: ExternalSource, sourceId: string, userId?: string): Promise<FoodWithServings> {
   const existing = await prisma.food.findUnique({ where: { source_sourceId: { source, sourceId } }, include: { servings: true } });
   const trusted = existing !== null && isTrustedFood(existing);
   if (trusted && existing.fetchedAt && Date.now() - existing.fetchedAt.getTime() < FOOD_CACHE_MAX_AGE_MS) return existing;
   try {
-    return await upsertExternalFood(await fetchers[source](sourceId));
+    return await upsertExternalFood(await fetchers[source](sourceId, userId));
   } catch (e) {
     // A stale copy from the same provider is better than nothing during an outage;
     // a copy of unknown or different origin is never used.
@@ -159,7 +174,7 @@ export async function getVisibleFood(userId: string, id: string): Promise<FoodWi
 export async function getLoggableFood(userId: string, id: string): Promise<FoodWithServings | null> {
   const food = await getVisibleFood(userId, id);
   if (!food || isTrustedFood(food)) return food;
-  return resolveExternalFood(food.source as ExternalSource, food.sourceId);
+  return resolveExternalFood(food.source as ExternalSource, food.sourceId, userId);
 }
 
 // ─── Search ─────────────────────────────────────────────────────────────────
@@ -185,7 +200,7 @@ export interface SearchResponse {
   query: string;
   barcode: boolean;
   results: Record<SearchSource, SearchItem[]>;
-  errors: { source: ExternalSource; kind: string; message: string }[];
+  errors: { source: ExternalSource; kind: string; message: string; retryAfterSec?: number }[];
 }
 
 const fromNormalized = (n: NormalizedFood, foodId: string | null = null): SearchItem => ({
@@ -221,10 +236,10 @@ export async function searchFoods(userId: string, query: string, sources: Search
   }
   const external: [ExternalSource, () => Promise<NormalizedFood[]>][] = [];
   if (barcode) {
-    if (sources.includes("OPEN_FOOD_FACTS")) external.push(["OPEN_FOOD_FACTS", async () => [await getOffProduct(q)]]);
+    if (sources.includes("OPEN_FOOD_FACTS")) external.push(["OPEN_FOOD_FACTS", async () => [await getOffProduct(q, userId)]]);
   } else {
-    if (sources.includes("USDA")) external.push(["USDA", () => searchUsda(q)]);
-    if (sources.includes("OPEN_FOOD_FACTS")) external.push(["OPEN_FOOD_FACTS", () => searchOff(q)]);
+    if (sources.includes("USDA")) external.push(["USDA", () => searchUsda(q, userId)]);
+    if (sources.includes("OPEN_FOOD_FACTS")) external.push(["OPEN_FOOD_FACTS", () => searchOff(q, userId)]);
   }
   for (const [source, run] of external) {
     tasks.push(
@@ -233,7 +248,7 @@ export async function searchFoods(userId: string, query: string, sources: Search
         .catch((e) => {
           if (e instanceof ExternalFoodError) {
             if (barcode && e.kind === "not_found") return; // empty result, not an error
-            res.errors.push({ source, kind: e.kind, message: e.message });
+            res.errors.push({ source, ...publicError(e) });
           } else {
             console.error(e);
             res.errors.push({ source, kind: "unknown", message: "Search failed." });

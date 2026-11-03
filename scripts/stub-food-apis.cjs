@@ -6,6 +6,8 @@
 //   FDC_BASE_URL=http://localhost:<port>/fdc/v1 OFF_BASE_URL=http://localhost:<port>/off FDC_API_KEY=stub
 // Special queries: "timeout" → no response for 15 s, "error" → HTTP 500.
 // STUB_LOG=1 logs each request URL and whether an X-Api-Key header was present.
+// STUB_LOG_FILE=<path> also appends those lines to a file (used by provider-protection tests).
+// "ratelimit" → HTTP 429 with Retry-After: 30; barcode 0000000000500 → HTTP 500.
 const http = require("node:http");
 const port = Number(process.argv[2] || 4010);
 
@@ -55,10 +57,14 @@ const send = (res, status, body) => { res.writeHead(status, { "Content-Type": "a
 http.createServer((req, res) => {
   const url = new URL(req.url, "http://x");
   // STUB_LOG=1: log request URL and header *presence* (never header values) for key-exposure checks.
-  if (process.env.STUB_LOG) console.log(JSON.stringify({ path: req.url, hasApiKeyHeader: !!req.headers["x-api-key"], userAgent: req.headers["user-agent"] }));
+  const line = JSON.stringify({ path: req.url, hasApiKeyHeader: !!req.headers["x-api-key"], userAgent: req.headers["user-agent"] });
+  if (process.env.STUB_LOG) console.log(line);
+  if (process.env.STUB_LOG_FILE) require("node:fs").appendFileSync(process.env.STUB_LOG_FILE, line + "\n");
   const q = (url.searchParams.get("query") || url.searchParams.get("search_terms") || "").toLowerCase();
   if (q === "timeout") return setTimeout(() => send(res, 200, { foods: [], products: [] }), 15000);
   if (q === "error") return send(res, 500, { error: "internal" });
+  if (q === "ratelimit") { res.writeHead(429, { "Content-Type": "application/json", "Retry-After": "30" }); return res.end(JSON.stringify({ error: "OVER_RATE_LIMIT" })); }
+  if (url.pathname.endsWith("/product/0000000000500.json")) return send(res, 500, { error: "internal" });
   if (url.pathname.startsWith("/fdc/v1/")) {
     if (!req.headers["x-api-key"]) return send(res, 403, { error: { code: "API_KEY_MISSING" } });
     if (url.pathname === "/fdc/v1/foods/search") {

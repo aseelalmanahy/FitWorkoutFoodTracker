@@ -81,6 +81,11 @@ BASE_URL=http://localhost:3000 npm run test:api
 BASE_URL=http://localhost:3000 node scripts/e2e-nutrition.cjs
 BASE_URL=http://localhost:3000 node scripts/e2e-smoke.cjs
 ```
+Start the server for the general suites with `FOOD_RATE_LIMIT_MULTIPLIER=100` (test-only). Run
+`scripts/provider-protection.test.cjs` against a *fresh* server with default budgets and the stub started with
+`STUB_LOG_FILE`. Run `scripts/provider-config.test.cjs` against a server started without `FDC_API_KEY` and with
+`SERVER_LOG_FILE` pointing at its log.
+
 Each suite registers new accounts. The server's in-memory sign-up throttle (10 per IP per 15 min) means you should
 restart the server between suites.
 

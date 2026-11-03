@@ -6,7 +6,7 @@
  */
 import "server-only";
 import { MAX_SERVING_AMOUNT, sanitizePer100, type Nutrients } from "@/lib/nutrition";
-import { fetchJson, TtlCache } from "./http";
+import { guardedFetchJson, logProviderConfigError, PROVIDER_UNAVAILABLE, TtlCache } from "./http";
 import { ExternalFoodError, num, type NormalizedFood, type ServingOption } from "./types";
 
 const base = () => (process.env.FDC_BASE_URL ?? "https://api.nal.usda.gov/fdc/v1").replace(/\/$/, "");
@@ -14,11 +14,20 @@ const base = () => (process.env.FDC_BASE_URL ?? "https://api.nal.usda.gov/fdc/v1
 export const usdaOrigin = () => new URL(base()).host;
 export const USDA_GENERIC_TYPES = ["Foundation", "SR Legacy", "Survey (FNDDS)"];
 
+let lastConfigLog = 0;
 function apiKey(): string {
   const k = process.env.FDC_API_KEY;
-  if (!k) throw new ExternalFoodError("USDA", "not_configured", "USDA search is not configured (FDC_API_KEY missing).");
+  if (!k) {
+    // Configuration detail stays server-side (rate-limited to once a minute); clients get a generic message.
+    if (Date.now() - lastConfigLog > 60_000) {
+      lastConfigLog = Date.now();
+      logProviderConfigError("USDA", "FDC_API_KEY is not set; USDA search is disabled");
+    }
+    throw new ExternalFoodError("USDA", "not_configured", PROVIDER_UNAVAILABLE);
+  }
   return k;
 }
+export const _resetUsdaConfigLog = () => { lastConfigLog = 0; };
 
 // FDC nutrient ids (and legacy nutrient numbers) for the values we track.
 const NUTRIENTS: Record<keyof Nutrients, { ids: number[]; numbers: string[]; unit: string }> = {
@@ -120,23 +129,23 @@ export function normalizeUsdaFood(food: Record<string, unknown>): NormalizedFood
 const searchCache = new TtlCache<NormalizedFood[]>(10 * 60 * 1000);
 export const _resetUsdaCache = () => searchCache.clear();
 
-export async function searchUsda(query: string, pageSize = 20): Promise<NormalizedFood[]> {
+export async function searchUsda(query: string, userId?: string, pageSize = 20): Promise<NormalizedFood[]> {
   const key = apiKey();
   const cacheKey = `${query.toLowerCase()}|${pageSize}`;
   const cached = searchCache.get(cacheKey);
   if (cached) return cached;
   const params = new URLSearchParams({ query, pageSize: String(pageSize), dataType: USDA_GENERIC_TYPES.join(",") });
-  const data = (await fetchJson("USDA", `${base()}/foods/search?${params}`, { headers: { "X-Api-Key": key, Accept: "application/json" } })) as Record<string, unknown>;
+  const data = (await guardedFetchJson("USDA", userId, `${base()}/foods/search?${params}`, { headers: { "X-Api-Key": key, Accept: "application/json" } })) as Record<string, unknown>;
   if (!data || !Array.isArray(data.foods)) throw new ExternalFoodError("USDA", "invalid_response", "Unexpected response from USDA.");
   const foods = (data.foods as Record<string, unknown>[]).map(normalizeUsdaFood).filter((f): f is NormalizedFood => f !== null);
   searchCache.set(cacheKey, foods);
   return foods;
 }
 
-export async function getUsdaFood(fdcId: string): Promise<NormalizedFood> {
+export async function getUsdaFood(fdcId: string, userId?: string): Promise<NormalizedFood> {
   if (!/^\d{1,10}$/.test(fdcId)) throw new ExternalFoodError("USDA", "not_found", "Invalid USDA food id.");
   const key = apiKey();
-  const data = (await fetchJson("USDA", `${base()}/food/${fdcId}`, { headers: { "X-Api-Key": key, Accept: "application/json" } })) as Record<string, unknown>;
+  const data = (await guardedFetchJson("USDA", userId, `${base()}/food/${fdcId}`, { headers: { "X-Api-Key": key, Accept: "application/json" } })) as Record<string, unknown>;
   const food = data && typeof data === "object" ? normalizeUsdaFood(data) : null;
   if (!food) throw new ExternalFoodError("USDA", "invalid_response", "Unexpected response from USDA.");
   return food;

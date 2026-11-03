@@ -256,3 +256,63 @@ Scope: audit findings D1, D2, D4, D5 and investigation of D6. No schema change. 
 - S2: user-facing "FDC_API_KEY missing" message.
 - D7: OFF `energy_unit` fallback (needs live data).
 - Live USDA/OFF verification: still blocked (egress policy + missing `FDC_API_KEY`).
+
+---
+
+# Phase 2.4 — Provider protection and error handling (2026-11-03)
+
+Scope: audit findings D3, S2, D7. No schema change. No Phase 3 work.
+
+## D3 — Provider rate limiting & backoff (fixed)
+New `src/lib/server/foods/guard.ts`: in-memory sliding windows, the same approach as the Phase 1 login throttle. Wired in through `guardedFetchJson` in `http.ts`, so **only requests that actually reach a provider** are charged (cached results are free). The user id flows from the search, resolve and barcode routes and from logging (`getLoggableFood`).
+
+| Operation | Per user | Global (whole app) | Provider's published limit |
+|---|---|---|---|
+| USDA (search + detail) | 20/min, 150/h | 900/h | 1,000/h per api.data.gov key |
+| OFF search | 4/min | 10/min | 10/min |
+| OFF product (barcode / resolve) | 20/min | 90/min | 100/min |
+
+- Per-user exhausted → `user_rate_limited` (resolve/barcode: **429** + `Retry-After`; search: per-source error with `retryAfterSec`, other sources still answer).
+- Global exhausted → `unavailable` (503 + `Retry-After`).
+- **Circuit breaker** per operation: a provider 429 → open for Retry-After (default 60 s), doubling on consecutive 429s, max 15 min. 3 consecutive failures (5xx/network/timeout/invalid body) → 30 s, doubling, max 5 min. A 404 or a success closes it and resets. While open: fail fast, no provider call.
+- `FOOD_RATE_LIMIT_MULTIPLIER` (test-only) scales budgets for the general suites.
+- **Limitation (documented in guard.ts, ARCHITECTURE, here):** state is per process. N instances → N × budget. Redis is not introduced yet.
+- **UX trade-off observed:** the nutrition E2E at default limits passed, but only 4 of the session's 6 searches reached OFF. The other 2 were limited per user, and the UI showed the remaining sources. OFF's own 10/min app-wide search limit is the binding constraint.
+
+## S2 — Configuration error handling (fixed)
+- Missing `FDC_API_KEY` and provider 401/403 → client message "This food database is currently unavailable. Try again later.", client-facing kind `unavailable` (internal `not_configured` is never exposed).
+- Detail logged server-side: `[foods] USDA configuration error: FDC_API_KEY is not set; USDA search is disabled` (at most once a minute), or `provider rejected the request credentials (HTTP 401)`. The key value is never logged: the sentinel-key run found 0 occurrences in logs and responses.
+
+## D7 — OFF energy normalisation (tests added; ambiguous case blocked on live data)
+Current behaviour, now pinned by tests:
+1. `energy-kcal_100g` present → used as is (regardless of `energy_unit`).
+2. Else `energy-kj_100g` → ÷ 4.184.
+3. Else `energy_100g` with `energy_unit` "kJ" or absent → treated as kJ, ÷ 4.184.
+4. Else `energy_100g` with `energy_unit` "kcal" (or "kj"/"Cal"/other) → **kcal left missing** (not guessed).
+
+**Blocked:** whether OFF stores `energy_100g` in kJ even when `energy_unit` is "kcal" can't be confirmed without live data. Case 4 stays conservative (missing rather than possibly 4.184× wrong). Not claimed fixed.
+
+## Tests added
+- `src/lib/server/foods/guard.test.ts` (new, 15): per-user limit and retry-after, user isolation, window reset, rejected attempts not charged, USDA minute+hour caps, per-op separation, global caps (OFF 10/min, USDA 900/h), multiplier, 429 backoff with Retry-After, exponential/capped backoff, failure threshold and reset on success, 404/config not counted as failures, per-op circuits, Retry-After parsing.
+- `src/lib/server/foods/clients.test.ts` (+11): S2 generic message / server-side log / once-a-minute log / key never in errors or logs (401, 403); fail-fast after 429 and after 3 failures (fetch not called); cached results free; D7 energy variants. One existing test resets the guard after its 429 case (it checks error mapping, and fail-fast is now tested separately). No assertions removed.
+- `scripts/provider-protection.test.cjs` (new, 7, default budgets): OFF per-user search limit (5th never reaches provider), cached/other-provider still work, other users unaffected, global OFF cap → unavailable, product per-user limit → 429 + Retry-After (shared by barcode and resolve), provider 429 → circuit stops calls for everyone (1 provider hit), 3 provider 500s → circuit (4th not sent).
+- `scripts/provider-config.test.cjs` (new, 1): server without key → generic message, 503, no key/config words in bodies, detail in server log.
+- `scripts/stub-food-apis.cjs`: `STUB_LOG_FILE`, `ratelimit` → 429 Retry-After 30, barcode `0000000000500` → 500.
+
+## Results (all executed)
+| Check | Result |
+|---|---|
+| `npm run lint` (tsc) | exit 0 |
+| `npx vitest run` | 6 files, **101/101** |
+| `npm run build` | exit 0 |
+| `node --test scripts/nutrition-api.test.cjs` (multiplier 100) | **31/31** |
+| `node --test scripts/provider-protection.test.cjs` (default budgets) | **7/7** (first run 6/7: test used an already-cached USDA id; fixed the test to use an uncached id) |
+| `node --test scripts/provider-config.test.cjs` (no key) | **1/1** (same first-run test fix) |
+| Sentinel-key log scan (success, 500 ×3, 429, circuit-open paths) | 0 occurrences in logs and responses |
+| `node scripts/e2e-nutrition.cjs` (multiplier 100 / default) | exit 0 / exit 0 |
+| `node scripts/e2e-smoke.cjs` (Phase 1) | exit 0 |
+| `prisma validate` / `migrate status` (dev, test) / fresh deploy / drift diff | valid / up to date / 4 applied / no difference |
+
+## Remaining
+- Live USDA/OFF verification still blocked (egress policy, no `FDC_API_KEY`). D7 case 4 depends on it.
+- In-memory limits are single-instance (see above).

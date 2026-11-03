@@ -178,7 +178,13 @@ Unique constraints: `Food(source, sourceId)`, `FoodServing(foodId, label)`, `Nut
 * Security headers: `X-Frame-Options: DENY`, `nosniff`, a strict referrer policy, and a permissions policy (camera allowed for self only).
 * All input is validated server-side with Zod, and numeric ranges are bounded.
 
+* External food providers (Phase 2.4, `src/lib/server/foods/guard.ts`): per-user and global budgets per provider operation, charged only on cache misses.
+  USDA 20/min and 150/h per user, 900/h globally (key quota 1,000/h). OFF search 4/min per user, 10/min globally. OFF product 20/min per user, 90/min globally.
+  A circuit breaker opens on a provider 429 (Retry-After, default 60 s, doubling, max 15 min) or after 3 consecutive failures (30 s, doubling, max 5 min).
+  Configuration errors are logged server-side and shown to clients as a generic "unavailable".
+
 ### Known limitations and follow-ups
+* Provider budgets and circuit state are in memory, per process. With N instances the effective global rate is N × budget. Move them to a shared store (e.g. Redis) before scaling out.
 * The rate limiter is in-memory (single instance). Move it to Redis or the DB before horizontal scaling.
 * There is no email verification or password reset yet. These need a transactional email provider.
 * `npm audit` reports an advisory in `deepmerge-ts`, used only by the Prisma **CLI's** config loader (a dev-time tool, not reachable from user input). It clears when the project upgrades to Prisma 7.

@@ -22,10 +22,18 @@ export interface NormalizedFood {
   servings: ServingOption[];
 }
 
-export type ExternalErrorKind = "not_configured" | "timeout" | "http" | "rate_limited" | "invalid_response" | "network" | "not_found";
+/**
+ * Internal error kinds. `not_configured` is never shown to clients as-is (see
+ * publicError in service.ts). `rate_limited` means the *provider* returned 429;
+ * `user_rate_limited` means this app's per-user budget is exhausted;
+ * `unavailable` means the circuit breaker is open or the global budget is used up.
+ */
+export type ExternalErrorKind =
+  | "not_configured" | "timeout" | "http" | "rate_limited" | "user_rate_limited" | "unavailable"
+  | "invalid_response" | "network" | "not_found";
 
 export class ExternalFoodError extends Error {
-  constructor(public source: ExternalSource, public kind: ExternalErrorKind, message: string) {
+  constructor(public source: ExternalSource, public kind: ExternalErrorKind, message: string, public retryAfterMs?: number) {
     super(message);
   }
 }

@@ -6,7 +6,7 @@
  */
 import "server-only";
 import { MAX_SERVING_AMOUNT, sanitizePer100, type Nutrients } from "@/lib/nutrition";
-import { fetchJson, TtlCache } from "./http";
+import { guardedFetchJson, TtlCache } from "./http";
 import { ExternalFoodError, num, type NormalizedFood, type ServingOption } from "./types";
 
 const base = () => (process.env.OFF_BASE_URL ?? "https://world.openfoodfacts.org").replace(/\/$/, "");
@@ -72,14 +72,14 @@ const headers = () => ({ "User-Agent": userAgent(), Accept: "application/json" }
 const searchCache = new TtlCache<NormalizedFood[]>(10 * 60 * 1000);
 export const _resetOffCache = () => searchCache.clear();
 
-export async function searchOff(query: string, pageSize = 20): Promise<NormalizedFood[]> {
+export async function searchOff(query: string, userId?: string, pageSize = 20): Promise<NormalizedFood[]> {
   const cacheKey = `${query.toLowerCase()}|${pageSize}`;
   const cached = searchCache.get(cacheKey);
   if (cached) return cached;
   const params = new URLSearchParams({
     search_terms: query, search_simple: "1", action: "process", json: "1", page_size: String(pageSize), fields: OFF_FIELDS,
   });
-  const data = (await fetchJson("OPEN_FOOD_FACTS", `${base()}/cgi/search.pl?${params}`, { headers: headers() })) as Record<string, unknown>;
+  const data = (await guardedFetchJson("OFF_SEARCH", userId, `${base()}/cgi/search.pl?${params}`, { headers: headers() })) as Record<string, unknown>;
   if (!data || !Array.isArray(data.products)) throw new ExternalFoodError("OPEN_FOOD_FACTS", "invalid_response", "Unexpected response from Open Food Facts.");
   const foods = (data.products as Record<string, unknown>[]).map(normalizeOffProduct).filter((f): f is NormalizedFood => f !== null);
   searchCache.set(cacheKey, foods);
@@ -87,9 +87,9 @@ export async function searchOff(query: string, pageSize = 20): Promise<Normalize
 }
 
 /** Product by barcode (also the entry point for future camera barcode scanning). */
-export async function getOffProduct(code: string): Promise<NormalizedFood> {
+export async function getOffProduct(code: string, userId?: string): Promise<NormalizedFood> {
   if (!/^\d{6,14}$/.test(code)) throw new ExternalFoodError("OPEN_FOOD_FACTS", "not_found", "Invalid barcode.");
-  const data = (await fetchJson("OPEN_FOOD_FACTS", `${base()}/api/v2/product/${code}.json?fields=${OFF_FIELDS}`, { headers: headers() })) as Record<string, unknown>;
+  const data = (await guardedFetchJson("OFF_PRODUCT", userId, `${base()}/api/v2/product/${code}.json?fields=${OFF_FIELDS}`, { headers: headers() })) as Record<string, unknown>;
   if (!data || data.status !== 1 || !data.product) throw new ExternalFoodError("OPEN_FOOD_FACTS", "not_found", "No product found for this barcode.");
   const food = normalizeOffProduct({ code, ...(data.product as Record<string, unknown>) });
   if (!food) throw new ExternalFoodError("OPEN_FOOD_FACTS", "invalid_response", "The product record has no name.");
