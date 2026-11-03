@@ -3,8 +3,8 @@ import { Prisma, type Food, type FoodServing, type FoodSource } from "@prisma/cl
 import { prisma } from "../db";
 import { HttpError } from "../api";
 import { NUTRIENT_KEYS, type Nutrients } from "@/lib/nutrition";
-import { getUsdaFood, searchUsda } from "./usda";
-import { getOffProduct, searchOff } from "./openfoodfacts";
+import { getUsdaFood, searchUsda, usdaOrigin } from "./usda";
+import { getOffProduct, offOrigin, searchOff } from "./openfoodfacts";
 import { ExternalFoodError, hasAnyNutrient, type ExternalSource, type NormalizedFood } from "./types";
 
 /** Cached external foods are refreshed from the source after this age. */
@@ -29,6 +29,18 @@ export interface FoodDto {
 }
 
 type FoodWithServings = Food & { servings: FoodServing[] };
+
+const origins: Record<ExternalSource, () => string> = { USDA: usdaOrigin, OPEN_FOOD_FACTS: offOrigin };
+
+/**
+ * A cached external food is trusted only if it was produced by the provider
+ * endpoint configured right now. This keeps records written by a test stub
+ * (or a different endpoint) from being served as live provider data.
+ * Custom foods are always trusted. Legacy rows without an origin are not.
+ */
+export function isTrustedFood(f: Pick<Food, "source" | "origin">): boolean {
+  return f.source === "CUSTOM" || f.origin === origins[f.source as ExternalSource]();
+}
 
 export function per100Of(f: Pick<Food, "kcalPer100" | "proteinPer100" | "carbsPer100" | "fatPer100" | "fiberPer100">): Nutrients {
   return { kcal: toNum(f.kcalPer100), protein: toNum(f.proteinPer100), carbs: toNum(f.carbsPer100), fat: toNum(f.fatPer100), fiber: toNum(f.fiberPer100) };
@@ -60,7 +72,10 @@ const per100Data = (n: Nutrients) => ({
 
 /** Insert or refresh an external food in the shared cache (deduplicated on source + sourceId). */
 export async function upsertExternalFood(n: NormalizedFood): Promise<FoodWithServings> {
-  const data = { name: n.name, brand: n.brand, barcode: n.barcode, dataType: n.dataType, basisUnit: n.basisUnit, ...per100Data(n.per100), fetchedAt: new Date() };
+  const data = {
+    name: n.name, brand: n.brand, barcode: n.barcode, dataType: n.dataType, basisUnit: n.basisUnit, ...per100Data(n.per100),
+    fetchedAt: new Date(), origin: origins[n.source](),
+  };
   return prisma.$transaction(async (tx) => {
     const food = await tx.food.upsert({
       where: { source_sourceId: { source: n.source, sourceId: n.sourceId } },
@@ -91,17 +106,30 @@ const fetchers: Record<ExternalSource, (id: string) => Promise<NormalizedFood>> 
  */
 export async function resolveExternalFood(source: ExternalSource, sourceId: string): Promise<FoodWithServings> {
   const existing = await prisma.food.findUnique({ where: { source_sourceId: { source, sourceId } }, include: { servings: true } });
-  if (existing && existing.fetchedAt && Date.now() - existing.fetchedAt.getTime() < FOOD_CACHE_MAX_AGE_MS) return existing;
+  const trusted = existing !== null && isTrustedFood(existing);
+  if (trusted && existing.fetchedAt && Date.now() - existing.fetchedAt.getTime() < FOOD_CACHE_MAX_AGE_MS) return existing;
   try {
     return await upsertExternalFood(await fetchers[source](sourceId));
   } catch (e) {
-    if (existing) return existing;
+    // A stale copy from the same provider is better than nothing during an outage;
+    // a copy of unknown or different origin is never used.
+    if (trusted) return existing;
     throw toHttpError(e);
   }
 }
 
 export async function getVisibleFood(userId: string, id: string): Promise<FoodWithServings | null> {
   return prisma.food.findFirst({ where: { id, OR: [{ userId: null }, { userId }] }, include: { servings: true } });
+}
+
+/**
+ * Visible food that is safe to log from: custom foods, or external foods from the
+ * configured provider. Untrusted external rows are refreshed from the provider first.
+ */
+export async function getLoggableFood(userId: string, id: string): Promise<FoodWithServings | null> {
+  const food = await getVisibleFood(userId, id);
+  if (!food || isTrustedFood(food)) return food;
+  return resolveExternalFood(food.source as ExternalSource, food.sourceId);
 }
 
 // ─── Search ─────────────────────────────────────────────────────────────────
@@ -190,9 +218,9 @@ export async function searchFoods(userId: string, query: string, sources: Search
   if (ext.length) {
     const cached = await prisma.food.findMany({
       where: { OR: ext.map((i) => ({ source: i.source as ExternalSource, sourceId: i.sourceId })) },
-      select: { id: true, source: true, sourceId: true },
+      select: { id: true, source: true, sourceId: true, origin: true },
     });
-    const ids = new Map(cached.map((c) => [`${c.source}:${c.sourceId}`, c.id]));
+    const ids = new Map(cached.filter(isTrustedFood).map((c) => [`${c.source}:${c.sourceId}`, c.id]));
     for (const i of ext) i.foodId = ids.get(i.key) ?? null;
   }
   // Deduplicate within each source.
@@ -211,7 +239,10 @@ export async function recentFoods(userId: string, limit = 15): Promise<FoodDto[]
     take: limit,
     select: { food: { include: { servings: true } } },
   });
-  return rows.map((r) => r.food).filter((f): f is FoodWithServings => !!f && (f.userId === null || f.userId === userId)).map(foodToDto);
+  return rows
+    .map((r) => r.food)
+    .filter((f): f is FoodWithServings => !!f && (f.userId === null || f.userId === userId) && isTrustedFood(f))
+    .map(foodToDto);
 }
 
 export { NUTRIENT_KEYS };

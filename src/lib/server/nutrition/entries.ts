@@ -2,7 +2,7 @@ import "server-only";
 import { Prisma, type FoodEntry, type Profile } from "@prisma/client";
 import { prisma } from "../db";
 import { HttpError, notFound } from "../api";
-import { dec, getVisibleFood, per100Of, toNum } from "../foods/service";
+import { dec, getLoggableFood, getVisibleFood, isTrustedFood, per100Of, toNum } from "../foods/service";
 import {
   addDays, dateRange, entryNutrients, fromIsoDate, MEAL_TYPES, progress, remaining, round, sumNutrients, summarizePeriod,
   targetForDate, toIsoDate, type DaySummary, type MealType, type Nutrients,
@@ -57,7 +57,7 @@ async function servingFor(food: { id: string; basisUnit: "G" | "ML" }, servingId
 
 export async function createEntry(userId: string, profile: Profile, input: { date: string; mealType: MealType; foodId: string; servingId: string | null; quantity: number }) {
   assertLoggableDate(input.date, profile);
-  const food = await getVisibleFood(userId, input.foodId);
+  const food = await getLoggableFood(userId, input.foodId);
   if (!food) throw notFound("Food");
   const serving = await servingFor(food, input.servingId);
   const per100 = per100Of(food);
@@ -88,6 +88,8 @@ export async function updateEntry(
       ({ label: servingLabel, amount: servingAmount } = rawServing(entry.basisUnit));
     } else {
       if (!entry.foodId) throw new HttpError(400, "The original food was deleted; only quantity can be changed");
+      const food = await getVisibleFood(userId, entry.foodId);
+      if (!food || !isTrustedFood(food)) throw new HttpError(409, "This food's data is no longer current; change the quantity or grams instead");
       ({ label: servingLabel, amount: servingAmount } = await servingFor({ id: entry.foodId, basisUnit: entry.basisUnit }, input.servingId));
     }
   }

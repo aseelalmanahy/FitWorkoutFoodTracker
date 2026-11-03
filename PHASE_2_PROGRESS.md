@@ -171,3 +171,45 @@ Scope: stabilization only. No Phase 3 work and no feature rewrites.
 1. Network policy: allow `api.nal.usda.gov` and `world.openfoodfacts.org` (optionally `search.openfoodfacts.org`).
 2. Credential: a USDA FoodData Central API key in `FDC_API_KEY` (free: https://fdc.nal.usda.gov/api-key-signup). Optional: `OFF_CONTACT` for the OFF User-Agent.
 3. Once both are in place, a live check should confirm: `GET /api/foods/search?q=banana` returns USDA results with `errors: []`; `GET /api/foods/barcode/3017624010966` returns Nutella; a USDA Foundation food maps energy via the Atwater ids; and the OFF `cgi/search.pl` endpoint still answers in the documented shape.
+
+---
+
+# Phase 2.2 — Live provider verification (2026-11-03)
+
+## Live provider tests: NOT executed
+Every live request was refused by the environment's egress proxy before reaching the provider. **No live request succeeded, so the live integration is NOT verified.**
+
+| Provider | Request | Result |
+|---|---|---|
+| USDA FDC | `GET https://api.nal.usda.gov/fdc/v1/foods/search?query=banana&pageSize=1` | no HTTP response: proxy `CONNECT` → 403 (`connect_rejected`, latest 17:26:07Z) |
+| Open Food Facts | `GET https://world.openfoodfacts.org/api/v2/product/3017624010966.json?fields=code` (barcode) | no HTTP response: proxy `CONNECT` → 403 |
+| Open Food Facts | `GET https://search.openfoodfacts.org/search?q=nutella` | no HTTP response: proxy `CONNECT` → 403 |
+| control | `GET https://registry.npmjs.org/` | 200 (proxy itself works) |
+
+The USDA credential is also missing: `FDC_API_KEY` is empty in `.env` and unset in the process environment.
+
+## Defects found and fixed
+1. **Stub/foreign cache data could be served as live provider data (item 10).** Reproduced: a stub-mode server cached USDA 173944, then a server with the real configuration (no key, real hosts) returned that row with 200 from `/api/foods/resolve`.
+   - Fix: nullable column `Food.origin` (migration `20261103172723_food_origin`) set on every provider fetch. Cached rows are reused (including the stale-on-outage fallback) only when the origin matches the configured endpoint. Untrusted rows are hidden from `GET /api/foods/[id]`, recent foods and search `foodId`. Logging from an untrusted id refreshes it from the configured provider first. Editing servings of an untrusted row → 409. Legacy rows (origin NULL) are refetched once.
+   - Re-verified after the fix: real config → resolve 503 (not configured, not served), `GET /api/foods/{id}` 404, logging 503, recent `[]`. Existing entries keep their snapshot.
+   - New integration test: `cached rows from another endpoint (e.g. a stub) are never served as provider data`.
+2. **Race on first nutrition use (intermittent 409).** 8 parallel first requests → one hit a P2002 on `NutritionTarget(userId, effectiveFrom)`. The Phase 2.1 run passed only by timing. Fix: `upsertWithRetry` in `targets.ts` (the loser retries; the retry updates the winner's row). Verified 3 consecutive runs, all 200, one row. Prisma still logs the caught first attempt at error level (harmless).
+3. **Hardening:** added `import "server-only"` to `usda.ts`, `openfoodfacts.ts`, `http.ts` so a client import fails the build.
+   - Added `STUB_LOG=1` request logging to `scripts/stub-food-apis.cjs` (URL plus key-header *presence* only).
+   - New regression test: concurrent resolves of one uncached food → one row. It passed; no defect.
+
+## Verified locally (not live)
+- **Key handling:** with a random sentinel `FDC_API_KEY`, the sentinel was absent from 74 KB of pages and API responses, `.next/static` bundles and server logs. `FDC_API_KEY` doesn't occur in client bundles. The provider received it only as the `X-Api-Key` header, never in a URL. There are no `NEXT_PUBLIC_*` variables.
+- **Unavailable provider (real failure, real hosts):** search → 200 with `errors: [USDA not_configured, OPEN_FOOD_FACTS network]` in < 50 ms. Barcode → 200 with OFF network error. Uncached resolve → 502/503.
+- **Isolation with one real failure:** USDA→stub, OFF→real (blocked). Search → 200 in 0.16 s with USDA results plus `OPEN_FOOD_FACTS network` error.
+- **Timeouts, 429 rate limits, 5xx, invalid JSON, incomplete nutrients:** covered only by mocked unit tests and the stub. **Not verified against live providers.**
+
+## Checks after fixes
+- lint (tsc) exit 0; vitest 65/65; build exit 0
+- migrate status up to date; 4 migrations apply to an empty DB; drift diff exit 0
+- API integration 25/25; Phase 2 E2E passed; Phase 1 E2E passed
+
+## Remaining blockers
+1. Allow egress to `api.nal.usda.gov`, `world.openfoodfacts.org` (and `search.openfoodfacts.org` if used).
+2. Provide `FDC_API_KEY` as an environment secret (not committed). Optionally set `OFF_CONTACT`.
+3. Then run the live checklist: USDA search `banana` (expect SR Legacy/Foundation hits, `errors: []`); USDA Foundation food detail (Atwater energy ids 2047/2048); OFF search `nutella`; OFF barcode `3017624010966`; an OFF product lacking fiber (expect `fiber: null`); a nonexistent barcode `00000000000000` (expect empty result).

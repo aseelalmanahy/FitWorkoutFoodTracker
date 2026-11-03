@@ -4,11 +4,14 @@
  * Attribution is shown in the UI, and requests carry an identifying User-Agent.
  * `*_100g` nutriment fields are normalised per 100 g (or 100 ml for liquids).
  */
+import "server-only";
 import type { Nutrients } from "@/lib/nutrition";
 import { fetchJson, TtlCache } from "./http";
 import { ExternalFoodError, num, type NormalizedFood, type ServingOption } from "./types";
 
 const base = () => (process.env.OFF_BASE_URL ?? "https://world.openfoodfacts.org").replace(/\/$/, "");
+/** Host of the configured endpoint; recorded with cached foods (see Food.origin). */
+export const offOrigin = () => new URL(base()).host;
 const userAgent = () =>
   process.env.OFF_USER_AGENT ?? `FitWorkoutFoodTracker/0.2 (${process.env.OFF_CONTACT ?? "https://github.com/aseelalmanahy/fitworkoutfoodtracker"})`;
 

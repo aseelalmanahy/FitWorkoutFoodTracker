@@ -1,10 +1,25 @@
 import "server-only";
-import type { NutritionTarget, Profile } from "@prisma/client";
+import { Prisma, type NutritionTarget, type Profile } from "@prisma/client";
 import { prisma } from "../db";
 import { HttpError } from "../api";
 import { ageFromBirthDate, suggestCalories, suggestMacros } from "@/lib/energy";
 import { carbsFromRemainder, targetForDate, toIsoDate, fromIsoDate, type DatedTarget } from "@/lib/nutrition";
 import { localParts } from "@/lib/time";
+
+/**
+ * Run an upsert on NutritionTarget(userId, effectiveFrom). Concurrent requests
+ * (e.g. a user's first page load firing several nutrition calls at once) can
+ * race on the unique key. The loser retries once, and that retry updates the
+ * row the winner created.
+ */
+async function upsertWithRetry<T>(fn: () => Promise<T>): Promise<T> {
+  try {
+    return await fn();
+  } catch (e) {
+    if (e instanceof Prisma.PrismaClientKnownRequestError && e.code === "P2002") return fn();
+    throw e;
+  }
+}
 
 export function localToday(timeZone: string, now = new Date()): string {
   const p = localParts(now, timeZone);
@@ -38,11 +53,11 @@ export async function getTargets(userId: string, profile: Profile): Promise<Date
     const s = suggestionFromProfile(profile);
     const override = profile.calorieTargetOverride;
     const m = override ? suggestMacros({ kcal: override, weightKg: profile.currentWeightKg, goalWeightKg: profile.goalWeightKg, goal: profile.goal }) : s;
-    await prisma.nutritionTarget.upsert({
+    await upsertWithRetry(() => prisma.nutritionTarget.upsert({
       where: { userId_effectiveFrom: { userId, effectiveFrom: fromIsoDate(start) } },
       create: { userId, effectiveFrom: fromIsoDate(start), kcal: m.kcal, proteinG: m.proteinG, carbsG: m.carbsG, fatG: m.fatG, source: override ? "MANUAL" : "SUGGESTED" },
       update: {},
-    });
+    }));
     rows = await prisma.nutritionTarget.findMany({ where: { userId }, orderBy: { effectiveFrom: "asc" } });
   }
   return rows.map(toDated);
@@ -54,11 +69,11 @@ export async function getTargetFor(userId: string, profile: Profile, date: strin
 
 async function upsertToday(userId: string, date: string, t: { kcal: number; proteinG: number; carbsG: number; fatG: number; source: "MANUAL" | "SUGGESTED" }) {
   const effectiveFrom = fromIsoDate(date);
-  const row = await prisma.nutritionTarget.upsert({
+  const row = await upsertWithRetry(() => prisma.nutritionTarget.upsert({
     where: { userId_effectiveFrom: { userId, effectiveFrom } },
     create: { userId, effectiveFrom, ...t },
     update: t,
-  });
+  }));
   return toDated(row);
 }
 

@@ -315,3 +315,38 @@ test("concurrent first requests seed exactly one target (no race errors)", async
   const u = await prisma.user.findUnique({ where: { email } });
   assert.equal(await prisma.nutritionTarget.count({ where: { userId: u.id } }), 1);
 });
+
+test("cached rows from another endpoint (e.g. a stub) are never served as provider data", async () => {
+  // Row claiming to be USDA 171477 but produced by a different endpoint, with wrong data.
+  const foreign = await prisma.food.upsert({
+    where: { source_sourceId: { source: "USDA", sourceId: "171477" } },
+    create: { source: "USDA", sourceId: "171477", name: "FOREIGN COPY", kcalPer100: 1, fetchedAt: new Date(), origin: "other-endpoint.example" },
+    update: { name: "FOREIGN COPY", kcalPer100: 1, fetchedAt: new Date(), origin: "other-endpoint.example" },
+  });
+  // Unknown to the configured provider: must not be served from the foreign cache.
+  await prisma.food.upsert({
+    where: { source_sourceId: { source: "USDA", sourceId: "424243" } },
+    create: { source: "USDA", sourceId: "424243", name: "ORPHAN", kcalPer100: 1, fetchedAt: new Date(), origin: null },
+    update: { origin: null, fetchedAt: new Date() },
+  });
+  assert.equal((await A.get(`/api/foods/${foreign.id}`)).status, 404, "untrusted row not exposed by id");
+  const s = await A.get("/api/foods/search?q=chicken&sources=USDA");
+  assert.equal(s.body.results.USDA.find((i) => i.sourceId === "171477").foodId, null, "untrusted cache id not attached");
+  assert.equal((await A.post("/api/foods/resolve", { source: "USDA", sourceId: "424243" })).status, 404, "legacy/unknown-origin row not used as fallback");
+  // Logging by the untrusted id refreshes it from the configured provider first.
+  const e = await A.post("/api/nutrition/entries", { date: today(), mealType: "LUNCH", foodId: foreign.id, servingId: null, quantity: 100 });
+  assert.equal(e.status, 200);
+  assert.equal(e.body.entry.foodName, "Chicken, broilers or fryers, breast, meat only, cooked, roasted");
+  assert.equal(e.body.entry.nutrients.kcal, 165);
+  const row = await prisma.food.findUnique({ where: { id: foreign.id } });
+  assert.equal(row.origin, new URL(process.env.FDC_BASE_URL || "https://api.nal.usda.gov/fdc/v1").host);
+  assert.equal(await prisma.food.count({ where: { source: "USDA", sourceId: "171477" } }), 1, "refreshed in place, no duplicate");
+});
+
+test("concurrent resolves of the same uncached food create one row (no race errors)", async () => {
+  await prisma.food.deleteMany({ where: { source: "OPEN_FOOD_FACTS", sourceId: "5000112637922" } });
+  const rs = await Promise.all(Array.from({ length: 8 }, (_, i) => (i % 2 ? A : B).post("/api/foods/resolve", { source: "OPEN_FOOD_FACTS", sourceId: "5000112637922" })));
+  assert.deepEqual(rs.map((r) => r.status), Array(8).fill(200));
+  assert.equal(new Set(rs.map((r) => r.body.food.id)).size, 1);
+  assert.equal(await prisma.food.count({ where: { source: "OPEN_FOOD_FACTS", sourceId: "5000112637922" } }), 1);
+});

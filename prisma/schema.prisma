@@ -309,6 +309,10 @@ model Food {
   fiberPer100   Decimal? @db.Decimal(9, 3)
   /// When the external record was last fetched from its source.
   fetchedAt   DateTime?
+  /// Host of the provider endpoint that produced this record (e.g. "api.nal.usda.gov").
+  /// A cached record is reused only when this matches the currently configured
+  /// endpoint, so data from a test stub or another endpoint is never served as live.
+  origin      String?
   createdAt   DateTime   @default(now())
   updatedAt   DateTime   @updatedAt
 

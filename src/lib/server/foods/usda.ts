@@ -4,11 +4,14 @@
  * Branded foods are left to Open Food Facts to avoid duplicate packaged items.
  * FDC data is public domain (CC0 1.0). Nutrient amounts are per 100 g.
  */
+import "server-only";
 import type { Nutrients } from "@/lib/nutrition";
 import { fetchJson, TtlCache } from "./http";
 import { ExternalFoodError, num, type NormalizedFood, type ServingOption } from "./types";
 
 const base = () => (process.env.FDC_BASE_URL ?? "https://api.nal.usda.gov/fdc/v1").replace(/\/$/, "");
+/** Host of the configured endpoint; recorded with cached foods (see Food.origin). */
+export const usdaOrigin = () => new URL(base()).host;
 export const USDA_GENERIC_TYPES = ["Foundation", "SR Legacy", "Survey (FNDDS)"];
 
 function apiKey(): string {

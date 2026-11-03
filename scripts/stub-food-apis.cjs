@@ -5,6 +5,7 @@
 // Then run the app with:
 //   FDC_BASE_URL=http://localhost:<port>/fdc/v1 OFF_BASE_URL=http://localhost:<port>/off FDC_API_KEY=stub
 // Special queries: "timeout" → no response for 15 s, "error" → HTTP 500.
+// STUB_LOG=1 logs each request URL and whether an X-Api-Key header was present.
 const http = require("node:http");
 const port = Number(process.argv[2] || 4010);
 
@@ -50,6 +51,8 @@ const send = (res, status, body) => { res.writeHead(status, { "Content-Type": "a
 
 http.createServer((req, res) => {
   const url = new URL(req.url, "http://x");
+  // STUB_LOG=1: log request URL and header *presence* (never header values) for key-exposure checks.
+  if (process.env.STUB_LOG) console.log(JSON.stringify({ path: req.url, hasApiKeyHeader: !!req.headers["x-api-key"], userAgent: req.headers["user-agent"] }));
   const q = (url.searchParams.get("query") || url.searchParams.get("search_terms") || "").toLowerCase();
   if (q === "timeout") return setTimeout(() => send(res, 200, { foods: [], products: [] }), 15000);
   if (q === "error") return send(res, 500, { error: "internal" });

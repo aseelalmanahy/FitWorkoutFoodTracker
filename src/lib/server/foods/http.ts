@@ -1,3 +1,4 @@
+import "server-only";
 import { ExternalFoodError, type ExternalSource } from "./types";
 
 export const DEFAULT_TIMEOUT_MS = 8000;

@@ -1,10 +1,11 @@
 import { route, notFound } from "@/lib/server/api";
 import { prisma } from "@/lib/server/db";
-import { foodToDto, getVisibleFood } from "@/lib/server/foods/service";
+import { foodToDto, getVisibleFood, isTrustedFood } from "@/lib/server/foods/service";
 
 export const GET = route<{ id: string }>(async (_req, { user, params }) => {
   const food = await getVisibleFood(user.id, params.id);
-  if (!food) throw notFound("Food");
+  // External rows not produced by the configured provider are not served as provider data.
+  if (!food || !isTrustedFood(food)) throw notFound("Food");
   return { food: foodToDto(food) };
 });
 

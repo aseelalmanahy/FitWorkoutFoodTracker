@@ -125,6 +125,7 @@ User 1─* FoodEntry (local date, meal, foodId → SetNull, per-100 snapshot,
                     serving label/amount, quantity, totals)
 User 1─* NutritionTarget (effectiveFrom date, kcal, protein/carbs/fat g, SUGGESTED|MANUAL)
 ```
+`Food.origin` (Phase 2.2) records the provider host that produced a cached row. Rows are reused only when it matches the configured endpoint, so stub or foreign data is never served as live.
 Unique constraints: `Food(source, sourceId)`, `FoodServing(foodId, label)`, `NutritionTarget(userId, effectiveFrom)`.
 
 ### Planned tables (Phases 3–4)
