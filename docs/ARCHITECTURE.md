@@ -115,15 +115,23 @@ Design notes:
 * Templates and sessions are decoupled. Deleting a plan keeps logged workouts (`templateId → NULL`).
 * Built-in exercises can't be deleted while referenced (`onDelete: Restrict`).
 
-### Planned tables (Phases 2–4)
+### Implemented in Phase 2
+
+```
+Food (source USDA|OPEN_FOOD_FACTS|CUSTOM, sourceId, userId NULL = shared cache,
+      per-100 g/ml kcal/protein/carbs/fat/fiber as Decimal, NULL = not reported)
+  1─* FoodServing (label, amount in g/ml)
+User 1─* FoodEntry (local date, meal, foodId → SetNull, per-100 snapshot,
+                    serving label/amount, quantity, totals)
+User 1─* NutritionTarget (effectiveFrom date, kcal, protein/carbs/fat g, SUGGESTED|MANUAL)
+```
+Unique constraints: `Food(source, sourceId)`, `FoodServing(foodId, label)`, `NutritionTarget(userId, effectiveFrom)`.
+
+### Planned tables (Phases 3–4)
 
 | Table | Purpose |
 |---|---|
-| `Food` | Cached food: source, sourceId (FDC ID / barcode), name, brand, per-100 g nutrients (kcal, protein, carbs, fat, fiber), serving sizes, fetchedAt |
-| `CustomFood` | User-created foods (also stored in `Food` with `source=CUSTOM`, `userId`) |
-| `MealEntry` | userId, local date, meal type (breakfast/lunch/dinner/snack), foodId, quantity (g), nutrient snapshot, `isEstimate`, source |
 | `FavoriteMeal` / `FavoriteMealItem` | Saved meals for one-tap logging |
-| `NutritionTarget` | Effective-dated kcal and macro targets (history kept for adaptive adjustment) |
 | `BodyMetric` | userId, measuredAt, kind (weight, waist, hips, chest, arm, thigh…), value (SI) |
 | `ProgressPhoto` | userId, takenAt, object-storage key (private, signed URL), pose |
 | `Upload` / `ImportDraft` | Uploaded file metadata, AI-extracted JSON draft, status (pending → reviewed → applied/discarded) |
@@ -136,7 +144,7 @@ Design notes:
 | Phase | Scope | Status |
 |---|---|---|
 | **1** | Auth, profile (with calorie estimate), exercise library, plans, weekly schedule, workout logging, history, progressive-overload analysis, PRs, per-exercise charts, Phase-1 dashboard | **Implemented** |
-| 2 | Nutrition dashboard, USDA and OFF search, barcode scanning, manual and custom foods, favourites, macro targets, adaptive calorie adjustment | Planned |
+| 2 | Nutrition dashboard, USDA and OFF search, barcode lookup (by number), custom foods, macro targets (effective-dated), food logging, nutrition history | **Implemented** (see `PHASE_2_PROGRESS.md`). Not yet: camera barcode scanning, favourite meals, adaptive calorie adjustment |
 | 3 | Camera meal analysis, PDF/image plan import with a review/edit/approve workflow | Planned |
 | 4 | Body metrics and photos, weight trend, weekly/monthly/long-term dashboard, AI assistant | Planned |
 
@@ -149,6 +157,8 @@ Design notes:
 | BMR | Mifflin-St Jeor (Mifflin et al., *Am J Clin Nutr* 1990;51:241-7): 10·kg + 6.25·cm − 5·age + 5 (men) / −161 (women) | In Frankenfield et al. (*J Am Diet Assoc* 2005;105:775-89) it predicted RMR within ±10 % for most, not all, adults. |
 | TDEE | BMR × activity factor (1.2 / 1.375 / 1.55 / 1.725 / 1.9) | Activity factors are coarse and add further uncertainty. |
 | Starting target | Fat loss: −15 % of TDEE, capped at −500 kcal/day, never below max(BMR, 1,200 kcal women / 1,500 kcal men). Gain: +10 %, capped at +350 kcal. Maintenance/strength: TDEE. | User can override. Described as a starting point. |
+| Macro targets (Phase 2) | Protein 1.6 g/kg (Morton et al., *Br J Sports Med* 2018); 2.0 g/kg when losing fat, referenced to goal weight if lower (Helms et al., *JISSN* 2014). Fat 25 % of energy, floor 0.5 g/kg. Carbohydrate = remaining energy ÷ 4. | Consistent by construction: 4P + 4C + 9F ≤ kcal, within 4 kcal. User-editable. |
+| Entry nutrition (Phase 2) | per-100 value × (servings × serving g/ml) ÷ 100, rounded to 0.01 at storage, totals summed from stored values | Missing source values stay NULL and are flagged as incomplete in totals |
 | Adaptive adjustment (Phase 2/4) | Back-calculate observed TDEE from mean intake and the change in *trend* weight over 2–4 weeks, using ≈7,700 kcal/kg as an approximation of tissue energy density | The energy density of weight change varies with body composition and adaptation (Hall, *Int J Obes* 2008). Adjust in small steps. |
 | Weight trend (Phase 4) | Exponentially weighted moving average of daily weigh-ins | Daily scale weight fluctuates with water and gut content. Change is reported from the trend, not single readings. |
 | Volume load | Σ load × reps over working sets (warm-ups excluded) | For unloaded bodyweight movements, total reps are compared instead. |

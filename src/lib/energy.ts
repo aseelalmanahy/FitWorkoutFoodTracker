@@ -114,3 +114,47 @@ export function suggestCalories(input: {
     rationale,
   };
 }
+
+// ─── Macronutrient targets ──────────────────────────────────────────────────
+/**
+ * Protein: 1.6 g/kg/day for muscle gain, strength and maintenance. This is the
+ * plateau estimate for resistance-trained adults in Morton et al.,
+ * Br J Sports Med 2018;52:376–84 (upper 95 % CI ≈ 2.2 g/kg). Fat loss uses
+ * 2.0 g/kg, because higher intakes help preserve lean mass in an energy
+ * deficit (Helms et al., JISSN 2014;11:20). For fat loss with a lower goal
+ * weight, the goal weight is the reference, so the target isn't inflated by
+ * excess body fat.
+ * Fat: 25 % of energy, with a floor of 0.5 g/kg.
+ * Carbohydrate: the remaining energy at 4 kcal/g.
+ * Energy is consistent by construction: 4P + 4C + 9F ≤ kcal, differing by
+ * less than 4 kcal (rounding).
+ */
+export const PROTEIN_G_PER_KG: Record<FitnessGoal, number> = {
+  FAT_LOSS: 2.0,
+  MUSCLE_GAIN: 1.6,
+  MAINTENANCE: 1.6,
+  STRENGTH: 1.6,
+};
+export const FAT_ENERGY_FRACTION = 0.25;
+export const FAT_MIN_G_PER_KG = 0.5;
+
+export interface MacroTargets {
+  kcal: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+}
+
+export function suggestMacros(input: { kcal: number; weightKg: number; goalWeightKg?: number | null; goal: FitnessGoal }): MacroTargets {
+  const refWeight =
+    input.goal === "FAT_LOSS" && input.goalWeightKg && input.goalWeightKg < input.weightKg ? input.goalWeightKg : input.weightKg;
+  let proteinG = Math.round(PROTEIN_G_PER_KG[input.goal] * refWeight);
+  let fatG = Math.round(Math.max((FAT_ENERGY_FRACTION * input.kcal) / 9, FAT_MIN_G_PER_KG * refWeight));
+  // Guard against very low energy targets: protein and fat must fit inside kcal.
+  if (proteinG * 4 + fatG * 9 > input.kcal) {
+    fatG = Math.floor(Math.max(0, input.kcal - proteinG * 4) / 9);
+    if (proteinG * 4 > input.kcal) proteinG = Math.floor(input.kcal / 4);
+  }
+  const carbsG = Math.floor((input.kcal - proteinG * 4 - fatG * 9) / 4);
+  return { kcal: input.kcal, proteinG, carbsG: Math.max(0, carbsG), fatG };
+}

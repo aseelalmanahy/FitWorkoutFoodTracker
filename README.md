@@ -1,7 +1,8 @@
 # FitWorkoutFoodTracker
 
 A mobile-first training, nutrition and progress tracker. The product spec is delivered in four phases.
-**Phase 1 (training foundation) is implemented.** The architecture, data model, required APIs and the
+**Phase 1 (training) and Phase 2 (nutrition tracking) are implemented.** Phase 2 progress and test evidence are in
+[`PHASE_2_PROGRESS.md`](PHASE_2_PROGRESS.md). The architecture, data model, required APIs and the
 plan for Phases 2–4 are in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Phase 1 features
@@ -20,6 +21,19 @@ plan for Phases 2–4 are in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 - **Dashboard:** today's scheduled workout, weekly completion ring, sets, volume, time, and recent PRs.
 - Light and dark themes (follows the system by default; can be overridden in Profile).
 
+## Phase 2 features
+
+- **Targets:** a suggested calorie target (Mifflin-St Jeor BMR × activity factor) plus protein, carbohydrate and fat targets derived from the profile, or your own targets.
+  Carbohydrate is calculated from the remaining energy, so 4P + 4C + 9F always matches the calorie target. Targets are effective-dated: changing them never alters past days.
+  Manual targets are never overwritten by profile changes.
+- **Food search:** your custom foods, **USDA FoodData Central** (generic foods) and **Open Food Facts** (packaged foods), searched in parallel.
+  Results show per-100 g/ml values and serving sizes. Missing values are shown as "—" and are never assumed to be 0. An 8–14 digit query does a barcode lookup.
+  If one source fails or times out, the other results still show. External foods are cached once per source id.
+- **Logging:** add foods to breakfast, lunch, dinner or snacks. Choose a serving or enter grams/ml, adjust the quantity, add several foods in a row, then edit or delete entries.
+  Each entry stores a nutrition snapshot, so history stays accurate even if a source's data changes later.
+- **Dashboard:** calories target / consumed / remaining (shown as "over" when exceeded, never negative), macro progress bars, meal groups, daily totals, and day navigation.
+- **History:** weekly averages (over logged days), calories vs. each day's historical target, protein consistency (days ≥ 90 % of target), an 8-week trend, and week navigation.
+
 ## Stack
 
 Next.js 15 (App Router) · React 19 · TypeScript · Tailwind CSS 4 · PostgreSQL · Prisma 6 · Zod 4 · Recharts · Vitest
@@ -35,6 +49,9 @@ npm run db:seed                 # built-in exercise library
 npm run dev                     # http://localhost:3000
 ```
 
+Set `FDC_API_KEY` in `.env` to enable USDA search (free key: https://fdc.nal.usda.gov/api-key-signup).
+Open Food Facts needs no key. Set `OFF_CONTACT` so requests identify your deployment.
+
 ## Scripts
 
 | Command | Purpose |
@@ -43,7 +60,14 @@ npm run dev                     # http://localhost:3000
 | `npm run build && npm start` | Production build and server |
 | `npm test` | Unit tests for energy equations, overload/PR logic and time-zone handling |
 | `npm run lint` | Type-check |
-| `node scripts/e2e-smoke.cjs` | Playwright end-to-end smoke test against a running server (`BASE_URL`) |
+| `node scripts/e2e-smoke.cjs` | Playwright end-to-end smoke test of Phase 1 workouts against a running server (`BASE_URL`) |
+| `npm run stub:food-apis` | Local stand-in for USDA/OFF (documented response shapes) for offline testing |
+| `npm run test:api` | Nutrition API integration tests (21) against a running server using the stub (`BASE_URL`) |
+| `node scripts/e2e-nutrition.cjs` | Playwright end-to-end test of Phase 2 nutrition flows |
+
+To run the Phase 2 suites offline: `npm run stub:food-apis` in one terminal, then
+`FDC_BASE_URL=http://localhost:4010/fdc/v1 OFF_BASE_URL=http://localhost:4010/off FDC_API_KEY=stub npm run build && npm start`,
+then `BASE_URL=http://localhost:3000 npm run test:api`.
 
 ## Project layout
 

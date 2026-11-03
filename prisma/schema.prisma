@@ -28,6 +28,9 @@ model User {
   templates        WorkoutTemplate[]
   scheduleSlots    ScheduleSlot[]
   workoutSessions  WorkoutSession[]
+  foods            Food[]
+  foodEntries      FoodEntry[]
+  nutritionTargets NutritionTarget[]
 }
 
 /// Server-side session. `id` is the SHA-256 hash of the random cookie token,
@@ -253,4 +256,142 @@ model SetEntry {
   sessionExercise SessionExercise @relation(fields: [sessionExerciseId], references: [id], onDelete: Cascade)
 
   @@index([sessionExerciseId, setNumber])
+}
+
+// ─── Nutrition (Phase 2) ────────────────────────────────────────────────────
+//
+// Nutrient convention: Food stores values per 100 g (or 100 ml) of the food,
+// as published by USDA FoodData Central and Open Food Facts. NULL means
+// "not reported by the source", which is distinct from 0.
+
+enum FoodSource {
+  USDA
+  OPEN_FOOD_FACTS
+  CUSTOM
+}
+
+enum BasisUnit {
+  G
+  ML
+}
+
+enum MealType {
+  BREAKFAST
+  LUNCH
+  DINNER
+  SNACK
+}
+
+enum TargetSource {
+  SUGGESTED
+  MANUAL
+}
+
+/// Cached external food or a user's custom food.
+/// External foods: userId NULL, unique on (source, sourceId).
+/// Custom foods: userId = owner, sourceId = generated id.
+model Food {
+  id          String     @id @default(cuid())
+  source      FoodSource
+  /// USDA fdcId, Open Food Facts barcode, or a generated id for custom foods.
+  sourceId    String
+  userId      String?
+  name        String
+  brand       String?
+  barcode     String?
+  /// Source-specific category, e.g. USDA "Foundation", "Branded".
+  dataType    String?
+  basisUnit   BasisUnit  @default(G)
+  kcalPer100    Decimal? @db.Decimal(9, 3)
+  proteinPer100 Decimal? @db.Decimal(9, 3)
+  carbsPer100   Decimal? @db.Decimal(9, 3)
+  fatPer100     Decimal? @db.Decimal(9, 3)
+  fiberPer100   Decimal? @db.Decimal(9, 3)
+  /// When the external record was last fetched from its source.
+  fetchedAt   DateTime?
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+
+  user     User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  servings FoodServing[]
+  entries  FoodEntry[]
+
+  @@unique([source, sourceId])
+  @@index([barcode])
+  @@index([userId, name])
+}
+
+/// A named serving, expressed in the food's basis unit (g or ml).
+model FoodServing {
+  id        String  @id @default(cuid())
+  foodId    String
+  label     String
+  amount    Decimal @db.Decimal(9, 3)
+  isDefault Boolean @default(false)
+  position  Int     @default(0)
+
+  food Food @relation(fields: [foodId], references: [id], onDelete: Cascade)
+
+  @@unique([foodId, label])
+}
+
+/// One logged food. Nutrition per 100 units is snapshotted so history is
+/// unaffected by later changes to the cached food; totals are stored for
+/// aggregation and are always recomputed from the snapshot on edit.
+model FoodEntry {
+  id       String   @id @default(cuid())
+  userId   String
+  /// Local calendar date in the user's time zone.
+  date     DateTime @db.Date
+  mealType MealType
+  foodId   String?
+
+  foodName      String
+  brand         String?
+  basisUnit     BasisUnit
+  kcalPer100    Decimal? @db.Decimal(9, 3)
+  proteinPer100 Decimal? @db.Decimal(9, 3)
+  carbsPer100   Decimal? @db.Decimal(9, 3)
+  fatPer100     Decimal? @db.Decimal(9, 3)
+  fiberPer100   Decimal? @db.Decimal(9, 3)
+
+  servingLabel  String
+  /// Size of one serving in basis units (g/ml).
+  servingAmount Decimal  @db.Decimal(9, 3)
+  /// Number of servings consumed.
+  quantity      Decimal  @db.Decimal(8, 3)
+
+  kcal    Decimal? @db.Decimal(10, 2)
+  protein Decimal? @db.Decimal(10, 2)
+  carbs   Decimal? @db.Decimal(10, 2)
+  fat     Decimal? @db.Decimal(10, 2)
+  fiber   Decimal? @db.Decimal(10, 2)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user User  @relation(fields: [userId], references: [id], onDelete: Cascade)
+  food Food? @relation(fields: [foodId], references: [id], onDelete: SetNull)
+
+  @@index([userId, date])
+  @@index([userId, foodId])
+}
+
+/// Effective-dated targets. The target for date D is the row with the latest
+/// effectiveFrom <= D, so changing a target never rewrites past days.
+model NutritionTarget {
+  id            String       @id @default(cuid())
+  userId        String
+  effectiveFrom DateTime     @db.Date
+  kcal          Int
+  proteinG      Int
+  carbsG        Int
+  fatG          Int
+  source        TargetSource
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, effectiveFrom])
 }

@@ -69,8 +69,6 @@ export function ProfileForm({ initial, submitLabel, redirectTo }: { initial: Pro
   const toDisp = (kg: number | null | undefined, u: UnitSystem) => (kg == null ? "" : String(round(u === "IMPERIAL" ? kgToLb(kg) : kg, 1)));
   const [weight, setWeight] = useState(toDisp(initial?.currentWeightKg, units));
   const [goalWeight, setGoalWeight] = useState(toDisp(initial?.goalWeightKg, units));
-  const [override, setOverride] = useState(initial?.calorieTargetOverride != null ? String(initial.calorieTargetOverride) : "");
-  const [useOverride, setUseOverride] = useState(initial?.calorieTargetOverride != null);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -109,7 +107,7 @@ export function ProfileForm({ initial, submitLabel, redirectTo }: { initial: Pro
     setSaved(false);
     const w = toKg(weight);
     const gw = goalWeight.trim() ? toKg(goalWeight) : null;
-    const ov = useOverride && override.trim() ? Math.round(parseNum(override)) : null;
+    const ov = initial?.calorieTargetOverride ?? null; // legacy field; targets are managed in Nutrition
     if (!name.trim()) return setError("Please enter your name.");
     if (!birthDate) return setError("Please enter your date of birth.");
     if (!Number.isFinite(computedHeightCm) || computedHeightCm < 100 || computedHeightCm > 250) return setError("Please enter a valid height.");
@@ -219,14 +217,10 @@ export function ProfileForm({ initial, submitLabel, redirectTo }: { initial: Pro
           These are estimates from the Mifflin-St Jeor equation × an activity factor. Individual needs commonly differ by
           ±10% or more. Treat the number as a starting point and adjust it based on your actual weight trend over 2–4 weeks.
         </p>
-        <label className="mt-4 flex items-center gap-2 text-sm">
-          <input type="checkbox" checked={useOverride} onChange={(e) => setUseOverride(e.target.checked)} className="h-4 w-4 accent-[var(--accent)]" />
-          Use my own calorie target
-        </label>
-        {useOverride && (
-          <div className="mt-2">
-            <Input inputMode="numeric" placeholder="kcal per day" value={override} onChange={(e) => setOverride(e.target.value)} />
-          </div>
+        {initial ? (
+          <a href="/nutrition/targets" className="mt-4 inline-block text-sm font-semibold text-accent-ink">Set calorie and macro targets →</a>
+        ) : (
+          <p className="mt-3 text-xs text-muted">You can adjust calorie and macro targets in Nutrition → Targets after setup.</p>
         )}
       </Card>
 

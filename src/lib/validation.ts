@@ -102,3 +102,66 @@ export const setSchema = z.object({
   rpe: z.number().min(1).max(10).nullable().optional(),
 });
 export const updateSetSchema = setSchema.partial();
+
+// ─── Nutrition (Phase 2) ────────────────────────────────────────────────────
+
+export const isoDateSchema = z.iso.date();
+export const mealTypeSchema = z.enum(["BREAKFAST", "LUNCH", "DINNER", "SNACK"]);
+export const externalSourceSchema = z.enum(["USDA", "OPEN_FOOD_FACTS"]);
+
+export const foodSearchQuerySchema = z.object({
+  q: z.string().trim().min(2, "Enter at least 2 characters").max(100),
+  sources: z
+    .string()
+    .optional()
+    .transform((v) => (v ? v.split(",") : ["CUSTOM", "USDA", "OPEN_FOOD_FACTS"]))
+    .pipe(z.array(z.enum(["CUSTOM", "USDA", "OPEN_FOOD_FACTS"])).min(1)),
+});
+
+export const resolveFoodSchema = z.object({
+  source: externalSourceSchema,
+  sourceId: z.string().trim().min(1).max(40).regex(/^[0-9A-Za-z_-]+$/),
+});
+
+const nutrientValue = z.number().min(0).max(10000);
+
+/** Custom foods are entered as printed on a label: per serving. */
+export const customFoodSchema = z.object({
+  name: z.string().trim().min(1).max(120),
+  brand: z.string().trim().max(80).nullable().optional(),
+  barcode: z.string().trim().regex(/^\d{6,14}$/, "Barcode must be 6–14 digits").nullable().optional(),
+  basisUnit: z.enum(["G", "ML"]),
+  servingLabel: z.string().trim().min(1).max(80),
+  servingAmount: z.number().positive().max(5000),
+  perServing: z.object({
+    kcal: nutrientValue,
+    protein: nutrientValue,
+    carbs: nutrientValue,
+    fat: nutrientValue,
+    fiber: nutrientValue.nullable().optional(),
+  }),
+});
+
+export const createFoodEntrySchema = z.object({
+  date: isoDateSchema,
+  mealType: mealTypeSchema,
+  foodId: z.string().min(1).max(40),
+  /** A FoodServing id, or null to log by raw grams/ml (quantity = amount). */
+  servingId: z.string().min(1).max(40).nullable(),
+  quantity: z.number().positive().max(5000),
+});
+
+export const updateFoodEntrySchema = z
+  .object({
+    mealType: mealTypeSchema.optional(),
+    date: isoDateSchema.optional(),
+    servingId: z.string().min(1).max(40).nullable().optional(),
+    quantity: z.number().positive().max(5000).optional(),
+  })
+  .refine((v) => Object.keys(v).length > 0, "Nothing to update");
+
+export const nutritionTargetSchema = z.object({
+  kcal: z.number().int().min(800).max(8000),
+  proteinG: z.number().int().min(0).max(600),
+  fatG: z.number().int().min(0).max(400),
+});

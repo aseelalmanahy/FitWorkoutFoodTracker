@@ -1,0 +1,126 @@
+# Phase 2 — Nutrition Tracking: Progress
+
+_Last updated: 2026-11-03_
+
+## 0. Repository audit (completed)
+
+State at start of Phase 2: commit `419b4a6` (Phase 1).
+
+| Area | Findings | Phase 2 reuse |
+|---|---|---|
+| Stack | Next.js 15 App Router, React 19, TS strict, Tailwind 4, Prisma 6, PostgreSQL 16, Zod 4, Recharts, Vitest | Same stack. No new runtime dependencies planned. |
+| Auth | `src/lib/server/auth.ts`: DB sessions, `getCurrentUser`, `requireUser`; `requireProfile` in `src/lib/server/profile.ts` | All nutrition pages/APIs use these |
+| API conventions | `route()` / `parseBody()` / `HttpError` / `notFound()` in `src/lib/server/api.ts`: origin check → auth → zod → JSON; errors `{error, details?}`; cross-user access → 404 | Reused for every endpoint |
+| Validation | `src/lib/validation.ts` (shared client/server zod) | Nutrition schemas added alongside |
+| Energy logic | `src/lib/energy.ts`: Mifflin-St Jeor BMR, TDEE multipliers, `suggestCalories` (capped deficit/surplus, floor) | Extended with macro targets, not replaced |
+| Profile | `Profile.calorieTargetOverride` (Phase 1 manual kcal) | Used to seed the first nutrition target; target editing moves to Nutrition |
+| Time | `src/lib/time.ts`: tz-aware `localParts`, `localWeekRange`, `zonedMidnight` | Local calendar dates for food entries |
+| UI kit | `src/components/ui.tsx` (Button, Card, Field, Input, Select, ProgressBar, Stat, EmptyState…), bottom nav already has `/nutrition` | Reused |
+| Nutrition today | `/nutrition` = placeholder showing calorie estimate only | Replaced by real dashboard |
+| Tests | Vitest unit tests (26), Playwright smoke script `scripts/e2e-smoke.cjs` | Extended |
+| Lint | `npm run lint` = `tsc --noEmit`. ESLint is not configured. | Same |
+
+**Environment constraint:** the session's network policy blocks `api.nal.usda.gov`, `world.openfoodfacts.org` and `search.openfoodfacts.org`
+(proxy `connect_rejected`). Live calls to these APIs therefore can't be executed here. The clients follow the documented
+response formats. They are tested with unit-test payloads and, end to end, against local stub servers through the
+`FDC_BASE_URL` / `OFF_BASE_URL` env overrides.
+
+## Task checklist
+
+| # | Task | Status |
+|---|---|---|
+| 1 | Prisma models: Food, FoodServing, FoodEntry, MealType, NutritionTarget, FoodSource + migration | ✅ |
+| 2 | Pure nutrition logic: serving scaling, totals, macro targets, target-by-date, history aggregation + unit tests | ✅ |
+| 3 | External clients: USDA FDC + Open Food Facts (search, detail, barcode), timeouts, missing values, caching + unit tests | ✅ |
+| 4 | Food APIs: search (merged sources + local), resolve/cache external food, custom food, barcode, recent | ✅ |
+| 5 | Nutrition target APIs: get effective target, set manual, apply suggestion, history-preserving, profile integration | ✅ |
+| 6 | Food entry APIs: create/edit/delete, day summary, history | ✅ |
+| 7 | UI: nutrition dashboard (date nav, targets, progress, meals, totals, edit/delete) | ✅ |
+| 8 | UI: add-food flow (search, select, serving, quantity, multi-add, custom food) | ✅ |
+| 9 | UI: targets editor | ✅ |
+| 10 | UI: history (daily totals, weekly averages, kcal trend, protein consistency, navigation) | ✅ |
+| 11 | Integration/E2E tests: auth, isolation, CRUD, totals, history, external failures (stubbed), Phase 1 regression | ✅ |
+| 12 | Full checks (typecheck, unit, build, migrations), docs, final report | ✅ |
+
+## Task log
+
+_(appended after each task)_
+
+### Task 1 — Database models ✅
+- Modified `prisma/schema.prisma`: enums `FoodSource`, `BasisUnit`, `MealType`, `TargetSource`; models `Food`, `FoodServing`, `FoodEntry`, `NutritionTarget`; back-relations on `User`.
+- Created migration `prisma/migrations/20261103164718_nutrition/` (4 tables).
+- Design: nutrients are `Decimal` (exact), stored per 100 g/ml with NULL = not reported. `Food @@unique([source, sourceId])` prevents duplicate cached foods. Entries snapshot per-100 nutrition so history doesn't change when a cached food is refreshed. Targets are effective-dated (`@@unique([userId, effectiveFrom])`).
+- Tests: `prisma migrate dev` applied ✅; `tsc --noEmit` ✅; existing 26 unit tests ✅ (no Phase 1 regression).
+
+### Task 2 — Pure nutrition logic ✅
+- Created `src/lib/nutrition.ts`: serving scaling (`entryNutrients`), totals with incomplete-nutrient flags, `remaining` (over-target is reported as `over`, never as negative remaining), capped progress, ISO calendar-date helpers, `targetForDate` (effective-dated), `carbsFromRemainder`, `summarizePeriod` (averages over logged days, protein consistency ≥ 90 % of target, historical per-day targets).
+- Modified `src/lib/energy.ts` (additive only): `suggestMacros`. Protein 1.6 g/kg (2.0 g/kg for fat loss, goal-weight reference). Fat 25 % of energy with a floor of 0.5 g/kg. Carbs are the remainder. Guaranteed 4P+4C+9F ≤ kcal, within 4 kcal.
+- Created `src/lib/nutrition.test.ts` (22 tests).
+- Tests: `vitest run` → 48/48 passed ✅; `tsc` ✅.
+
+### Task 3 — External food clients ✅
+- Created `src/lib/server/foods/types.ts` (normalised food shape, `ExternalFoodError`, safe number parsing), `http.ts` (fetch with timeout and error mapping, TTL cache), `usda.ts`, `openfoodfacts.ts`.
+- USDA: generic data types only (Foundation, SR Legacy, Survey) to avoid duplicating OFF packaged foods. The key is sent in the `X-Api-Key` header (never in URLs). Nutrients are mapped by FDC nutrient id with unit checks (kJ energy ignored) and Atwater-energy fallback. Portions and household measures become servings.
+- OFF: full-text search (`/cgi/search.pl`) and barcode product lookup (`/api/v2/product/{code}`). The identifying User-Agent is configurable. g/ml basis. Exact kJ→kcal conversion only when kcal is absent. Unnamed products are dropped.
+- Missing values are kept as `null` and never set to 0. Searches are cached in memory for 10 min per query.
+- Modified `vitest.config.ts`: alias `server-only` to a stub so server modules are unit-testable.
+- Created `src/lib/server/foods/clients.test.ts` (17 tests: normalisation, missing values, kJ, ml basis, header auth, cache, empty results, not-configured, timeout, HTTP 500/429, invalid body, network failure, barcode found/not-found/invalid).
+- Tests: `vitest run` → 65/65 passed ✅; `tsc` ✅. **Live API calls not executed** (network policy blocks the hosts).
+
+### Task 4 — Food service & APIs ✅
+- Created `src/lib/server/foods/service.ts`: DTO mapping (Decimal→number), `upsertExternalFood` (dedupe on `source+sourceId`, servings replaced in a transaction), `resolveExternalFood` (30-day cache, falls back to the cached copy if a refresh fails), merged `searchFoods` (custom + USDA + OFF in parallel, per-source errors, barcode-style queries routed to the OFF product lookup, cached-food ids attached), `recentFoods`.
+- Created routes: `GET /api/foods/search`, `POST /api/foods/resolve`, `GET /api/foods/barcode/[code]`, `GET /api/foods/recent`, `GET|POST /api/foods` (custom foods, entered per serving and stored per 100), `GET|DELETE /api/foods/[id]`.
+- Modified `src/lib/validation.ts` (additive): nutrition zod schemas.
+- Created `scripts/stub-food-apis.cjs`: local server returning documented FDC/OFF response shapes (plus `timeout` and `error` triggers) for automated tests.
+- Tests (manual curl against dev server + stub): search ✅, source error isolation (`errors[]` with 200) ✅, barcode query ✅, resolve + cache ✅, unknown id → 404 ✅, short query → 400 ✅, unauthenticated → 401 ✅. Automated coverage follows in Task 11.
+
+### Task 5 — Nutrition targets ✅
+- Created `src/lib/server/nutrition/targets.ts`: `getTargets` seeds the initial target lazily from the profile (the Phase 1 `calorieTargetOverride` → MANUAL, otherwise the suggestion → SUGGESTED), starting at the earliest logged day. Also `setManualTarget` (carbs derived from the remainder; protein+fat energy over the kcal target → 400), `applySuggestion`, and `syncSuggestedTarget` (on profile change, only SUGGESTED targets follow; MANUAL targets are never overwritten). Changes upsert a row effective **today**, so past days keep their target.
+- Created routes `GET|PUT /api/nutrition/targets`, `POST /api/nutrition/targets/suggestion`.
+- Modified `src/app/api/profile/route.ts` (one call added: `syncSuggestedTarget` after save).
+- Tests (curl): seeded target ✅, inconsistent manual target → 400 ✅, manual target with derived carbs (2300/160/70 → 257 g) ✅.
+
+### Task 6 — Food entries, day summary, history ✅
+- Created `src/lib/server/nutrition/entries.ts` and `src/lib/server/nutrition/profile.ts`. Entries snapshot per-100 nutrition and recompute from that snapshot on edit. Raw g/ml logging uses `servingId: null`. A serving must belong to the entry's food. Dates are limited to 2000-01-01 … tomorrow (local). Ownership uses `where: {id, userId}` (other users get 404).
+- `daySummary`: meals (breakfast/lunch/dinner/snacks) with per-meal totals, day totals with incomplete flags, that day's historical target, remaining/over and progress.
+- `history`: SQL `groupBy` per date with each day's own target, plus `summarizePeriod`.
+- Created routes `POST /api/nutrition/entries`, `PATCH|DELETE /api/nutrition/entries/[id]`, `GET /api/nutrition/day`, `GET /api/nutrition/history`.
+- Tests (curl): 1.5 × 100 g banana = 133.5 kcal ✅; edit to 200 g raw + meal change = 178 kcal ✅; day totals/remaining ✅; history average ✅; delete 200 then 404 ✅.
+
+### Tasks 7–10 — UI ✅
+- Created components in `src/components/nutrition/`: `macro-bar.tsx` (bar capped at 100 %, explicit "over target" state), `date-nav.tsx`, `sheet.tsx`, `portion-editor.tsx` (serving/grams/quantity/meal with live preview; missing values shown as "—" and not counted as 0), `meal-list.tsx` (meal groups, per-entry contributions, edit/delete sheet), `food-search.tsx` (debounced search, source filters, recent foods, grouped results with attribution, incomplete/no-data badges, per-source errors, multi-add, custom-food form), `targets-editor.tsx` (carbs derived, energy check shown, apply suggestion), `history-charts.tsx`.
+- Created pages: `/nutrition` (replaced the Phase 1 placeholder with the dashboard), `/nutrition/add`, `/nutrition/targets`, `/nutrition/history`.
+- Modified `src/components/profile/profile-form.tsx`: removed the Phase 1 calorie-override checkbox (targets are now managed in one place, Nutrition → Targets) and added a link there. The stored override is preserved and used to seed the first target.
+- Modified `src/lib/nutrition.ts` (additive): display formatters, `relativeDayLabel`.
+- Created `scripts/e2e-nutrition.cjs` (Playwright).
+- Tests: `e2e-nutrition.cjs` against the **production build** + stub APIs → **ALL UI CHECKS PASSED**. Covers: targets, search → select → add, serving change (1.5 × 100 g), multiple foods across meals, raw grams, OFF packaged food, incomplete badge, source-error message, custom food, totals (764 kcal / 84.6 g P), edit (→ 599), delete (→ 518.5 shown as 519), over-target display without negative remaining, previous-day navigation, weekly averages, week navigation, Phase 1 workouts page. No browser console errors.
+- Fixes from visual review: an empty-results message when sources fail, and a "days so far" label in the current week.
+- Note: the first run failed because the Next.js **dev** indicator overlapped the sheet's Delete button. Running against a production build resolved it (not an app bug).
+
+### Task 11 — Integration & E2E tests ✅
+- Created `scripts/nutrition-api.test.cjs` (node:test, 21 tests, real server + PostgreSQL + Prisma checks). Covers: auth required on all 14 nutrition endpoints; cross-origin rejection; merged search with source ids; validation; empty results; barcode queries; per-source HTTP failure isolation; timeouts (bounded < 12 s); missing values kept null; cache dedupe across users; targets (seeding, manual, derived carbs, inconsistency → 400); manual targets survive profile changes; suggested targets follow profile changes; entry scaling (1.5 × 100 g = 133.5 kcal; 2 × 15 g Nutella = 161.7 kcal; 37 g = 32.93 kcal); entry validation; day/macro totals with meal grouping; edit recompute; snapshot stability when the cached food changes; over-target; **user isolation** (B can't read, search, log, edit or delete A's foods or entries; B's day/history/targets/recent are unaffected); historical reporting with per-day targets; delete; custom-food deletion keeps the entry snapshot.
+- Added npm scripts `test:api`, `test:e2e`, `stub:food-apis`.
+- Results (production build on :3200, stub APIs on :4010): `node --test scripts/nutrition-api.test.cjs` → **21/21 pass** (one test-setup bug fixed first: the test moved the only target row). `e2e-nutrition.cjs` → **ALL UI CHECKS PASSED**. Phase 1 regression `e2e-smoke.cjs` → same results as the Phase 1 baseline (badges Improved/Improved/Down, 5 PRs, isolation 404s, no browser errors).
+- Observed: running the API tests then the smoke test from one IP hits the Phase 1 registration throttle (10/15 min → 429). This is expected behaviour, and the server was restarted between suites.
+
+### Task 12 — Full checks & docs ✅
+| Check | Command | Result |
+|---|---|---|
+| Type check / lint | `npm run lint` (`tsc --noEmit`; the project has no ESLint) | ✅ no errors |
+| Unit tests | `npx vitest run` | ✅ 5 files, **65/65** passed (26 Phase 1 + 39 Phase 2) |
+| Production build | `npx next build` | ✅ compiled successfully |
+| Migrations, fresh DB | `prisma migrate deploy` on an empty database + seed | ✅ 3 migrations applied; seed ok |
+| Schema drift | `prisma migrate diff --from-migrations … --to-schema-datamodel …` | ✅ "No difference detected" |
+| API integration | `node --test scripts/nutrition-api.test.cjs` (final build) | ✅ **21/21** |
+| Nutrition UI E2E | `node scripts/e2e-nutrition.cjs` (final build) | ✅ ALL UI CHECKS PASSED |
+| Phase 1 regression | `node scripts/e2e-smoke.cjs` (final build) | ✅ same outcome as the Phase 1 baseline, no browser errors |
+
+- Docs updated: `README.md`, `docs/ARCHITECTURE.md`, `.env.example`.
+
+## Known issues / not done
+1. **Live USDA / Open Food Facts calls were not executed.** This environment's network policy blocks `api.nal.usda.gov`, `world.openfoodfacts.org` and `search.openfoodfacts.org`. The clients were built to the documented formats and tested with mocked fetch and a local stub only. Verify against the live APIs with a real `FDC_API_KEY` before release.
+2. Open Food Facts full-text search uses the legacy `/cgi/search.pl` endpoint, which OFF rate-limits strictly (search requests per minute per IP). Results are cached in memory for 10 minutes. A shared cache (DB/Redis) is advisable for multi-instance deployments.
+3. Search-result cache and the Phase 1 rate limiter are in-memory (single instance).
+4. Barcode support covers lookup by typed number (`/api/foods/barcode/[code]` and digit queries). Camera scanning isn't built, though the data model and endpoint support it.
+5. Not in Phase 2 scope (unchanged): favourite meals, adaptive calorie adjustment from weight trend, and all AI features.
+6. `npm audit`: the pre-existing `deepmerge-ts` advisory in the Prisma CLI (dev-time only) is still present. No new dependencies were added in Phase 2.
