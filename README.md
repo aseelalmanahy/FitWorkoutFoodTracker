@@ -65,9 +65,24 @@ Open Food Facts needs no key. Set `OFF_CONTACT` so requests identify your deploy
 | `npm run test:api` | Nutrition API integration tests (21) against a running server using the stub (`BASE_URL`) |
 | `node scripts/e2e-nutrition.cjs` | Playwright end-to-end test of Phase 2 nutrition flows |
 
-To run the Phase 2 suites offline: `npm run stub:food-apis` in one terminal, then
-`FDC_BASE_URL=http://localhost:4010/fdc/v1 OFF_BASE_URL=http://localhost:4010/off FDC_API_KEY=stub npm run build && npm start`,
-then `BASE_URL=http://localhost:3000 npm run test:api`.
+### Running the integration and E2E suites
+
+Use a **separate test database**. With the stub, the food cache would otherwise store stub data under real USDA/OFF ids in your dev database.
+Playwright is a dev dependency (`npm ci` installs it). Browsers come from `npx playwright install chromium` (or a pre-installed `PLAYWRIGHT_BROWSERS_PATH`).
+
+```bash
+createdb fitdb_test
+export DATABASE_URL="postgresql://fit:fitdev@localhost:5432/fitdb_test?schema=public"
+npx prisma migrate deploy && npm run db:seed
+npm run stub:food-apis &                       # :4010, documented USDA/OFF response shapes
+FDC_BASE_URL=http://localhost:4010/fdc/v1 OFF_BASE_URL=http://localhost:4010/off FDC_API_KEY=stub \
+  npm run build && npx next start -p 3000 &
+BASE_URL=http://localhost:3000 npm run test:api
+BASE_URL=http://localhost:3000 node scripts/e2e-nutrition.cjs
+BASE_URL=http://localhost:3000 node scripts/e2e-smoke.cjs
+```
+Each suite registers new accounts. The server's in-memory sign-up throttle (10 per IP per 15 min) means you should
+restart the server between suites.
 
 ## Project layout
 

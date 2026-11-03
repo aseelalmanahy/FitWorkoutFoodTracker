@@ -1,6 +1,7 @@
 // End-to-end smoke test of the Phase 1 flow (register → plan → schedule → log two workouts → progress).
 // Usage: BASE_URL=http://localhost:3000 node scripts/e2e-smoke.cjs   (requires playwright)
 const { chromium } = require('playwright');
+const assert = require('node:assert/strict');
 const SHOTS = (process.env.SHOTS_DIR || require('os').tmpdir()) + '/';
 const BASE = process.env.BASE_URL || 'http://localhost:3000';
 (async () => {
@@ -15,6 +16,7 @@ const BASE = process.env.BASE_URL || 'http://localhost:3000';
 
   await page.goto(BASE + '/dashboard');
   console.log('unauth redirect ->', page.url());
+  assert.match(page.url(), /\/login$/, 'unauthenticated users are redirected to login');
   await page.goto(BASE + '/register');
   await page.fill('input[name=email]', email);
   await page.fill('input[name=password]', 'correct horse battery');
@@ -87,11 +89,18 @@ const BASE = process.env.BASE_URL || 'http://localhost:3000';
   await doWorkout({ 'Dumbbell Incline Press': [[50, 12], [50, 10], [50, 9]], 'Lat Pulldown': [[130, 8], [130, 8]], 'Pull-Up': [[0, 7], [0, 6]] });
   await page.screenshot({ path: SHOTS + '07-logger-compare.png', fullPage: true });
   const badges = await page.locator('span.rounded-full').allInnerTexts();
-  console.log('live badges:', badges.filter(b => /Improved|Down|Matched|Mixed|Baseline/.test(b)));
+  const live = badges.filter(b => /Improved|Down|Matched|Mixed|Baseline/.test(b)).map(b => b.replace(/\W+/g, ' ').trim());
+  console.log('live badges:', live);
+  assert.deepEqual(live, ['Improved', 'Improved', 'Down'], 'overload status: reps up, weight up, reps down');
   await page.getByRole('button', { name: 'Finish' }).click();
   await page.waitForURL('**/workouts/history/**?done=1');
   await page.screenshot({ path: SHOTS + '08-summary.png', fullPage: true });
-  console.log('summary text:', (await page.locator('main').innerText()).slice(0, 600).replace(/\n+/g, ' | '));
+  const summary = await page.locator('main').innerText();
+  console.log('summary text:', summary.slice(0, 600).replace(/\n+/g, ' | '));
+  assert.match(summary, /You set 5 personal records/);
+  assert.match(summary, /More reps at the same weight/);
+  assert.match(summary, /Weight increased/);
+  assert.match(summary, /Fewer reps at the same weight/);
 
   await page.goto(BASE + '/progress');
   await page.screenshot({ path: SHOTS + '09-progress.png', fullPage: true });
@@ -115,6 +124,7 @@ const BASE = process.env.BASE_URL || 'http://localhost:3000';
   // Security checks: cross-origin POST rejected, other-user access denied
   const csrf = await page.evaluate(async () => (await fetch('/api/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"name":"x"}' })).status);
   console.log('same-origin POST start workout (expect 200):', csrf);
+  assert.equal(csrf, 200);
   const ctx2 = await browser.newContext();
   const p2 = await ctx2.newPage();
   await p2.goto(BASE + '/register');
@@ -125,8 +135,12 @@ const BASE = process.env.BASE_URL || 'http://localhost:3000';
   const sid = firstUrl.split('/').pop();
   const st = await p2.evaluate(async (sid) => (await fetch('/api/sessions/' + sid)).status, sid);
   console.log('other user GET session (expect 404):', st);
+  assert.equal(st, 404);
   const st2 = await p2.evaluate(async (sid) => (await fetch('/api/sessions/' + sid, { method: 'DELETE' })).status, sid);
   console.log('other user DELETE session (expect 404):', st2);
+  assert.equal(st2, 404);
   console.log('errors:', errors);
+  assert.deepEqual(errors, [], 'no browser errors');
+  console.log('ALL PHASE 1 CHECKS PASSED');
   await browser.close();
 })().catch(e => { console.error(e); process.exit(1); });

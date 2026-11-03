@@ -124,3 +124,50 @@ _(appended after each task)_
 4. Barcode support covers lookup by typed number (`/api/foods/barcode/[code]` and digit queries). Camera scanning isn't built, though the data model and endpoint support it.
 5. Not in Phase 2 scope (unchanged): favourite meals, adaptive calorie adjustment from weight trend, and all AI features.
 6. `npm audit`: the pre-existing `deepmerge-ts` advisory in the Prisma CLI (dev-time only) is still present. No new dependencies were added in Phase 2.
+
+---
+
+# Phase 2.1 — Stabilization & verification pass (2026-11-03)
+
+Scope: stabilization only. No Phase 3 work and no feature rewrites.
+
+## Fixed
+| # | Issue | Fix |
+|---|---|---|
+| 1 | E2E scripts `require('playwright')` but Playwright wasn't a project dependency. It only resolved via a machine-global `NODE_PATH` (`/opt/node-tools`). | Added `playwright@1.63.0` (exact pin, matching the pre-installed Chromium build `chromium-1243`) to `devDependencies`. `package-lock.json` updated by `npm install`. Verified with `rm -rf node_modules && npm ci`, then running with `NODE_PATH` unset: it resolves `./node_modules/playwright` 1.63.0. |
+| 2 | `scripts/e2e-smoke.cjs` (Phase 1) printed results but asserted nothing, so it exited 0 even on wrong results. | Added `node:assert` checks (login redirect, overload badges Improved/Improved/Down, 5 PRs, headlines, 200/404/404 isolation codes, no browser errors). The test is stricter, not weaker. |
+| 3 | Local dev DB contained USDA/OFF food rows written by the **stub** during earlier test runs. The 30-day food cache would have served this stub data under real source ids. | Purged 3 stub-derived external food rows and 38 `@test.dev` test accounts from the local dev DB (all users were test accounts). Created a dedicated `fitdb_test` database for the suites, and the README now requires a separate test DB. |
+
+## Regression tests added (no bug found)
+- `recent foods stay distinct and complete when one food is logged many times`: guards against `distinct` + `take` dropping foods. It passed without code changes.
+- `concurrent first requests seed exactly one target`: 8 parallel first requests → all 200, exactly 1 target row. It passed without code changes.
+
+## Verification results (all executed in this pass)
+| Check | Command | Result |
+|---|---|---|
+| Clean install | `rm -rf node_modules .next && npm ci` | ✅ completed; Prisma client generated |
+| Type check | `npm run lint` (= `tsc --noEmit`) | ✅ exit 0 |
+| ESLint | — | ⚠️ not configured in this project (no ESLint dependency or config). `npm run lint` is type-check only. Not added in a stabilization pass. |
+| Unit tests | `npx vitest run` | ✅ 5 files, 65/65 |
+| Production build | `npm run build` | ✅ exit 0, "Compiled successfully" |
+| Migration status (dev DB) | `npx prisma migrate status` | ✅ "Database schema is up to date!" |
+| Migrations on an empty DB | `prisma migrate deploy` + `db seed` on new `fitdb_fresh` | ✅ 3 migrations applied, seed ok |
+| Schema drift | `prisma migrate diff --from-migrations … --to-schema-datamodel … --exit-code` | ✅ "No difference detected.", exit 0 |
+| API integration (stub, test DB) | `node --test scripts/nutrition-api.test.cjs` | ✅ 23/23 (21 existing + 2 new) |
+| Phase 2 UI E2E (stub, test DB, clean install, no NODE_PATH) | `node scripts/e2e-nutrition.cjs` | ✅ exit 0, 13 steps, "ALL UI CHECKS PASSED" |
+| Phase 1 E2E (assertions added) | `node scripts/e2e-smoke.cjs` | ✅ exit 0, "ALL PHASE 1 CHECKS PASSED" |
+| Dev DB untouched by suites | `SELECT count(*) FROM "User"` on `fitdb` after the runs | ✅ 0 |
+| Real configuration, no stub (actual `.env`, real OFF URL) | curl against `next start` | ✅ graceful degradation: search → 200 with `errors: [USDA not_configured, OFF network]` in < 50 ms; barcode → 200 + OFF network error; uncached resolve → 502 `{source, kind: "network"}`; cached food still resolves |
+| npm audit | `npm audit` | Unchanged: only the pre-existing `deepmerge-ts` (Prisma CLI) advisory. Playwright adds none. |
+
+## NOT verified
+- **Live USDA FoodData Central and Open Food Facts.** No live search, barcode lookup, live missing-value handling, live timeouts or live API failures could be run:
+  1. The environment's egress proxy refuses CONNECT to `api.nal.usda.gov`, `world.openfoodfacts.org` and `search.openfoodfacts.org` (HTTP 403, `connect_rejected`), confirmed again in this pass.
+  2. `FDC_API_KEY` is empty in `.env`. No key is configured anywhere in this environment.
+
+  Mocked/stub results are **not** proof of live behaviour. The only live-path evidence is that the app degrades correctly when the hosts are unreachable or the key is missing.
+
+## Remaining blockers
+1. Network policy: allow `api.nal.usda.gov` and `world.openfoodfacts.org` (optionally `search.openfoodfacts.org`).
+2. Credential: a USDA FoodData Central API key in `FDC_API_KEY` (free: https://fdc.nal.usda.gov/api-key-signup). Optional: `OFF_CONTACT` for the OFF User-Agent.
+3. Once both are in place, a live check should confirm: `GET /api/foods/search?q=banana` returns USDA results with `errors: []`; `GET /api/foods/barcode/3017624010966` returns Nutella; a USDA Foundation food maps energy via the Atwater ids; and the OFF `cgi/search.pl` endpoint still answers in the documented shape.

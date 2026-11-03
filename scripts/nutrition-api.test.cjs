@@ -294,3 +294,24 @@ test("recent foods list returns only the user's logged foods", async () => {
   const r = await A.get("/api/foods/recent");
   assert.ok(r.body.foods.some((f) => f.id === banana.id));
 });
+
+test("recent foods stay distinct and complete when one food is logged many times", async () => {
+  const C = client();
+  await C.post("/api/auth/register", { email: `c${run}@test.dev`, password: "long password 123" });
+  await C.put("/api/profile", profile());
+  await C.post("/api/nutrition/entries", { date: today(), mealType: "SNACK", foodId: nutella.id, servingId: null, quantity: 10 });
+  for (let i = 0; i < 20; i++) await C.post("/api/nutrition/entries", { date: today(), mealType: "SNACK", foodId: banana.id, servingId: null, quantity: 10 });
+  const ids = (await C.get("/api/foods/recent")).body.foods.map((f) => f.id);
+  assert.deepEqual(ids, [banana.id, nutella.id], "most recent first, no duplicates, older foods not dropped");
+});
+
+test("concurrent first requests seed exactly one target (no race errors)", async () => {
+  const D = client();
+  const email = `d${run}@test.dev`;
+  await D.post("/api/auth/register", { email, password: "long password 123" });
+  await D.put("/api/profile", profile());
+  const rs = await Promise.all(Array.from({ length: 8 }, (_, i) => D.get(i % 2 ? "/api/nutrition/targets" : `/api/nutrition/day?date=${today()}`)));
+  assert.deepEqual(rs.map((r) => r.status), Array(8).fill(200));
+  const u = await prisma.user.findUnique({ where: { email } });
+  assert.equal(await prisma.nutritionTarget.count({ where: { userId: u.id } }), 1);
+});
