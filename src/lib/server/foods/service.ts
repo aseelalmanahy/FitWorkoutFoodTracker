@@ -2,7 +2,7 @@ import "server-only";
 import { Prisma, type Food, type FoodServing, type FoodSource } from "@prisma/client";
 import { prisma } from "../db";
 import { HttpError } from "../api";
-import { NUTRIENT_KEYS, type Nutrients } from "@/lib/nutrition";
+import { MAX_SERVING_AMOUNT, NUTRIENT_KEYS, sanitizePer100, type Nutrients } from "@/lib/nutrition";
 import { getUsdaFood, searchUsda, usdaOrigin } from "./usda";
 import { getOffProduct, offOrigin, searchOff } from "./openfoodfacts";
 import { ExternalFoodError, hasAnyNutrient, type ExternalSource, type NormalizedFood } from "./types";
@@ -70,24 +70,54 @@ const per100Data = (n: Nutrients) => ({
   kcalPer100: dec(n.kcal), proteinPer100: dec(n.protein), carbsPer100: dec(n.carbs), fatPer100: dec(n.fat), fiberPer100: dec(n.fiber),
 });
 
-/** Insert or refresh an external food in the shared cache (deduplicated on source + sourceId). */
+/**
+ * Insert or refresh an external food in the shared cache (deduplicated on source + sourceId).
+ *
+ * Concurrency: the Food upsert compiles to a native INSERT … ON CONFLICT DO UPDATE,
+ * which is atomic and row-locks the food until commit, so concurrent refreshes of
+ * the same food are serialized and the serving sync below never interleaves.
+ *
+ * Servings are synced in place, keyed by label, so IDs of unchanged servings
+ * stay stable. A client holding a serving id across a refresh can still log
+ * with it. Servings no longer offered by the provider are removed. Entries are
+ * unaffected because they snapshot serving label and amount.
+ */
 export async function upsertExternalFood(n: NormalizedFood): Promise<FoodWithServings> {
+  // Defense in depth: normalizers already sanitize, but nothing implausible or
+  // out of DECIMAL range may reach the database through any path.
+  const per100 = sanitizePer100(n.per100, n.basisUnit).per100;
   const data = {
-    name: n.name, brand: n.brand, barcode: n.barcode, dataType: n.dataType, basisUnit: n.basisUnit, ...per100Data(n.per100),
-    fetchedAt: new Date(), origin: origins[n.source](),
+    name: n.name.slice(0, 300), brand: n.brand?.slice(0, 200) ?? null, barcode: n.barcode, dataType: n.dataType, basisUnit: n.basisUnit,
+    ...per100Data(per100), fetchedAt: new Date(), origin: origins[n.source](),
   };
+  const seen = new Set<string>();
+  const incoming = n.servings
+    .map((s) => ({ label: s.label.slice(0, 120), amount: s.amount }))
+    .filter((s) => s.amount > 0 && s.amount <= MAX_SERVING_AMOUNT && !seen.has(s.label) && seen.add(s.label));
+
   return prisma.$transaction(async (tx) => {
     const food = await tx.food.upsert({
       where: { source_sourceId: { source: n.source, sourceId: n.sourceId } },
       create: { source: n.source, sourceId: n.sourceId, ...data },
       update: data,
     });
-    await tx.foodServing.deleteMany({ where: { foodId: food.id } });
-    const seen = new Set<string>();
-    const servings = n.servings.filter((s) => s.amount > 0 && !seen.has(s.label) && seen.add(s.label));
-    await tx.foodServing.createMany({
-      data: servings.map((s, i) => ({ foodId: food.id, label: s.label.slice(0, 120), amount: new Prisma.Decimal(s.amount), isDefault: i === 0, position: i })),
-    });
+    const existing = await tx.foodServing.findMany({ where: { foodId: food.id } });
+    const byLabel = new Map(existing.map((s) => [s.label, s]));
+    const keep = new Set<string>();
+    for (const [i, s] of incoming.entries()) {
+      const want = { amount: new Prisma.Decimal(s.amount), isDefault: i === 0, position: i };
+      const cur = byLabel.get(s.label);
+      if (cur) {
+        keep.add(cur.id);
+        if (!cur.amount.equals(want.amount) || cur.isDefault !== want.isDefault || cur.position !== want.position) {
+          await tx.foodServing.update({ where: { id: cur.id }, data: want });
+        }
+      } else {
+        await tx.foodServing.create({ data: { foodId: food.id, label: s.label, ...want } });
+      }
+    }
+    const removed = existing.filter((s) => !keep.has(s.id)).map((s) => s.id);
+    if (removed.length) await tx.foodServing.deleteMany({ where: { id: { in: removed } } });
     return tx.food.findUniqueOrThrow({ where: { id: food.id }, include: { servings: true } });
   });
 }

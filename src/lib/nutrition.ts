@@ -182,3 +182,50 @@ export function relativeDayLabel(date: string, today: string): string {
   if (date === addDays(today, 1)) return "Tomorrow";
   return new Intl.DateTimeFormat("en-US", { timeZone: "UTC", weekday: "short", month: "short", day: "numeric", year: date.slice(0, 4) === today.slice(0, 4) ? undefined : "numeric" }).format(fromIsoDate(date));
 }
+
+// ─── Plausibility limits (per 100 g or 100 ml) ──────────────────────────────
+/**
+ * Physical bounds used to reject data-entry errors before persistence.
+ *  - Energy: pure fat is ≈ 900 kcal/100 g (9 kcal/g × 100 g), the maximum for
+ *    any food. A 5 % allowance for label rounding gives 950 kcal.
+ *  - Mass nutrients: a 100 g portion can't contain more than 100 g of any
+ *    nutrient, or more than 100 g of protein + carbohydrate + fat combined.
+ *  - Per 100 ml, mass can exceed 100 g for dense liquids (e.g. honey ≈ 1.4 g/ml),
+ *    so 150 g is allowed. Energy keeps the same limit, since oils are < 1 g/ml.
+ * These limits also keep every stored value well inside the database's
+ * DECIMAL precision.
+ */
+export const PLAUSIBLE_KCAL_PER_100 = 950;
+export const plausibleMassPer100 = (basis: "G" | "ML") => (basis === "ML" ? 150 : 100);
+/** Largest serving or consumed amount accepted, in g or ml. */
+export const MAX_SERVING_AMOUNT = 5000;
+export const MIN_SERVING_AMOUNT = 0.1;
+export const MAX_ENTRY_AMOUNT = 100_000;
+
+/** Names of nutrients outside physical limits (empty array = plausible). */
+export function implausibleNutrients(per100: Nutrients, basis: "G" | "ML"): NutrientKey[] {
+  const out: NutrientKey[] = [];
+  const maxMass = plausibleMassPer100(basis);
+  if (per100.kcal != null && (per100.kcal < 0 || per100.kcal > PLAUSIBLE_KCAL_PER_100)) out.push("kcal");
+  for (const k of ["protein", "carbs", "fat", "fiber"] as const) {
+    const v = per100[k];
+    if (v != null && (v < 0 || v > maxMass)) out.push(k);
+  }
+  // Sum check over macros that are individually plausible: if those still can't fit
+  // in 100 units, it can't be told which is wrong, so all of them are rejected.
+  const macros = (["protein", "carbs", "fat"] as const).filter((k) => per100[k] != null && !out.includes(k));
+  if (macros.reduce((sum, k) => sum + per100[k]!, 0) > maxMass) out.push(...macros);
+  return out;
+}
+
+/**
+ * For external data: implausible values are treated as not reported (null),
+ * never stored. A macro sum that is impossible makes all three macros unknown,
+ * since it can't be told which one is wrong.
+ */
+export function sanitizePer100(per100: Nutrients, basis: "G" | "ML"): { per100: Nutrients; rejected: NutrientKey[] } {
+  const rejected = implausibleNutrients(per100, basis);
+  const clean = { ...per100 };
+  for (const k of rejected) clean[k] = null;
+  return { per100: clean, rejected };
+}

@@ -213,3 +213,46 @@ The USDA credential is also missing: `FDC_API_KEY` is empty in `.env` and unset 
 1. Allow egress to `api.nal.usda.gov`, `world.openfoodfacts.org` (and `search.openfoodfacts.org` if used).
 2. Provide `FDC_API_KEY` as an environment secret (not committed). Optionally set `OFF_CONTACT`.
 3. Then run the live checklist: USDA search `banana` (expect SR Legacy/Foundation hits, `errors: []`); USDA Foundation food detail (Atwater energy ids 2047/2048); OFF search `nutella`; OFF barcode `3017624010966`; an OFF product lacking fiber (expect `fiber: null`); a nonexistent barcode `00000000000000` (expect empty result).
+
+---
+
+# Phase 2.3 — Data-integrity fixes from the Phase 2 audit (2026-11-03)
+
+Scope: audit findings D1, D2, D4, D5 and investigation of D6. No schema change. No Phase 3 work.
+
+| Finding | Fix | Evidence |
+|---|---|---|
+| **D1** Provider values unvalidated → numeric overflow 500 (reproduced: 54,000,000 kcal/100 g) | `implausibleNutrients` / `sanitizePer100` in `src/lib/nutrition.ts`: energy ≤ 950 kcal/100 (pure fat ≈ 900 + 5 %); each mass nutrient ≤ 100 g/100 g (150 g/100 ml for dense liquids); an impossible macro sum makes those macros unknown. Applied in both normalizers and again in `upsertExternalFood`. Implausible → `null` (shown as missing, food flagged incomplete). Provider serving sizes > 5000 g/ml dropped. `api.ts` maps PostgreSQL 22003 overflow to **422** as defense in depth. | Barcode `1234567890123` (stub product with that value) → 200, `kcal: null`, logged entry `kcal: null` with totals flagged incomplete |
+| **D2** Custom foods unvalidated (reproduced: 12,500 kcal & 250 g protein/100 g accepted; 0.001 g serving → 500) | `customFoodSchema`: serving size 0.1–5000; `superRefine` checks the derived per-100 values with the same limits → **400** with an explanatory message | 12,500 kcal → 400; 250 g protein → 400; 0.001 g → 400 (was 500); oil at 800 kcal/100 ml still accepted |
+| Entry total overflow (found while fixing D1) | `assertEntryAmount`: consumed amount ≤ 100,000 g/ml per entry, on create and edit → 400 | 5000 × 100 g → 400 |
+| **D4** Backdated entry before the first target showed no target | `getTargets` extends the **first** target's `effectiveFrom` back to the earliest entry (guarded `updateMany`, idempotent). Later targets are untouched. This also repairs existing data on next read. | Past day gets the seeded target; a manual change today doesn't alter it; days before any entry still have none |
+| **D5** Serving ids regenerated on every refresh | `upsertExternalFood` syncs servings in place by label: unchanged ids are kept, changed amount/order updated, new ones created, removed ones deleted. Logging with a removed serving id → **409** `{reason: "serving_removed"}`; another food's serving → 400 | Ids kept across a forced refresh; an add with a pre-refresh serving id → 200; a removed serving → 409 |
+| **D6** Suspected concurrent food-creation race | **Not a real risk.** Prisma query log shows the upsert compiles to a native `INSERT … ON CONFLICT ("source","sourceId") DO UPDATE` (atomic). It row-locks the food until commit, which serializes the serving sync. No retry added. | Regression test (20 parallel creates + 20 parallel refreshes per provider) passes on the **baseline** and on the fix. 5 consecutive runs, 0 unique-key errors in the server log |
+
+**Baseline cross-check:** the new D1, D2, entry-amount, D4 and D5 tests were run against a build of `f64575c` (git worktree, same test DB) and **failed**. D6 passed there too, confirming no race existed.
+
+## Tests added
+- Unit (`src/lib/nutrition.test.ts`, +7): real extremes accepted (oil, sugar, whey); 54,000,000 kcal rejected; 12,500 kcal / 250 g protein rejected; 950/951 boundary; impossible macro sum; ml vs g limits; negatives.
+- Unit (`src/lib/server/foods/clients.test.ts`, +3): OFF 54,000,000 kcal → null with other values kept; USDA 250 g protein → null; serving sizes > 5000 dropped.
+- Integration (`scripts/nutrition-api.test.cjs`, +6): D1, D2, entry-amount limit, D4, D5 (refresh during an add), D6 (heavy concurrency).
+- Stub data (`scripts/stub-food-apis.cjs`): product `1234567890123` with the reproduced D1 value.
+
+## Results (all executed)
+| Check | Result |
+|---|---|
+| `npm run lint` (tsc) | exit 0 |
+| `npx vitest run` | 5 files, **75/75** |
+| `npm run build` | exit 0 |
+| `node --test scripts/nutrition-api.test.cjs` (prod build, test DB, stub) | **31/31** |
+| D6/concurrency tests × 5 runs (server restarted each run) | 15/15; 0 unique-key errors |
+| `node scripts/e2e-nutrition.cjs` | exit 0, 13 steps, ALL UI CHECKS PASSED |
+| `node scripts/e2e-smoke.cjs` (Phase 1) | exit 0, ALL PHASE 1 CHECKS PASSED |
+| `prisma migrate status` (dev + test DB) | up to date |
+| `prisma migrate deploy` on an empty DB | 4 migrations applied |
+| `prisma migrate diff … --exit-code` / `prisma validate` | No difference (exit 0) / valid |
+
+## Still open (from the audit, not in this task)
+- D3 / S1: no per-user rate limit on provider calls.
+- S2: user-facing "FDC_API_KEY missing" message.
+- D7: OFF `energy_unit` fallback (needs live data).
+- Live USDA/OFF verification: still blocked (egress policy + missing `FDC_API_KEY`).

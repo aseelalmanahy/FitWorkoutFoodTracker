@@ -45,6 +45,9 @@ const offProducts = [
     nutriments: { "energy-kcal_100g": 539, proteins_100g: 6.3, carbohydrates_100g: 57.5, fat_100g: 30.9 } },
   { code: "5000112637922", product_name: "Cola Zero", brands: "Example", serving_size: "330 ml", serving_quantity: 330, serving_quantity_unit: "ml",
     nutriments: { "energy-kj_100g": 1.4, proteins_100g: 0, carbohydrates_100g: 0, fat_100g: 0 } },
+  // Reproduces audit finding D1: a crowd-sourced data-entry error (54,000,000 kcal/100 g).
+  { code: "1234567890123", product_name: "Data-entry error product", brands: "Example", serving_size: "40 g", serving_quantity: 40,
+    nutriments: { "energy-kcal_100g": 54000000, proteins_100g: 6, carbohydrates_100g: 50, fat_100g: 30 } },
 ];
 
 const send = (res, status, body) => { res.writeHead(status, { "Content-Type": "application/json" }); res.end(JSON.stringify(body)); };

@@ -5,7 +5,7 @@
  * `*_100g` nutriment fields are normalised per 100 g (or 100 ml for liquids).
  */
 import "server-only";
-import type { Nutrients } from "@/lib/nutrition";
+import { MAX_SERVING_AMOUNT, sanitizePer100, type Nutrients } from "@/lib/nutrition";
 import { fetchJson, TtlCache } from "./http";
 import { ExternalFoodError, num, type NormalizedFood, type ServingOption } from "./types";
 
@@ -48,7 +48,7 @@ export function normalizeOffProduct(p: Record<string, unknown>): NormalizedFood 
   const u = basisUnit === "ML" ? "ml" : "g";
   const servings: ServingOption[] = [];
   const sq = num(p.serving_quantity);
-  if (sq && sq > 0) {
+  if (sq && sq > 0 && sq <= MAX_SERVING_AMOUNT) {
     const label = typeof p.serving_size === "string" && p.serving_size.trim() ? p.serving_size.trim() : `${sq} ${u}`;
     servings.push({ label: label.includes(String(sq)) ? `1 serving · ${label}` : `1 serving · ${label} (${sq} ${u})`, amount: sq });
   }
@@ -62,7 +62,8 @@ export function normalizeOffProduct(p: Record<string, unknown>): NormalizedFood 
     barcode: /^\d{6,14}$/.test(code) ? code : null,
     dataType: "Packaged",
     basisUnit,
-    per100: extractOffNutrients(p.nutriments),
+    // OFF is crowd-sourced; implausible values (data-entry errors) are treated as not reported.
+    per100: sanitizePer100(extractOffNutrients(p.nutriments), basisUnit).per100,
     servings,
   };
 }

@@ -5,7 +5,7 @@
  * FDC data is public domain (CC0 1.0). Nutrient amounts are per 100 g.
  */
 import "server-only";
-import type { Nutrients } from "@/lib/nutrition";
+import { MAX_SERVING_AMOUNT, sanitizePer100, type Nutrients } from "@/lib/nutrition";
 import { fetchJson, TtlCache } from "./http";
 import { ExternalFoodError, num, type NormalizedFood, type ServingOption } from "./types";
 
@@ -77,7 +77,7 @@ export function extractPortions(food: Record<string, unknown>): ServingOption[] 
   const portions = Array.isArray(food.foodPortions) ? food.foodPortions : [];
   for (const p of portions as Record<string, unknown>[]) {
     const grams = num(p.gramWeight);
-    if (!grams) continue;
+    if (!grams || grams > MAX_SERVING_AMOUNT) continue;
     const unit = (p.measureUnit as Record<string, unknown> | undefined)?.name as string | undefined;
     const desc = typeof p.portionDescription === "string" && p.portionDescription && p.portionDescription !== "Quantity not specified"
       ? p.portionDescription
@@ -90,7 +90,7 @@ export function extractPortions(food: Record<string, unknown>): ServingOption[] 
   for (const m of measures as Record<string, unknown>[]) {
     const grams = num(m.gramWeight);
     const text = m.disseminationText as string | undefined;
-    if (!grams || !text || text === "Quantity not specified") continue;
+    if (!grams || grams > MAX_SERVING_AMOUNT || !text || text === "Quantity not specified") continue;
     out.push({ label: `${text} (${Math.round(grams * 10) / 10} g)`, amount: grams });
   }
   const seen = new Set<string>();
@@ -110,7 +110,8 @@ export function normalizeUsdaFood(food: Record<string, unknown>): NormalizedFood
     barcode: (food.gtinUpc as string) || null,
     dataType: (food.dataType as string) || null,
     basisUnit: "G",
-    per100: extractNutrients(food.foodNutrients),
+    // Implausible values (data-entry errors) are treated as not reported.
+    per100: sanitizePer100(extractNutrients(food.foodNutrients), "G").per100,
     // Prefer a household measure as default when one exists; 100 g stays available.
     servings: servings.length > 1 ? [servings[1], servings[0], ...servings.slice(2)] : servings,
   };

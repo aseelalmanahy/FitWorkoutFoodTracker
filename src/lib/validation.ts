@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { EQUIPMENT, MUSCLE_GROUPS } from "./labels";
+import { implausibleNutrients, MAX_SERVING_AMOUNT, MIN_SERVING_AMOUNT, PLAUSIBLE_KCAL_PER_100, plausibleMassPer100 } from "./nutrition";
 
 export { EQUIPMENT, MUSCLE_GROUPS };
 
@@ -126,13 +127,14 @@ export const resolveFoodSchema = z.object({
 const nutrientValue = z.number().min(0).max(10000);
 
 /** Custom foods are entered as printed on a label: per serving. */
-export const customFoodSchema = z.object({
+export const customFoodSchema = z
+  .object({
   name: z.string().trim().min(1).max(120),
   brand: z.string().trim().max(80).nullable().optional(),
   barcode: z.string().trim().regex(/^\d{6,14}$/, "Barcode must be 6–14 digits").nullable().optional(),
   basisUnit: z.enum(["G", "ML"]),
   servingLabel: z.string().trim().min(1).max(80),
-  servingAmount: z.number().positive().max(5000),
+  servingAmount: z.number().min(MIN_SERVING_AMOUNT, `Serving size must be at least ${MIN_SERVING_AMOUNT}`).max(MAX_SERVING_AMOUNT),
   perServing: z.object({
     kcal: nutrientValue,
     protein: nutrientValue,
@@ -140,7 +142,22 @@ export const customFoodSchema = z.object({
     fat: nutrientValue,
     fiber: nutrientValue.nullable().optional(),
   }),
-});
+})
+  // Same physical limits as provider data, applied to the derived per-100 values.
+  .superRefine((v, ctx) => {
+    const k = 100 / v.servingAmount;
+    const ps = v.perServing;
+    const per100 = { kcal: ps.kcal * k, protein: ps.protein * k, carbs: ps.carbs * k, fat: ps.fat * k, fiber: ps.fiber == null ? null : ps.fiber * k };
+    const bad = implausibleNutrients(per100, v.basisUnit);
+    if (bad.length) {
+      const u = v.basisUnit === "ML" ? "ml" : "g";
+      ctx.addIssue({
+        code: "custom",
+        path: ["perServing", bad[0]],
+        message: `Values are not physically possible for a ${v.servingAmount} ${u} serving (max ${PLAUSIBLE_KCAL_PER_100} kcal and ${plausibleMassPer100(v.basisUnit)} g of nutrients per 100 ${u}). Check the serving size and label values.`,
+      });
+    }
+  });
 
 export const createFoodEntrySchema = z.object({
   date: isoDateSchema,

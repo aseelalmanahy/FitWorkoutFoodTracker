@@ -350,3 +350,113 @@ test("concurrent resolves of the same uncached food create one row (no race erro
   assert.equal(new Set(rs.map((r) => r.body.food.id)).size, 1);
   assert.equal(await prisma.food.count({ where: { source: "OPEN_FOOD_FACTS", sourceId: "5000112637922" } }), 1);
 });
+
+// ─── Phase 2.3 regression tests (audit D1, D2, D4, D5, D6) ─────────────────
+
+test("D1: implausible provider values are stored as missing, not as data, and never cause a 500", async () => {
+  const r = await A.get("/api/foods/barcode/1234567890123"); // stub product with 54,000,000 kcal/100 g
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body.food.per100, { kcal: null, protein: 6, carbs: 50, fat: 30, fiber: null });
+  assert.equal(r.body.food.complete, false);
+  const row = await prisma.food.findUnique({ where: { source_sourceId: { source: "OPEN_FOOD_FACTS", sourceId: "1234567890123" } } });
+  assert.equal(row.kcalPer100, null);
+  const s = await A.get("/api/foods/search?q=1234567890123");
+  assert.equal(s.body.results.OPEN_FOOD_FACTS[0].per100.kcal, null);
+  const e = await A.post("/api/nutrition/entries", { date: today(), mealType: "SNACK", foodId: r.body.food.id, servingId: null, quantity: 40 });
+  assert.equal(e.status, 200);
+  assert.equal(e.body.entry.nutrients.kcal, null);
+  assert.equal(e.body.entry.nutrients.protein, 2.4);
+  const d = await A.get(`/api/nutrition/day?date=${today()}`);
+  assert.ok(d.body.totals.incomplete.includes("kcal"));
+});
+
+test("D2: custom foods outside physical limits are rejected with 400", async () => {
+  const base = { name: "Label", basisUnit: "G", servingLabel: "1 bar", servingAmount: 40, perServing: { kcal: 160, protein: 10, carbs: 20, fat: 5 } };
+  const kcal = await A.post("/api/foods", { ...base, perServing: { ...base.perServing, kcal: 5000 } }); // 12,500 kcal/100 g
+  assert.equal(kcal.status, 400);
+  assert.match(JSON.stringify(kcal.body.details), /not physically possible/);
+  const prot = await A.post("/api/foods", { ...base, perServing: { ...base.perServing, protein: 100 } }); // 250 g protein/100 g
+  assert.equal(prot.status, 400);
+  const tiny = await A.post("/api/foods", { ...base, servingAmount: 0.001, perServing: { kcal: 10000, protein: 1, carbs: 1, fat: 1 } }); // was a 500
+  assert.equal(tiny.status, 400);
+  assert.equal((await A.post("/api/foods", { ...base, servingAmount: 0 })).status, 400);
+  assert.equal((await A.post("/api/foods", { ...base, servingAmount: 5001 })).status, 400);
+  const oil = await A.post("/api/foods", { name: "Olive oil", basisUnit: "ML", servingLabel: "1 tbsp", servingAmount: 15, perServing: { kcal: 120, protein: 0, carbs: 0, fat: 14 } });
+  assert.equal(oil.status, 200, "real extreme (oil, 800 kcal/100 ml) still accepted");
+  const ok = await A.post("/api/foods", base);
+  assert.equal(ok.status, 200);
+  assert.equal(ok.body.food.per100.kcal, 400);
+});
+
+test("entries can't exceed the per-entry amount limit (prevents total overflow)", async () => {
+  const s = banana.servings.find((x) => x.label === "100 g");
+  const r = await A.post("/api/nutrition/entries", { date: today(), mealType: "SNACK", foodId: banana.id, servingId: s.id, quantity: 5000 }); // 500 kg
+  assert.equal(r.status, 400);
+  const ok = await A.post("/api/nutrition/entries", { date: today(), mealType: "SNACK", foodId: banana.id, servingId: null, quantity: 100 });
+  assert.equal((await A.patch(`/api/nutrition/entries/${ok.body.entry.id}`, { quantity: 100001 })).status, 400);
+  await A.del(`/api/nutrition/entries/${ok.body.entry.id}`);
+});
+
+test("D4: an entry backdated before the first target is covered by that target; later targets unchanged", async () => {
+  const E = client();
+  const email = `e${run}@test.dev`;
+  await E.post("/api/auth/register", { email, password: "long password 123" });
+  await E.put("/api/profile", profile());
+  const seeded = (await E.get("/api/nutrition/targets")).body.current; // seeded today
+  const past = addDays(today(), -5);
+  assert.equal((await E.post("/api/nutrition/entries", { date: past, mealType: "LUNCH", foodId: banana.id, servingId: null, quantity: 100 })).status, 200);
+  const pd = await E.get(`/api/nutrition/day?date=${past}`);
+  assert.ok(pd.body.target, "past day now has a target");
+  assert.equal(pd.body.target.kcal, seeded.kcal);
+  assert.equal(pd.body.target.effectiveFrom, past);
+  assert.equal(pd.body.calories.remaining, seeded.kcal - 89);
+  // A manual change today must not alter the backdated day.
+  await E.put("/api/nutrition/targets", { kcal: 2000, proteinG: 150, fatG: 60 });
+  const h = await E.get(`/api/nutrition/history?end=${today()}&days=7`);
+  assert.equal(h.body.days.find((d) => d.date === past).target.kcal, seeded.kcal);
+  assert.equal(h.body.days.find((d) => d.date === today()).target.kcal, 2000);
+  assert.equal(h.body.days.find((d) => d.date === addDays(past, -1)).target, null, "days before any entry still have no target");
+  const u = await prisma.user.findUnique({ where: { email } });
+  assert.equal(await prisma.nutritionTarget.count({ where: { userId: u.id } }), 2);
+});
+
+test("D5: serving ids stay stable across a refresh; an add in progress still succeeds", async () => {
+  const before = (await A.post("/api/foods/resolve", { source: "USDA", sourceId: "173944" })).body.food;
+  const held = before.servings.find((s) => s.label === "100 g"); // add-food sheet open with this serving
+  const cup = before.servings.find((s) => s.label.startsWith("1 cup"));
+  // Simulate provider change: a serving the provider no longer offers, and a real serving missing locally.
+  const gone = await prisma.foodServing.create({ data: { foodId: before.id, label: "Old portion (77 g)", amount: 77, position: 99 } });
+  await prisma.foodServing.delete({ where: { id: cup.id } });
+  await prisma.food.update({ where: { id: before.id }, data: { fetchedAt: new Date(0) } }); // force refresh
+  const after = (await A.post("/api/foods/resolve", { source: "USDA", sourceId: "173944" })).body.food;
+  assert.equal(after.id, before.id);
+  for (const s of before.servings.filter((x) => x.id !== cup.id)) {
+    assert.equal(after.servings.find((x) => x.label === s.label)?.id, s.id, `id kept for "${s.label}"`);
+  }
+  assert.ok(after.servings.some((x) => x.label === cup.label && x.id !== cup.id), "re-added serving gets a new id");
+  assert.ok(!after.servings.some((x) => x.id === gone.id), "removed serving deleted");
+  assert.equal(new Set(after.servings.map((x) => x.label)).size, after.servings.length, "no duplicate labels");
+  const e = await A.post("/api/nutrition/entries", { date: today(), mealType: "BREAKFAST", foodId: before.id, servingId: held.id, quantity: 1 });
+  assert.equal(e.status, 200, "add with a serving id obtained before the refresh");
+  assert.equal(e.body.entry.nutrients.kcal, 89);
+  const r = await A.post("/api/nutrition/entries", { date: today(), mealType: "BREAKFAST", foodId: before.id, servingId: gone.id, quantity: 1 });
+  assert.equal(r.status, 409);
+  assert.equal(r.body.details.reason, "serving_removed");
+  await A.del(`/api/nutrition/entries/${e.body.entry.id}`);
+});
+
+test("D6: heavy concurrent create and refresh of one food is safe (native upsert, row lock)", async () => {
+  for (const [source, sourceId] of [["USDA", "171477"], ["OPEN_FOOD_FACTS", "3017624010966"]]) {
+    await prisma.food.deleteMany({ where: { source, sourceId } }); // create path
+    let rs = await Promise.all(Array.from({ length: 20 }, (_, i) => (i % 2 ? A : B).post("/api/foods/resolve", { source, sourceId })));
+    assert.deepEqual(rs.map((r) => r.status), Array(20).fill(200), `${source} create`);
+    assert.equal(new Set(rs.map((r) => r.body.food.id)).size, 1);
+    await prisma.food.updateMany({ where: { source, sourceId }, data: { fetchedAt: new Date(0) } }); // refresh path
+    rs = await Promise.all(Array.from({ length: 20 }, (_, i) => (i % 2 ? A : B).post("/api/foods/resolve", { source, sourceId })));
+    assert.deepEqual(rs.map((r) => r.status), Array(20).fill(200), `${source} refresh`);
+    const row = await prisma.food.findUnique({ where: { source_sourceId: { source, sourceId } }, include: { servings: true } });
+    assert.equal(await prisma.food.count({ where: { source, sourceId } }), 1);
+    assert.equal(new Set(row.servings.map((s) => s.label)).size, row.servings.length, "no duplicate servings");
+    assert.equal(row.servings.filter((s) => s.isDefault).length, 1);
+  }
+});

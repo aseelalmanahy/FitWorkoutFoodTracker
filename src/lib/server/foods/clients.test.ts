@@ -158,3 +158,23 @@ describe("Open Food Facts", () => {
     await expect(getOffProduct("12ab")).rejects.toMatchObject({ kind: "not_found" });
   });
 });
+
+describe("implausible provider data is not persisted as real values (D1)", () => {
+  it("OFF: reproduced 54,000,000 kcal/100 g becomes null; other values kept", () => {
+    const f = normalizeOffProduct({ code: "1234567890123", product_name: "Data-entry error product",
+      nutriments: { "energy-kcal_100g": 54000000, proteins_100g: 6, carbohydrates_100g: 50, fat_100g: 30 } })!;
+    expect(f.per100).toEqual({ kcal: null, protein: 6, carbs: 50, fat: 30, fiber: null });
+  });
+  it("USDA: implausible protein becomes null", () => {
+    const f = normalizeUsdaFood({ fdcId: 1, description: "Bad", foodNutrients: [
+      { nutrientId: 1008, unitName: "KCAL", value: 120 }, { nutrientId: 1003, unitName: "G", value: 250 }] })!;
+    expect(f.per100.kcal).toBe(120);
+    expect(f.per100.protein).toBeNull();
+  });
+  it("serving sizes above 5000 g/ml are dropped", () => {
+    const off = normalizeOffProduct({ code: "1234567890124", product_name: "Huge", serving_quantity: 9_000_000, serving_size: "9000 kg", nutriments: {} })!;
+    expect(off.servings).toEqual([{ label: "100 g", amount: 100 }]);
+    const usda = normalizeUsdaFood({ fdcId: 2, description: "x", foodNutrients: [], foodPortions: [{ gramWeight: 1e9, amount: 1, modifier: "silo" }] })!;
+    expect(usda.servings).toEqual([{ label: "100 g", amount: 100 }]);
+  });
+});

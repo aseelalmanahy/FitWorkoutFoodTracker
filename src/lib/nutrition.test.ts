@@ -141,3 +141,38 @@ describe("period summary", () => {
     expect(summarizePeriod([day("2026-11-02", 0, 0, 0)]).avg).toBeNull();
   });
 });
+
+import { implausibleNutrients, sanitizePer100, PLAUSIBLE_KCAL_PER_100 } from "./nutrition";
+
+describe("plausibility limits", () => {
+  const ok: Nutrients = { kcal: 884, protein: 0, carbs: 0, fat: 100, fiber: null }; // olive oil
+  it("accepts real extremes (pure fat, 100 g sugar, whey isolate)", () => {
+    expect(implausibleNutrients(ok, "G")).toEqual([]);
+    expect(implausibleNutrients({ kcal: 387, protein: 0, carbs: 100, fat: 0, fiber: 0 }, "G")).toEqual([]);
+    expect(implausibleNutrients({ kcal: 370, protein: 90, carbs: 2, fat: 1, fiber: null }, "G")).toEqual([]);
+  });
+  it("rejects the reproduced 54,000,000 kcal/100 g provider value as not reported", () => {
+    const r = sanitizePer100({ kcal: 54_000_000, protein: 6, carbs: 50, fat: 30, fiber: null }, "G");
+    expect(r.rejected).toEqual(["kcal"]);
+    expect(r.per100).toEqual({ kcal: null, protein: 6, carbs: 50, fat: 30, fiber: null });
+  });
+  it("rejects the reproduced 12,500 kcal and 250 g protein per 100 g", () => {
+    expect(implausibleNutrients({ kcal: 12_500, protein: 250, carbs: 0, fat: 0, fiber: null }, "G").sort()).toEqual(["kcal", "protein"]);
+  });
+  it("energy limit is 900 kcal (pure fat) plus 5 %", () => {
+    expect(PLAUSIBLE_KCAL_PER_100).toBe(950);
+    expect(implausibleNutrients({ ...ok, kcal: 950 }, "G")).toEqual([]);
+    expect(implausibleNutrients({ ...ok, kcal: 951 }, "G")).toEqual(["kcal"]);
+  });
+  it("an impossible macro sum makes all macros unknown", () => {
+    const r = sanitizePer100({ kcal: 500, protein: 60, carbs: 60, fat: 10, fiber: null }, "G");
+    expect(r.per100).toEqual({ kcal: 500, protein: null, carbs: null, fat: null, fiber: null });
+  });
+  it("allows up to 150 g per 100 ml for dense liquids", () => {
+    expect(implausibleNutrients({ kcal: 430, protein: 0, carbs: 116, fat: 0, fiber: null }, "ML")).toEqual([]); // honey by volume
+    expect(implausibleNutrients({ kcal: 430, protein: 0, carbs: 116, fat: 0, fiber: null }, "G")).toEqual(["carbs"]);
+  });
+  it("rejects negative values", () => {
+    expect(implausibleNutrients({ kcal: -1, protein: null, carbs: null, fat: null, fiber: null }, "G")).toEqual(["kcal"]);
+  });
+});

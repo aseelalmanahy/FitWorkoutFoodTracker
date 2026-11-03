@@ -44,6 +44,10 @@ function handleError(err: unknown) {
     if (err.code === "P2002") return jsonError(409, "Already exists");
     if (err.code === "P2003") return jsonError(409, "Referenced by other records");
   }
+  // PostgreSQL 22003 (numeric field overflow) surfaces as an unknown request error.
+  if (err instanceof Prisma.PrismaClientUnknownRequestError && /22003|numeric field overflow/.test(err.message)) {
+    return jsonError(422, "A value is outside the supported range");
+  }
   console.error(err);
   return jsonError(500, "Internal server error");
 }

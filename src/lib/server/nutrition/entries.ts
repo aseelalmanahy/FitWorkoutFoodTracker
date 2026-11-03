@@ -4,7 +4,7 @@ import { prisma } from "../db";
 import { HttpError, notFound } from "../api";
 import { dec, getLoggableFood, getVisibleFood, isTrustedFood, per100Of, toNum } from "../foods/service";
 import {
-  addDays, dateRange, entryNutrients, fromIsoDate, MEAL_TYPES, progress, remaining, round, sumNutrients, summarizePeriod,
+  addDays, dateRange, entryNutrients, MAX_ENTRY_AMOUNT, fromIsoDate, MEAL_TYPES, progress, remaining, round, sumNutrients, summarizePeriod,
   targetForDate, toIsoDate, type DaySummary, type MealType, type Nutrients,
 } from "@/lib/nutrition";
 import { getTargets, localToday } from "./targets";
@@ -50,9 +50,18 @@ const rawServing = (unit: "G" | "ML") => ({ label: unit === "ML" ? "ml" : "g", a
 
 async function servingFor(food: { id: string; basisUnit: "G" | "ML" }, servingId: string | null) {
   if (servingId === null) return rawServing(food.basisUnit);
-  const s = await prisma.foodServing.findFirst({ where: { id: servingId, foodId: food.id } });
-  if (!s) throw new HttpError(400, "Serving does not belong to this food");
+  const s = await prisma.foodServing.findUnique({ where: { id: servingId } });
+  // A serving the provider stopped offering is removed on refresh: tell the client to re-select.
+  if (!s) throw new HttpError(409, "This serving size is no longer available. Choose another serving or enter grams.", { reason: "serving_removed" });
+  if (s.foodId !== food.id) throw new HttpError(400, "Serving does not belong to this food");
   return { label: s.label, amount: Number(s.amount) };
+}
+
+/** Keeps a single entry physically sensible and inside DECIMAL precision. */
+function assertEntryAmount(servingAmount: number, quantity: number, unit: "G" | "ML") {
+  if (servingAmount * quantity > MAX_ENTRY_AMOUNT) {
+    throw new HttpError(400, `An entry can't exceed ${MAX_ENTRY_AMOUNT.toLocaleString("en-US")} ${unit === "ML" ? "ml" : "g"}`);
+  }
 }
 
 export async function createEntry(userId: string, profile: Profile, input: { date: string; mealType: MealType; foodId: string; servingId: string | null; quantity: number }) {
@@ -60,6 +69,7 @@ export async function createEntry(userId: string, profile: Profile, input: { dat
   const food = await getLoggableFood(userId, input.foodId);
   if (!food) throw notFound("Food");
   const serving = await servingFor(food, input.servingId);
+  assertEntryAmount(serving.amount, input.quantity, food.basisUnit);
   const per100 = per100Of(food);
   const nutrients = entryNutrients(per100, serving.amount, input.quantity);
   const entry = await prisma.foodEntry.create({
@@ -94,6 +104,7 @@ export async function updateEntry(
     }
   }
   const quantity = input.quantity ?? Number(entry.quantity);
+  assertEntryAmount(servingAmount, quantity, entry.basisUnit);
   // Always recompute from the entry's own per-100 snapshot so edits are exact.
   const nutrients = entryNutrients(per100Of(entry), servingAmount, quantity);
   const updated = await prisma.foodEntry.update({

@@ -39,8 +39,8 @@ export const toDated = (t: NutritionTarget): DatedTarget => ({
 });
 
 /**
- * All targets for the user, oldest first. The first time this runs it seeds an
- * initial target from the profile: the Phase 1 calorie override if one was set
+ * All targets for the user, oldest first. The first target always covers the
+ * earliest logged day. The first time this runs it seeds an initial target from the profile: the Phase 1 calorie override if one was set
  * (MANUAL), otherwise the suggestion (SUGGESTED). It starts at the earliest
  * logged day so existing history has a target.
  */
@@ -59,6 +59,18 @@ export async function getTargets(userId: string, profile: Profile): Promise<Date
       update: {},
     }));
     rows = await prisma.nutritionTarget.findMany({ where: { userId }, orderBy: { effectiveFrom: "asc" } });
+  } else {
+    // Entries backdated before the first target (logged after seeding) are covered by
+    // extending the *first* target back to them. Later targets are untouched, so days
+    // after any change keep the target in force then.
+    const first = await prisma.foodEntry.findFirst({ where: { userId }, orderBy: { date: "asc" }, select: { date: true } });
+    if (first && first.date < rows[0].effectiveFrom) {
+      await prisma.nutritionTarget.updateMany({
+        where: { id: rows[0].id, effectiveFrom: { gt: first.date } },
+        data: { effectiveFrom: first.date },
+      });
+      rows = await prisma.nutritionTarget.findMany({ where: { userId }, orderBy: { effectiveFrom: "asc" } });
+    }
   }
   return rows.map(toDated);
 }
