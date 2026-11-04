@@ -65,14 +65,14 @@ test("USDA search: after the circuit closes, a success resets; 3 malformed searc
 });
 
 test("OFF search: 3 malformed responses open the circuit; the 4th is not sent", async () => {
-  const before = hits(/cgi\/search\.pl/);
+  const before = hits(/\/off\/search\?/);
   for (let i = 0; i < 3; i++) {
     const r = await U.offs.get(`/api/foods/search?q=malformed&sources=OPEN_FOOD_FACTS`);
     assert.equal(srcErr(r, "OPEN_FOOD_FACTS").kind, "invalid_response");
   }
   const r = await U.offs.get(`/api/foods/search?q=nutella&sources=OPEN_FOOD_FACTS`);
   assert.equal(srcErr(r, "OPEN_FOOD_FACTS").kind, "unavailable");
-  assert.equal(hits(/cgi\/search\.pl/) - before, 3);
+  assert.equal(hits(/\/off\/search\?/) - before, 3);
 });
 
 test("OFF product: a success resets the count; then 3 consecutive malformed open the circuit", async () => {

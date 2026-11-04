@@ -74,6 +74,23 @@ const SHOTS = (process.env.SHOTS_DIR || require("os").tmpdir()) + "/";
   await page.getByText("Added 3 items").waitFor();
   step("added packaged (OFF) + 200 g chicken by grams");
 
+  // An OFF search hit without preview nutrients stays selectable and loads the full product.
+  await page.getByLabel("Search foods").fill("preview granola");
+  const previewHit = page.getByRole("button", { name: /Preview granola/ });
+  await previewHit.getByText("Tap for details").waitFor();
+  await previewHit.click();
+  await dialog.getByText("Open Food Facts · 8800000000011").waitFor();
+  await dialog.getByRole("button", { name: /^Add to / }).waitFor();
+  assert.match(await dialog.innerText(), /180/); // 1 serving = 40 g of 450 kcal/100 g, from the product API
+  await page.keyboard.press("Escape");
+  await dialog.waitFor({ state: "hidden" });
+  // If the full product has no nutrition data either, nothing can be logged.
+  await page.getByLabel("Search foods").fill("preview empty");
+  await page.getByRole("button", { name: /Preview empty snack/ }).click();
+  await page.getByText("Preview empty snack has no nutrition data to log.").waitFor();
+  assert.equal(await dialog.count(), 0, "no add sheet for a product without nutrition data");
+  step("OFF hits without preview nutrients open the full product; no fabricated values");
+
   // missing nutrition values + source error handling
   await page.getByLabel("Search foods").fill("rice");
   await page.getByText("Incomplete").first().waitFor();

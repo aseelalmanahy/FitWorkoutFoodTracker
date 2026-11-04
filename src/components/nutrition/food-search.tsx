@@ -85,7 +85,8 @@ export function FoodSearch({ date, today, initialMeal }: { date: string; today: 
     setResolving(item.key);
     try {
       const r = await api<{ food: FoodDto }>("POST", "/api/foods/resolve", { source: item.source, sourceId: item.sourceId });
-      setSelected(r.food);
+      if (Object.values(r.food.per100).every((v) => v == null)) setError(`${r.food.name} has no nutrition data to log.`);
+      else setSelected(r.food);
     } catch (e) {
       setError((e as Error).message);
     } finally {
@@ -168,8 +169,10 @@ export function FoodSearch({ date, today, initialMeal }: { date: string; today: 
                 {data.results[s].map((item) => {
                   const def = item.servings[0];
                   const defN = def ? scaleNutrients(item.per100, def.amount) : null;
+                  // An Open Food Facts search hit is only a preview: the full product may still have nutrition data.
+                  const checkDetails = !item.hasNutrition && item.source === "OPEN_FOOD_FACTS";
                   return (
-                    <button key={item.key} type="button" disabled={!item.hasNutrition || resolving !== null} onClick={() => pick(item)}
+                    <button key={item.key} type="button" disabled={(!item.hasNutrition && !checkDetails) || resolving !== null} onClick={() => pick(item)}
                       className="block w-full px-4 py-3 text-left hover:bg-surface-2 disabled:opacity-50">
                       <span className="flex items-start justify-between gap-2">
                         <span className="min-w-0">
@@ -177,6 +180,7 @@ export function FoodSearch({ date, today, initialMeal }: { date: string; today: 
                           {item.brand && <span className="block text-xs text-muted">{item.brand}</span>}
                         </span>
                         {resolving === item.key ? <span className="text-xs text-muted">Loading…</span> :
+                          checkDetails ? <span className="shrink-0 rounded-full bg-surface-2 px-2 py-0.5 text-[11px] text-muted">Tap for details</span> :
                           !item.hasNutrition ? <span className="shrink-0 rounded-full bg-surface-2 px-2 py-0.5 text-[11px] text-muted">No nutrition data</span> :
                           !item.complete ? <span className="shrink-0 rounded-full bg-down/10 px-2 py-0.5 text-[11px] text-down">Incomplete</span> : null}
                       </span>

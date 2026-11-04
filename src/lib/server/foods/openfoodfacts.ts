@@ -3,13 +3,20 @@
  * Used for packaged foods and barcode lookup. OFF data is licensed under ODbL.
  * Attribution is shown in the UI, and requests carry an identifying User-Agent.
  * `*_100g` nutriment fields are normalised per 100 g (or 100 ml for liquids).
+ *
+ * Text search uses Search-a-licious (search.openfoodfacts.org). The legacy /cgi/search.pl
+ * returns intermittent 503s, and /api/v2/search has no full-text search. Search hits are
+ * previews: selecting one resolves the full product through the product API.
  */
 import "server-only";
 import { MAX_SERVING_AMOUNT, sanitizePer100, type Nutrients } from "@/lib/nutrition";
 import { guardedFetchJson, isObject, TtlCache } from "./http";
 
-/** /cgi/search.pl must return an object with a `products` array. */
-export const isOffSearchResponse = (d: unknown) => isObject(d) && Array.isArray(d.products);
+/**
+ * /search must return an object with a `hits` array. Its own errors arrive as HTTP 200 with
+ * `errors` instead. A timed-out search with no hits is a failure, not "no products found".
+ */
+export const isOffSearchResponse = (d: unknown) => isObject(d) && Array.isArray(d.hits) && !(d.timed_out === true && d.hits.length === 0);
 /**
  * /api/v2/product/{code} must return an object with status 0 (not found) or 1
  * (found), and when found, a `product` object.
@@ -21,6 +28,19 @@ import { ExternalFoodError, num, type NormalizedFood, type ServingOption } from 
 const base = () => (process.env.OFF_BASE_URL ?? "https://world.openfoodfacts.org").replace(/\/$/, "");
 /** Host of the configured endpoint; recorded with cached foods (see Food.origin). */
 export const offOrigin = () => new URL(base()).host;
+/** Follows any OFF_BASE_URL override, so stub-based tests can never reach the real search service. */
+const searchBase = () => (offOrigin() === "world.openfoodfacts.org" ? "https://search.openfoodfacts.org" : base());
+
+/**
+ * `q` is parsed as Lucene query syntax, so a food name like `m&m's (peanut)` could be
+ * rejected or read as an operator. Reduce user input to plain words.
+ */
+export const plainSearchTerms = (query: string) =>
+  query
+    .replace(/[+\-=&|><!(){}[\]^"~*?:\\/]/g, " ")
+    .replace(/\b(AND|OR|NOT)\b/g, (operator) => operator.toLowerCase())
+    .replace(/\s+/g, " ")
+    .trim();
 const userAgent = () =>
   process.env.OFF_USER_AGENT ?? `FitWorkoutFoodTracker/0.2 (${process.env.OFF_CONTACT ?? "https://github.com/aseelalmanahy/fitworkoutfoodtracker"})`;
 
@@ -48,9 +68,12 @@ export function extractOffNutrients(nutriments: unknown): Nutrients {
   };
 }
 
+/** First non-blank string. A provider value of another type must never become a display name. */
+const firstText = (...values: unknown[]) => values.find((v): v is string => typeof v === "string" && v.trim() !== "")?.trim() ?? "";
+
 export function normalizeOffProduct(p: Record<string, unknown>): NormalizedFood | null {
-  const code = typeof p.code === "string" ? p.code.trim() : p.code != null ? String(p.code) : "";
-  const name = String(p.product_name || p.product_name_en || p.generic_name || "").trim();
+  const code = typeof p.code === "string" ? p.code.trim() : typeof p.code === "number" ? String(p.code) : "";
+  const name = firstText(p.product_name, p.product_name_en, p.generic_name);
   if (!code || !name) return null;
   const unitHint = String(p.serving_quantity_unit || p.product_quantity_unit || "").toLowerCase();
   const basisUnit = unitHint === "ml" ? "ML" : "G";
@@ -62,7 +85,9 @@ export function normalizeOffProduct(p: Record<string, unknown>): NormalizedFood 
     servings.push({ label: label.includes(String(sq)) ? `1 serving · ${label}` : `1 serving · ${label} (${sq} ${u})`, amount: sq });
   }
   servings.push({ label: `100 ${u}`, amount: 100 });
-  const brand = typeof p.brands === "string" ? p.brands.split(",")[0].trim() || null : null;
+  // The product API returns a comma-separated string; the search service returns an array.
+  const brands = Array.isArray(p.brands) ? p.brands[0] : p.brands;
+  const brand = typeof brands === "string" ? brands.split(",")[0].trim() || null : null;
   return {
     source: "OPEN_FOOD_FACTS",
     sourceId: code,
@@ -77,6 +102,7 @@ export function normalizeOffProduct(p: Record<string, unknown>): NormalizedFood 
   };
 }
 
+const OFF_PRODUCT_CODE = /^\d{6,14}$/;
 const headers = () => ({ "User-Agent": userAgent(), Accept: "application/json" });
 const searchCache = new TtlCache<NormalizedFood[]>(10 * 60 * 1000);
 export const _resetOffCache = () => searchCache.clear();
@@ -85,18 +111,21 @@ export async function searchOff(query: string, userId?: string, pageSize = 20): 
   const cacheKey = `${query.toLowerCase()}|${pageSize}`;
   const cached = searchCache.get(cacheKey);
   if (cached) return cached;
-  const params = new URLSearchParams({
-    search_terms: query, search_simple: "1", action: "process", json: "1", page_size: String(pageSize), fields: OFF_FIELDS,
-  });
-  const data = (await guardedFetchJson("OFF_SEARCH", userId, `${base()}/cgi/search.pl?${params}`, { headers: headers() }, isOffSearchResponse)) as Record<string, unknown>;
-  const foods = (data.products as Record<string, unknown>[]).map(normalizeOffProduct).filter((f): f is NormalizedFood => f !== null);
-  searchCache.set(cacheKey, foods);
+  const q = plainSearchTerms(query);
+  if (!q) return [];
+  const params = new URLSearchParams({ q, page_size: String(pageSize), langs: "en", fields: OFF_FIELDS });
+  const data = (await guardedFetchJson("OFF_SEARCH", userId, `${searchBase()}/search?${params}`, { headers: headers() }, isOffSearchResponse)) as Record<string, unknown>;
+  // A hit without a valid product code could never be opened through the product API.
+  const foods = (data.hits as Record<string, unknown>[]).map(normalizeOffProduct)
+    .filter((f): f is NormalizedFood => f !== null && OFF_PRODUCT_CODE.test(f.sourceId));
+  // Results from a timed-out search may be partial, so they aren't kept for later searches.
+  if (data.timed_out !== true) searchCache.set(cacheKey, foods);
   return foods;
 }
 
 /** Product by barcode (also the entry point for future camera barcode scanning). */
 export async function getOffProduct(code: string, userId?: string): Promise<NormalizedFood> {
-  if (!/^\d{6,14}$/.test(code)) throw new ExternalFoodError("OPEN_FOOD_FACTS", "not_found", "Invalid barcode.");
+  if (!OFF_PRODUCT_CODE.test(code)) throw new ExternalFoodError("OPEN_FOOD_FACTS", "not_found", "Invalid barcode.");
   const data = (await guardedFetchJson("OFF_PRODUCT", userId, `${base()}/api/v2/product/${code}.json?fields=${OFF_FIELDS}`, { headers: headers() }, isOffProductResponse)) as Record<string, unknown>;
   if (data.status !== 1) throw new ExternalFoodError("OPEN_FOOD_FACTS", "not_found", "No product found for this barcode.");
   const food = normalizeOffProduct({ code, ...(data.product as Record<string, unknown>) });

@@ -88,8 +88,13 @@ describe("USDA client", () => {
     expect(f).toHaveBeenCalledTimes(1);
     const [url, init] = f.mock.calls[0];
     expect(url).not.toContain("test-key");
-    expect(url).toContain("dataType=Foundation%2CSR+Legacy%2CSurvey+%28FNDDS%29");
-    expect((init!.headers as Record<string, string>)["X-Api-Key"]).toBe("test-key");
+    expect(url).toBe("https://fdc.test/v1/foods/search");
+    expect(init!.method).toBe("POST");
+    expect(JSON.parse(init!.body as string)).toEqual({ query: "banana", pageSize: 20, dataType: ["Foundation", "SR Legacy", "Survey (FNDDS)"] });
+    expect(init!.body).not.toContain("test-key");
+    const headers = init!.headers as Record<string, string>;
+    expect(headers["X-Api-Key"]).toBe("test-key");
+    expect(headers["Content-Type"]).toBe("application/json");
   });
   it("returns an empty list for no results", async () => {
     mockFetch(() => json({ totalHits: 0, foods: [] }));
@@ -148,7 +153,7 @@ describe("Open Food Facts", () => {
     expect(f.servings.at(-1)).toEqual({ label: "100 ml", amount: 100 });
   });
   it("skips unnamed products in search and sends a User-Agent", async () => {
-    const f = mockFetch(() => json({ count: 2, products: [offProduct, { code: "1", nutriments: {} }] }));
+    const f = mockFetch(() => json({ count: 2, hits: [offProduct, { code: "1", nutriments: {} }] }));
     const r = await searchOff("nutella");
     expect(r).toHaveLength(1);
     expect((f.mock.calls[0][1]!.headers as Record<string, string>)["User-Agent"]).toMatch(/FitWorkoutFoodTracker/);
@@ -239,7 +244,7 @@ describe("D3: provider backoff through the real clients", () => {
     expect(f).toHaveBeenCalledTimes(3);
   });
   it("cached results don't consume budget", async () => {
-    const f = mockFetch(() => json({ count: 1, products: [offProduct] }));
+    const f = mockFetch(() => json({ count: 1, hits: [offProduct] }));
     for (let i = 0; i < 10; i++) await searchOff("nutella", "user-x");
     expect(f).toHaveBeenCalledTimes(1);
     for (let i = 0; i < 3; i++) await searchOff(`other${i}`, "user-x");
@@ -279,7 +284,7 @@ describe("circuit breaker counts malformed (valid JSON, wrong structure) respons
   const ops: [string, () => Promise<unknown>, unknown, unknown][] = [
     ["USDA search", () => searchUsda(uniq()), { unexpected: true }, { totalHits: 0, foods: [] }],
     ["USDA detail", () => getUsdaFood(String(100000 + ++n)), { foo: 1 }, usdaDetail],
-    ["OFF search", () => searchOff(uniq()), { count: 1, products: "nope" }, { count: 0, products: [] }],
+    ["OFF search", () => searchOff(uniq()), { count: 1, hits: "nope" }, { count: 0, hits: [] }],
     ["OFF product", () => getOffProduct(String(4000000000000 + ++n)), { status: 1 }, { status: 1, product: offProduct }],
   ];
 
@@ -311,8 +316,8 @@ describe("circuit breaker counts malformed (valid JSON, wrong structure) respons
     for (const bad of [null, [], "x", 1, {}, { foods: {} }]) expect(isUsdaSearchResponse(bad)).toBe(false);
     expect(isUsdaFoodResponse(usdaDetail)).toBe(true);
     for (const bad of [null, [], {}, { fdcId: 1 }, { description: "x" }, { fdcId: 1, description: "  " }]) expect(isUsdaFoodResponse(bad)).toBe(false);
-    expect(isOffSearchResponse({ products: [] })).toBe(true);
-    for (const bad of [null, [], {}, { products: {} }]) expect(isOffSearchResponse(bad)).toBe(false);
+    expect(isOffSearchResponse({ hits: [] })).toBe(true);
+    for (const bad of [null, [], {}, { hits: {} }, { products: [] }, { errors: [{ title: "x" }] }]) expect(isOffSearchResponse(bad)).toBe(false);
     expect(isOffProductResponse({ status: 0 })).toBe(true);
     expect(isOffProductResponse({ status: 1, product: {} })).toBe(true);
     for (const bad of [null, [], {}, { status: 1 }, { status: 1, product: [] }, { status: "1", product: {} }, { status: 2 }]) expect(isOffProductResponse(bad)).toBe(false);

@@ -5,10 +5,11 @@
 const { test, before, after } = require("node:test");
 const assert = require("node:assert/strict");
 const { PrismaClient } = require("@prisma/client");
+const { requireTestDatabaseUrl } = require("./lib/test-db-guard.cjs");
 
 const BASE = process.env.BASE_URL || "http://localhost:3000";
 const ORIGIN = new URL(BASE).origin;
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({ datasources: { db: { url: requireTestDatabaseUrl() } } });
 const run = Date.now();
 
 function client() {

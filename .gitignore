@@ -1,8 +1,14 @@
 node_modules
 .next
 out
+# Every .env file can hold secrets (database passwords, FDC_API_KEY): ignore them all,
+# except the documented template.
 .env
-.env.local
+.env.*
+!.env.example
 *.tsbuildinfo
 next-env.d.ts
 coverage
+
+# Live provider check output (scripts/live-provider-check.cjs)
+live-provider-report.json

@@ -10,6 +10,7 @@
 // "ratelimit" → HTTP 429 with Retry-After: 30; barcode 0000000000500 → HTTP 500.
 // Malformed-but-valid-JSON (HTTP 200): search query "malformed" (USDA and OFF), USDA food id
 // 990000, OFF barcode 0000000000600. Barcodes 77 + 11 digits return a generated valid product.
+// OFF text search is served at /off/search (Search-a-licious shape, used by the app).
 const http = require("node:http");
 const port = Number(process.argv[2] || 4010);
 
@@ -52,22 +53,26 @@ const offProducts = [
   // Reproduces audit finding D1: a crowd-sourced data-entry error (54,000,000 kcal/100 g).
   { code: "1234567890123", product_name: "Data-entry error product", brands: "Example", serving_size: "40 g", serving_quantity: 40,
     nutriments: { "energy-kcal_100g": 54000000, proteins_100g: 6, carbohydrates_100g: 50, fat_100g: 30 } },
+  // Search hits without nutrients (real Search-a-licious hits can lack them): the full product has them, or doesn't.
+  { code: "8800000000011", product_name: "Preview granola", brands: "Example", serving_size: "40 g", serving_quantity: 40, previewOnly: true,
+    nutriments: { "energy-kcal_100g": 450, proteins_100g: 10, carbohydrates_100g: 60, fat_100g: 18 } },
+  { code: "8800000000028", product_name: "Preview empty snack", brands: "Example", previewOnly: true },
 ];
 
 const send = (res, status, body) => { res.writeHead(status, { "Content-Type": "application/json" }); res.end(JSON.stringify(body)); };
 
-http.createServer((req, res) => {
+function handle(req, res, body = {}) {
   const url = new URL(req.url, "http://x");
   // STUB_LOG=1: log request URL and header *presence* (never header values) for key-exposure checks.
   const line = JSON.stringify({ path: req.url, hasApiKeyHeader: !!req.headers["x-api-key"], userAgent: req.headers["user-agent"] });
   if (process.env.STUB_LOG) console.log(line);
   if (process.env.STUB_LOG_FILE) require("node:fs").appendFileSync(process.env.STUB_LOG_FILE, line + "\n");
-  const q = (url.searchParams.get("query") || url.searchParams.get("search_terms") || "").toLowerCase();
+  const q = String(body.query || url.searchParams.get("query") || url.searchParams.get("search_terms") || url.searchParams.get("q") || "").toLowerCase();
   if (q === "timeout") return setTimeout(() => send(res, 200, { foods: [], products: [] }), 15000);
   if (q === "error") return send(res, 500, { error: "internal" });
   if (q === "ratelimit") { res.writeHead(429, { "Content-Type": "application/json", "Retry-After": "30" }); return res.end(JSON.stringify({ error: "OVER_RATE_LIMIT" })); }
   if (url.pathname.endsWith("/product/0000000000500.json")) return send(res, 500, { error: "internal" });
-  if (q === "malformed") return send(res, 200, url.pathname.startsWith("/fdc/") ? { unexpected: true } : { count: 1, products: "nope" });
+  if (q === "malformed") return send(res, 200, url.pathname.startsWith("/fdc/") ? { unexpected: true } : { count: 1, products: "nope", hits: "nope" });
   if (url.pathname === "/fdc/v1/food/990000") return send(res, 200, { foo: 1 });
   if (url.pathname.endsWith("/product/0000000000600.json")) return send(res, 200, { status: 1 });
   const gen = url.pathname.match(/^\/off\/api\/v2\/product\/(77\d{11})\.json$/); // generated valid product (never cached)
@@ -81,6 +86,10 @@ http.createServer((req, res) => {
     const m = url.pathname.match(/^\/fdc\/v1\/food\/(\d+)$/);
     if (m) return usdaDetail[m[1]] ? send(res, 200, usdaDetail[m[1]]) : send(res, 404, { error: "not found" });
   }
+  if (url.pathname === "/off/search") {
+    const hits = offProducts.filter((p) => p.product_name.toLowerCase().includes(q)).map((p) => ({ ...p, brands: p.brands ? [p.brands] : [], nutriments: p.previewOnly ? undefined : p.nutriments }));
+    return send(res, 200, { hits, count: hits.length, page: 1, page_size: 20, page_count: 1, took: 1, timed_out: false, is_count_exact: true, debug: { query: {} } });
+  }
   if (url.pathname === "/off/cgi/search.pl") {
     const products = offProducts.filter((p) => p.product_name.toLowerCase().includes(q));
     return send(res, 200, { count: products.length, page: 1, products });
@@ -91,4 +100,15 @@ http.createServer((req, res) => {
     return send(res, 200, p ? { status: 1, code: p.code, product: p } : { status: 0, status_verbose: "product not found" });
   }
   send(res, 404, { error: "not found" });
+}
+
+http.createServer((req, res) => {
+  if (req.method !== "POST") return handle(req, res);
+  let raw = ""; // USDA search sends its parameters as a JSON body
+  req.on("data", (d) => (raw += d));
+  req.on("end", () => {
+    let body = {};
+    try { body = JSON.parse(raw); } catch { /* handled as an empty query */ }
+    handle(req, res, body);
+  });
 }).listen(port, () => console.log(`stub food APIs on :${port}`));

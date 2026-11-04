@@ -59,6 +59,12 @@ describe("per-user budgets", () => {
     expect(take("OFF_PRODUCT", "u1")).toBe("ok");
     expect(take("USDA", "u1")).toBe("ok");
   });
+  it("OFF product: 6 per user per minute and 12 globally, inside the documented 15/min per IP", () => {
+    for (let i = 0; i < 6; i++) expect(take("OFF_PRODUCT", "u1")).toBe("ok");
+    expect(take("OFF_PRODUCT", "u1")).toBe("user_rate_limited");
+    for (let i = 0; i < 6; i++) expect(take("OFF_PRODUCT", "u2")).toBe("ok");
+    expect(take("OFF_PRODUCT", "u3")).toBe("unavailable");
+  });
 });
 
 describe("global budgets protect shared provider capacity", () => {

@@ -33,6 +33,8 @@ export type ExternalErrorKind =
   | "invalid_response" | "network" | "not_found";
 
 export class ExternalFoodError extends Error {
+  /** A short-lived failure worth one retry. Server-side only: never part of a client response. */
+  transient = false;
   constructor(public source: ExternalSource, public kind: ExternalErrorKind, message: string, public retryAfterMs?: number) {
     super(message);
   }

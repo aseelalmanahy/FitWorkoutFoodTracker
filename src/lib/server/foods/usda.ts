@@ -139,8 +139,14 @@ export async function searchUsda(query: string, userId?: string, pageSize = 20):
   const cacheKey = `${query.toLowerCase()}|${pageSize}`;
   const cached = searchCache.get(cacheKey);
   if (cached) return cached;
-  const params = new URLSearchParams({ query, pageSize: String(pageSize), dataType: USDA_GENERIC_TYPES.join(",") });
-  const data = (await guardedFetchJson("USDA", userId, `${base()}/foods/search?${params}`, { headers: { "X-Api-Key": key, Accept: "application/json" } }, isUsdaSearchResponse)) as Record<string, unknown>;
+  // POST, the form the API guide documents for dataType. GET with a dataType query parameter
+  // intermittently returned an HTML 400 from nginx, in both encodings; POST never did (see PHASE_2_PROGRESS.md).
+  const init = {
+    method: "POST",
+    headers: { "X-Api-Key": key, Accept: "application/json", "Content-Type": "application/json" },
+    body: JSON.stringify({ query, pageSize, dataType: USDA_GENERIC_TYPES }),
+  };
+  const data = (await guardedFetchJson("USDA", userId, `${base()}/foods/search`, init, isUsdaSearchResponse)) as Record<string, unknown>;
   const foods = (data.foods as Record<string, unknown>[]).map(normalizeUsdaFood).filter((f): f is NormalizedFood => f !== null);
   searchCache.set(cacheKey, foods);
   return foods;

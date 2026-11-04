@@ -53,7 +53,7 @@ Key rules:
 | Password hashing | `@node-rs/argon2` (Argon2id, OWASP parameters m=19 MiB, t=2, p=1) | 1 |
 | Validation | `zod` | 1 |
 | Charts | `recharts` | 1 |
-| Generic foods | **USDA FoodData Central API** (free API key) | 2 |
+| Generic foods | **USDA FoodData Central API** (free API key; search uses `POST /foods/search`) | 2 |
 | Packaged foods / barcodes | **Open Food Facts API** (no key; descriptive `User-Agent` required) | 2 |
 | Barcode decoding | Browser `BarcodeDetector` API where available, with `@zxing/browser` as fallback (on-device, free) | 2 |
 | Object storage (photos, uploads) | S3-compatible bucket (e.g. AWS S3, Cloudflare R2), private, accessed via signed URLs | 3–4 |
@@ -179,7 +179,7 @@ Unique constraints: `Food(source, sourceId)`, `FoodServing(foodId, label)`, `Nut
 * All input is validated server-side with Zod, and numeric ranges are bounded.
 
 * External food providers (Phase 2.4, `src/lib/server/foods/guard.ts`): per-user and global budgets per provider operation, charged only on cache misses.
-  USDA 20/min and 150/h per user, 900/h globally (key quota 1,000/h). OFF search 4/min per user, 10/min globally. OFF product 20/min per user, 90/min globally.
+  USDA 20/min and 150/h per user, 900/h globally (key quota 1,000/h). OFF search 4/min per user, 10/min globally. OFF product 6/min per user, 12/min globally (documented limit: 15/min per IP).
   A circuit breaker opens on a provider 429 (Retry-After, default 60 s, doubling, max 15 min) or after 3 consecutive failures (30 s, doubling, max 5 min).
   Configuration errors are logged server-side and shown to clients as a generic "unavailable".
 

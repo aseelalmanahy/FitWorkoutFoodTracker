@@ -6,10 +6,11 @@
 const { test, before, after } = require("node:test");
 const assert = require("node:assert/strict");
 const { PrismaClient } = require("@prisma/client");
+const { requireTestDatabaseUrl } = require("./lib/test-db-guard.cjs");
 
 const BASE = process.env.BASE_URL || "http://localhost:3000";
 const ORIGIN = new URL(BASE).origin;
-const prisma = new PrismaClient();
+const prisma = new PrismaClient({ datasources: { db: { url: requireTestDatabaseUrl() } } });
 const run = Date.now();
 const r2 = (x) => Math.round((x + Number.EPSILON) * 100) / 100;
 const today = () => new Date().toISOString().slice(0, 10);

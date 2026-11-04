@@ -429,3 +429,445 @@ To unblock: allow those hosts in the environment's network settings, and provide
 
 ## Defects
 Found: none. Fixed: none (no application code changes).
+
+---
+
+# Phase 2.5 — Live provider verification handoff (2026-11-04)
+
+**Code under test:** `383fca2` (no application code changes in this step).
+
+## Status: live USDA and Open Food Facts verification is still NOT VERIFIED
+
+The developer reports a working local setup on their Windows machine: PostgreSQL running, migrations applied, Prisma Client generated, seed done (47 exercises), app started and manually tried, and `FDC_API_KEY` in the local `.env`. That report is recorded as **user-reported**. The assistant could not observe it, because the verification session runs in a cloud container that can reach none of the following:
+- **Local machine:** the project folder (DESKTOP-PLGDCGO) is on the Remote Control list but marked *not available to cloud sessions*. The likely cause is that the Claude app needs updating.
+- **Key:** `FDC_API_KEY` is absent in the container (correct: the key stays local).
+- **Providers:** egress to `api.nal.usda.gov`, `world.openfoodfacts.org` and `search.openfoodfacts.org` is refused by the container's proxy (403).
+
+## Live checks still required (to be run on the developer's machine)
+New script `scripts/live-provider-check.cjs` drives the running app through its own API, so it uses the existing server-side provider clients with no bypass. It never prints the key and only uses it to confirm no response contains it.
+
+| ID | Live check |
+|---|---|
+| USDA-1..3 | searches "banana", "chicken breast", "white rice": results, generic data types only, plausible values |
+| USDA-4 | food detail (resolve): fdcId preserved, servings incl. 100 g, nutrients numbers or null |
+| USDA-5 | Foundation food: energy present (Atwater 2047/2048 path) |
+| USDA-6 | missing nutrients reported as null |
+| USDA-7 | invalid searches: 1-char → 400, nonsense → empty without error, unknown fdcId → 404/502 |
+| OFF-1 | search "nutella" |
+| OFF-2 | barcode 3017620422003: name, serving, nutrition |
+| OFF-3 | nonexistent barcode → 404, barcode-style search → empty |
+| OFF-4 | energy vs 4P+4C+9F sanity (kJ-only conversion stays unit-tested) |
+| PROT-1 | per-user OFF search limit stops the 5th search before the provider |
+| FLOW-1 | log a live USDA food with a serving → totals; edit ×2; other user 404 / sees 0; delete → 0 |
+| FLOW-2 | log a live OFF product by grams; history day keeps its target |
+| SEC-1 | key absent from every API response |
+
+Run: `node --env-file=.env.test scripts/live-provider-check.cjs` with the app running against a marked local test database (see README; superseded details in the engineering review below). Report: `live-provider-report.json` (git-ignored, no secrets). Release evidence requires **LIVE VERIFICATION: PASSED** (exit 0).
+
+**Deliberately not tested live:** provider 429s, provider outages, timeouts and malformed responses. Triggering them on purpose would mean abusing the real services. They stay covered by stub and mock tests only.
+
+**Script safeguards** (all self-tested in the cloud container against the local stub — NOT live tests):
+
+| Safeguard | Self-test | Result |
+|---|---|---|
+| Refuses a non-local `BASE_URL` | `BASE_URL=https://example.com` | REFUSED, exit 4, nothing created |
+| Refuses a non-test database | `DATABASE_URL=…/fitdb` (dev DB) | REFUSED, exit 4, 0 users created |
+| Can't pass with stub data (fail-closed live evidence) | server on stub, sentinel key | 14 PASS, 1 NOT RUN, but **NOT LIVE** for 4 reasons: banana 1 result; nutella 1 result; both food origins `localhost:4010`. Exit 3 |
+| Cleanup after failing checks | server without USDA key | 4 FAIL, NOT LIVE; users/entries/custom foods/targets left: 0/0/0/0 |
+| Cleanup after Ctrl+C | SIGINT during sign-up (×3) and after 2/6/10 passing checks (×3) | exit 130; users and entries left: 0 every time |
+| Key never printed | sentinel `FDC_API_KEY` | 0 occurrences in stdout and report |
+| **Server and script on different databases** | server `fitdb_test`, script `fitdb_test_other` | **REFUSED before any write, exit 4**; row counts in both DBs unchanged (regression test below) |
+| Server can't prove its database | identity endpoint disabled / server unreachable | REFUSED, exit 4, no rows |
+| **Missing test-database marker** | marker removed | REFUSED before any write, exit 4, 0 rows in both DBs |
+| **Invalid test-database marker** | garbage value; marker naming another DB (restored copy); wrong version | REFUSED before any write, exit 4, 0 rows in both DBs |
+
+**Defect found and fixed during this self-test:** Ctrl+C during sign-up first left 1 user behind (a sign-up request in flight completed after cleanup), and a later race let the main flow exit before the signal handler's deletion ran. Fixed: in-flight requests are tracked and awaited before deletion, no new requests start after an interrupt, and cleanup is a single shared promise. Re-tested at 6 interrupt points: 0 rows left each time. A further gap was found in review: the database guard used only the *script's* `DATABASE_URL`, so a server started with a different database would receive writes, with the mismatch noticed only afterwards.
+
+**Fix (pre-write server database verification):** new read-only endpoint `GET /api/health/db-identity` (`src/app/api/health/db-identity/route.ts`, `src/lib/server/db-identity.ts`). It returns only `{ fingerprint }`: a SHA-256 of the connected database's name, its OID and the cluster start time (epoch seconds, independent of the session time zone). It has no auth, does no writes and never returns names or credentials, and in production builds it returns 404 unless `EXPOSE_DB_IDENTITY=1`. The script computes the same fingerprint from its own test-named database (read-only query) and refuses (exit 4) unless the server's matches. It also refuses if the endpoint is unreachable, disabled or errors. This runs before the first sign-up. The post-run mismatch check stays as defence in depth.
+
+**Regression test** `scripts/live-provider-check.safety.test.cjs` (self-contained: own stub and app servers, counts every `User`/`Session`/`FoodEntry`/`NutritionTarget`/custom-food row in **both** databases before and after) → **5/5 pass**:
+1. mismatched DBs → exit 4, "does not match", no "Verified"/PASS/Cleanup output, **0 rows created in either DB**;
+2. identity endpoint disabled → exit 4, 0 rows;
+3. server unreachable → exit 4, 0 rows;
+4. non-test DB name / non-local `BASE_URL` → exit 4, 0 rows;
+5. matching DB → "Verified before any write" printed before any check; run continues (stub → NOT LIVE, exit 3); every created row removed.
+
+**Negative control:** with the verification call removed, test 1 **fails**. The script reached the writes, created 3 users in the server's database and exited 2 at cleanup ("Cleanup MISMATCH"). This proves the test detects the original problem. The file was restored byte-for-byte, and those 3 test users were removed from `fitdb_test`.
+
+**Explicit test-database marker (final safety improvement):** a database name containing `test` is not treated as sufficient proof. A dedicated test database must be marked deliberately with `scripts/mark-test-database.cjs --confirm <name>`, which requires repeating the exact database name. The marker is a PostgreSQL database comment, `fitworkoutfoodtracker:test-database:v1:<database name>`. No schema change and no migration: migrations never set it, so dev and production databases can't be marked by accident. The server reports it through `GET /api/health/db-identity` (`{ fingerprint, testMarker }`, read from the server's own connection). The script refuses (exit 4, nothing written) when the marker is missing, or when it is invalid (any value other than the exact marker for this database name: garbage, a marker naming another database as in a restored copy, or a different version).
+
+**Safety regression suite** `scripts/live-provider-check.safety.test.cjs` → **10/10 pass** (the 5 tests above plus):
+6. the provisioning script refuses without the exact `--confirm` name (4 variants), and the marker is unchanged;
+7. **missing marker** → endpoint reports `testMarker: null`; exit 4; no "Verified"/PASS/Cleanup output; 0 rows in either DB;
+8–10. **invalid marker** (garbage / other database's marker / wrong version) → exit 4; 0 rows in either DB.
+
+**Negative control (marker):** with only the marker checks removed from the script, tests 7–10 **all fail**. Each run passed verification, created 3 users and ran to completion (exit 3 instead of 4). The script was restored byte-for-byte. Final marker state: `fitdb_test` marked, `fitdb` and `fitdb_test_other` unmarked; 0 `live-check` users in all three.
+
+**Residual limits of the safeguards:**
+- Anyone with owner rights on a database could deliberately mark it. The marker prevents accidents, not intentional misuse.
+- Live evidence relies on the server-recorded `Food.origin` host. A mock served at the real hostname (e.g. via a hosts-file override) could still defeat it.
+- Cached provider foods fetched during the run stay in the test database's shared food cache (real provider data, not test records).
+
+## Regression results in the cloud container (mocks and local stub only — not live)
+| Check | Result |
+|---|---|
+| `npm run lint` (`tsc --noEmit`; ESLint not configured) | exit 0 |
+| `npx vitest run` | 112/112 |
+| `npm run build` | exit 0 |
+| `prisma validate` / `migrate status` (dev, test) / drift diff | valid / up to date / no difference |
+| `nutrition-api.test.cjs` | 31/31 |
+| `release-workflow.test.cjs` | 8/8 |
+| `provider-protection.test.cjs` | 7/7 |
+| `provider-malformed.test.cjs` | 4/4 |
+| `provider-config.test.cjs` | 1/1 |
+| `e2e-nutrition.cjs` | passed |
+| `e2e-smoke.cjs` (Phase 1) | passed |
+
+## Release readiness
+**NOT READY — LIVE PROVIDER VERIFICATION BLOCKED.** No code defects are known. Phase 2 becomes release-ready once `scripts/live-provider-check.cjs` reports **LIVE VERIFICATION: PASSED** on a machine with real network access and the real key. Any FAIL must be investigated before release.
+
+Files changed: see the complete list at the end of the engineering review below.
+
+# Phase 2.5 — Engineering review of the live-check and database-safety code (2026-11-04)
+
+**Base:** `383fca2`. Every change is uncommitted in the working tree. The only artifact pushed is `PHASE_2.5_REVIEW.diff` on branch `phase-2.5-review`. `main` is unchanged.
+**Scope:** every line of the Phase 2.5 files. This section supersedes the earlier safety-suite counts (5/5, 10/10) and the "no code defects are known" statement above.
+
+**Test categories used below:**
+- **STUB:** runs against `scripts/stub-food-apis.cjs` on a local port.
+- **MOCK:** in-process unit tests, no network.
+- **LIVE:** real USDA / Open Food Facts. **No LIVE test was run.** Live verification is still NOT VERIFIED (see "Not run").
+
+## Issues found and fixed
+| # | Issue | Fix | Regression test (category) | Negative control |
+|---|---|---|---|---|
+| R1 (critical) | The safety suite marked `SAFETY_DB_URL` as a test database with no validation, falling back to a default URL. Any database it was pointed at (dev, a remote host) would have been marked and then written to. `mark-test-database.cjs` checked only the `--confirm` value. | New `scripts/lib/test-db-guard.cjs`. `validateTargetUrl` requires a postgres protocol, a host of `localhost`/`127.0.0.1`/`::1`, no `host=` override, a name of `[A-Za-z0-9_]+` containing `test`, and a confirmation equal to the exact name. `assertConnectedTarget` then requires `current_database()` to equal the expected name and `inet_server_addr()` to be loopback or a local socket. Both the mark script and the suite use the guard, before connecting and again after connecting. The suite has no default URLs (`SAFETY_DB_URL`, `SAFETY_DB_CONFIRM`, `SAFETY_OTHER_DB_URL` are required), refuses in `before()` before creating any client, and re-validates before every marker write. | `test-db-guard.test.cjs` (6), against the real local PostgreSQL: unit rejections (15 bad configurations); the mark CLI refuses 9 unsafe configurations; the safety suite refuses 7 unsafe configurations. Each case is compared against a snapshot of every database comment in the cluster plus user counts in every `fitdb*` database, unchanged before and after. | (a) suite configuration check removed → suite-level test fails. (b) mark-script validation removed → CLI test fails, and the snapshot catches the change. Both restored byte-for-byte. |
+| R2 | USDA-6 accepted any value (null or a number), so it proved nothing. | New `scripts/lib/usda-nutrient-oracle.cjs`. USDA-6 picks up to 4 search results, resolves each through the app, then fetches the raw USDA `/food/{id}` independently with the public `DEMO_KEY`, never the user's key. Each nutrient is classified as absent, zero or present, with the app's plausibility rules mirrored. **PASS** requires at least one genuinely absent nutrient that is null in the app, and no mismatch: absent→0, zero→null and wrong values all FAIL. **NOT RUN** (never PASS) when the oracle is unavailable or disabled, or when no example has an absent nutrient. | `missing-nutrients.test.ts` (10, MOCK); `live-check.units.test.cjs` oracle tests (6, MOCK); `usda-missing-nutrients.test.cjs` (4, STUB + local oracle): API search, detail, entry and day totals keep nulls; USDA-6 PASS on faithful data; FAIL on tampered data; NOT RUN when the oracle is down or off; the oracle receives `DEMO_KEY` only. | (c) comparison ignored → FAIL test fails. (d) absent→0 in normalization → Vitest and API tests fail. Both restored. |
+| R3 | A failed provider search was counted as "0 results", which produced a false **NOT LIVE** (a contradiction) instead of missing evidence. | The verdict was extracted to `scripts/lib/live-verdict.cjs`. A failed search is reported as missing evidence → INCOMPLETE OR FAILED (exit 1). PASSED requires real-origin evidence from **both** providers, every check PASS, no NOT RUN and no early stop. | `live-check.units.test.cjs` verdict tests (5, MOCK) | (e) failed search counted as 0 → test fails. |
+| R4 | Cleanup reliability: requests had no timeout, so a hung provider or server could block the run, and cleanup, forever. A request aborted client-side can still finish its write server-side after cleanup has run. | Each request gets an AbortController with a timeout (`LIVE_CHECK_REQUEST_TIMEOUT_MS`, default 60 s). Aborts are counted at the moment of abort. Cleanup awaits in-flight requests, sweeps, and if anything was aborted, sweeps again after `LIVE_CHECK_CLEANUP_GRACE_MS`. Remaining-row counts are verified (exit 2 on a mismatch). There is a single shared cleanup promise. Signals handled: SIGINT, SIGTERM, SIGHUP, SIGBREAK. | Safety suite: request TIMEOUT with a late server-side write → removed by the second sweep (STUB, through a delaying proxy); SIGTERM during a hung request → exit 130, 0 rows. | (f) second sweep removed → the late-write test fails. |
+| R5 | Abort counter race: the counter was incremented after `allSettled`, so a late write could escape the second sweep. | The counter is now incremented in the timer callback and in the interrupt-abort loop. | Covered by the R4 tests. | Covered by (f). |
+| R6 | Credential exposure: errors from Prisma or the guard could include the `DATABASE_URL` password, in output and in the report file. | `out`/`err` and the JSON report redact the API key plus the URL password, in both encoded and decoded forms. `mark-test-database.cjs` redacts as well. | `test-db-guard.test.cjs`: a wrong password equal to the database name must not appear on the normal output path or the error path; plus a redaction unit test. | (k-err) and (k-out): removing either path's redaction → test fails. The first version of this test was too weak and missed (k-err); it was strengthened. |
+| R7 | `.gitignore` ignored only `.env` and `.env.local`. `.env.test` (which the README tells users to create, and which holds a DB password) and `.env.production` could have been committed. | `.env`, `.env.*`, `!.env.example`, plus `live-provider-report.json`. | `live-check.units.test.cjs` hygiene test (`git check-ignore`). | The test failed against the old `.gitignore`. |
+| R8 | The unauthenticated `GET /api/health/db-identity` echoed **any** database comment verbatim, an information leak. | Only marker-family values (≤200 chars) are echoed; any other comment is reported as `"<non-marker comment>"`. The script still refuses on it. | Safety suite test 8 (garbage marker) asserts the endpoint returns `"<non-marker comment>"` and that the run exits 4. | Raw echo restored and rebuilt → test 8 fails (11/12); restored (checksum OK) and rebuilt → 12/12. |
+| R9 | Test reliability: a nested `node --test` inherited `NODE_TEST_CONTEXT` and exited 0 even on failure, so suite-level assertions could silently pass. Fixed ports (3300/4010) could collide; `npx next` and POSIX-only kills don't work on Windows; a foreign server on the port could be mistaken for ours. | New `scripts/lib/test-servers.cjs`: removes `NODE_TEST_CONTEXT`/`NODE_PATH`; uses free ports with an in-use check; launches `node node_modules/next/dist/bin/next`; kills process groups on POSIX and uses `taskkill /T /F` on Windows; readiness fails fast if our child exits; all children are killed on exit and on signals. | Every STUB suite uses it; the leftover-process check after the runs found none. | The `NODE_TEST_CONTEXT` effect was observed directly (a failing child reported exit 0). The Windows paths could not be exercised here. |
+| R10 | Test bug: the delaying proxy could lose the request body after a client abort. | The body is buffered on `end`, then forwarded. | Safety-suite timeout test. | — |
+| R11 | OFF-3's "nonexistent" barcode `0000000000017` has a valid EAN-13 check digit, so a real product could carry it. | `0000000000018` (invalid check digit). | Runs in safety test 5 (STUB). Real-provider behaviour is unverified (LIVE). | — |
+| R12 | PROT-1 reported PASS/FAIL when the limit could not be exercised. | Reports NOT RUN, which blocks PASSED. | Verdict unit test (NOT RUN blocks PASSED). | — |
+| R13 | FLOW-1 checked only that another user can't read an entry, not that they can't delete it. | Adds the other user's DELETE → must be 404. | Runs in safety test 5 (STUB). | — |
+| R14 | README: an unparseable `<test env>` placeholder; a contradictory ".env same as server" instruction; env vars that applied only to `npm run build`, not the server; the dev password literal; a stale test count (21 → 31). | Rewritten with the `.env.test` workflow, PowerShell and bash commands, `USER:PASSWORD` placeholders, the Node ≥20.6 requirement, and the safety-suite commands. | Manual review; grep: no password literal, no `<test env>`, no `(21)`. | — |
+
+## Regression run (this review; after the final rebuild)
+| Command | Category | Result |
+|---|---|---|
+| `npm run lint` (`tsc --noEmit`; ESLint is not configured) | — | exit 0 |
+| `npx vitest run` | MOCK | 7 files, **122/122** |
+| `npm run build` | — | exit 0 |
+| `prisma validate`; `migrate status` (fitdb, fitdb_test, fitdb_test_other); `migrate diff --from-schema-datasource --exit-code` (fitdb, fitdb_test) | — | valid; up to date ×3; no drift ×2 |
+| `node --test scripts/nutrition-api.test.cjs` | STUB | **31/31** |
+| `node --test scripts/release-workflow.test.cjs` | STUB | **8/8** |
+| `node --test scripts/provider-protection.test.cjs` (default budgets) | STUB | **7/7** |
+| `node --test scripts/provider-malformed.test.cjs` | STUB | **4/4** |
+| `node --test scripts/provider-config.test.cjs` (no key) | STUB | **1/1** |
+| `node --test scripts/live-check.units.test.cjs` | MOCK | **12/12** |
+| `node --test scripts/test-db-guard.test.cjs` | real local PostgreSQL | **6/6** |
+| `node --test scripts/live-provider-check.safety.test.cjs` | STUB + real local PostgreSQL | **12/12** |
+| `node --test scripts/usda-missing-nutrients.test.cjs` | STUB + local oracle | **4/4** |
+| `node scripts/e2e-nutrition.cjs` | STUB (Playwright) | ALL UI CHECKS PASSED |
+| `node scripts/e2e-smoke.cjs` (Phase 1) | Playwright | ALL PHASE 1 CHECKS PASSED |
+
+The first nutrition-api run gave 30/31. The failure was in my runner, not the app: the test reads `FDC_BASE_URL` in its own process and the runner hadn't passed it. With it passed, the suite gave 31/31.
+
+Database state after the runs: `fitdb_test` marked; `fitdb` and `fitdb_test_other` unmarked; 0 live-check or missing-nutrients users in `fitdb` and `fitdb_test`; no leftover server processes.
+
+## Not run
+- **LIVE USDA / Open Food Facts:** the container's proxy blocks both providers (403) and `FDC_API_KEY` is not present. The live check, including the real USDA-6 oracle against `api.nal.usda.gov` with `DEMO_KEY`, must run on the developer's machine.
+- **Windows-specific paths** (`taskkill`, SIGBREAK, PowerShell commands): no Windows host was reachable. The SIGTERM test is skipped on win32 by design.
+- **USDA-6's "no absent-nutrient example → NOT RUN" branch** is not covered end to end, only by reading the code.
+
+## Risks and limitations
+- Whether real USDA search results contain a food with a genuinely absent nutrient is unknown until a live run. If none does, USDA-6 is NOT RUN, which blocks PASSED.
+- The oracle uses `DEMO_KEY`, which USDA rate-limits heavily per IP. Exhausting it gives NOT RUN, never a false PASS.
+- The marker prevents accidents, not deliberate misuse by a database owner.
+- Live evidence relies on the server-recorded `Food.origin` host. A mock served at the real hostname (a hosts-file override) is not detected.
+- "Local" means loopback or a local socket. A local PostgreSQL that proxies to a remote server would pass the address check.
+
+## Release readiness
+**NOT APPROVED. NOT READY: LIVE PROVIDER VERIFICATION BLOCKED.** The stub and mock suites passing doesn't prove the provider integration works. Release evidence still requires `LIVE VERIFICATION: PASSED` from `scripts/live-provider-check.cjs` on a machine with real network access and the real key.
+
+## Files changed vs `383fca2`
+- **New:** `scripts/live-provider-check.cjs`, `scripts/live-provider-check.safety.test.cjs`, `scripts/mark-test-database.cjs`, `scripts/lib/test-db-guard.cjs`, `scripts/lib/live-verdict.cjs`, `scripts/lib/usda-nutrient-oracle.cjs`, `scripts/lib/test-servers.cjs`, `scripts/test-db-guard.test.cjs`, `scripts/live-check.units.test.cjs`, `scripts/usda-missing-nutrients.test.cjs`, `src/app/api/health/db-identity/route.ts`, `src/lib/server/db-identity.ts`, `src/lib/server/foods/missing-nutrients.test.ts`.
+- **Modified:** `.gitignore`, `README.md`, `PHASE_2_PROGRESS.md`.
+
+# Phase 2.5 — Live verification status update (2026-11-04)
+
+## Status: Phase 2.5 live verification is INCOMPLETE. It has not passed.
+
+The live check has **not** been rerun since the script changes below, so those changes are not yet verified against the real providers.
+
+## Latest full live-check run (before the script changes)
+Report time 2026-11-04 19:12 UTC, against the local `fitdb_test` database. Verdict: `INCOMPLETE OR FAILED`. **11 passed, 2 failed, 2 not run.**
+
+| Result | Checks |
+|---|---|
+| Passed (11) | USDA-1 to USDA-7 (all seven USDA checks), OFF-1, OFF-3, FLOW-1, SEC-1 |
+| Failed (2) | OFF-2, PROT-1 |
+| Not run (2) | OFF-4, FLOW-2 |
+
+## Remaining findings
+- **OFF-2:** the old Nutella barcode `3017624010966` returned 404, which left no Open Food Facts product for the checks that depend on it.
+- **PROT-1:** recorded as FAIL with `first 4: http,ok,ok,ok`, but the result was inconclusive because of a provider error. The check stopped before judging the 5th search, so the per-user limit was not verified live.
+- **OFF-4 and FLOW-2:** did not run because they depend on the OFF-2 product.
+
+## Changes since that run
+- **Replacement barcode:** one direct read-only Open Food Facts request confirmed that `3017620422003` returns Nutella (539 kcal per 100 g).
+- **`scripts/live-provider-check.cjs`:** OFF-2 now uses `3017620422003`.
+- **PROT-1 verdict logic:** revised in `scripts/live-provider-check.cjs` and `scripts/lib/live-verdict.cjs`, with new tests in `scripts/live-check.units.test.cjs`. A provider error among the first four searches is now context. PASS requires the 5th search to get `user_rate_limited` from the app's guard. Outcomes that can't separate the local limit from an upstream or app failure report NOT RUN.
+- **Unit tests:** `node --test scripts/live-check.units.test.cjs` passed 17/17. These tests don't exercise the real providers.
+- **Scope:** no application code changed in this script update. The old barcode stays in the stub fixtures and historical test records.
+- **Git:** nothing is staged or committed.
+
+## Next step
+Rerun `node --env-file=.env.test scripts/live-provider-check.cjs` against the marked local test database. Phase 2.5 live verification can only be recorded as passed if that run reports `LIVE VERIFICATION: PASSED`.
+
+# Phase 2.5 — Live run and USDA diagnostic status (2026-11-04)
+
+This section supersedes the earlier status above as the current state. Earlier sections stay as the historical record.
+
+## Status: Phase 2.5 live verification is INCOMPLETE. It has not passed, and the cause of the USDA HTTP 400 is unknown.
+
+## Latest live-check run
+Report time 2026-11-04 19:29 UTC, against the local `fitdb_test` database. Verdict: `INCOMPLETE OR FAILED`. **13 passed, 2 failed, 0 not run.**
+
+| Result | Checks |
+|---|---|
+| Passed (13) | USDA-1, USDA-3, USDA-4, USDA-5, USDA-6, OFF-1, OFF-2, OFF-3, OFF-4, PROT-1, FLOW-1, FLOW-2, SEC-1 |
+| Failed (2) | USDA-2 (`chicken breast` search), USDA-7 (nonsense query) |
+
+- **USDA-2 and USDA-7:** both returned HTTP 400 from USDA. The report holds only the generic client error, so USDA's error text from this run wasn't captured.
+- **Open Food Facts:** all OFF checks passed, using barcode `3017620422003`. PROT-1 recorded `http, http, ok, http, user_rate_limited`, so the limit rejected the 5th search, but OFF search returned HTTP errors on three of the first four.
+
+## Diagnostic status
+- **Server-side logging is in place** in `src/lib/server/foods/http.ts`. When USDA returns an HTTP error that reaches the generic error path, the server logs one line with the status, the request path and sanitized provider text.
+- **Limits:** at most 8 KB of the response body is read and the rest is cancelled. The logged text is at most 300 characters, with the configured key, URLs, credentials and long tokens removed.
+- **Client responses are unchanged:** they keep the generic error and receive no provider text.
+- **Coverage so far:** this logging has been tested only with mocked responses in `src/lib/server/foods/http.test.ts`. It has not yet captured a real USDA error.
+
+## Next step
+Another live run is pending. Restart the app against the marked local test database, capture its server output, and rerun `node --env-file=.env.test scripts/live-provider-check.cjs`. Phase 2.5 live verification can only be recorded as passed if that run reports `LIVE VERIFICATION: PASSED`.
+
+# Phase 2.5 — Latest live-provider run (2026-11-04)
+
+This section is the current state and supersedes the earlier status sections above, which stay as the historical record.
+
+## Status: Phase 2.5 live verification is INCOMPLETE. It has not passed.
+
+Report time 2026-11-04 20:03:02 UTC (`live-provider-report.json`), against the local `fitdb_test` database. Verdict: `INCOMPLETE OR FAILED`. **13 passed, 2 failed, 0 not run.**
+
+| Result | Checks |
+|---|---|
+| Passed (13) | USDA-1, USDA-3, USDA-4, USDA-5, USDA-6, USDA-7, OFF-2, OFF-3, OFF-4, PROT-1, FLOW-1, FLOW-2, SEC-1 |
+| Failed (2) | USDA-2 (`chicken breast` search, HTTP 400), OFF-1 (`nutella` search, HTTP 503) |
+
+Missing evidence: no successful Open Food Facts search to check result volume. Both providers' food origins were recorded as the real hosts.
+
+## Observed facts (from the report and sanitized server log)
+
+**USDA-2**
+- Time: 2026-11-04 20:02:57.493 UTC. Status: HTTP 400. Path: `/fdc/v1/foods/search`.
+- API-gateway request ID: `x-api-umbrella-request-id=d1l0k527ssqkj3ribod0`.
+- Other response headers: `via=https/1.1 api-umbrella (ApacheTrafficServer [cMsSf ])`, `x-cache=MISS`, `age=2`, `content-type=text/html`, `x-ratelimit-limit=3600`, `x-ratelimit-remaining=3578`.
+- Error excerpt: `400 Bad Request 400 Bad Request nginx`.
+- The other USDA checks in this run (USDA-1, USDA-3 to USDA-7) passed.
+
+**OFF-1**
+- Time: 2026-11-04 20:02:59.830 UTC. Status: HTTP 503. Path: `/cgi/search.pl`.
+- Error summary: an HTML page titled `Page temporarily unavailable - Open Food Facts`. Response headers include `server=nginx`; no request ID was returned.
+- A second search failed the same way at 20:03:01.873 UTC (the 4th PROT-1 search). PROT-1 still passed: `ok, ok, ok, http, user_rate_limited`.
+- OFF product lookups (OFF-2, OFF-3) behaved as expected in this run.
+
+**Other observations**
+- Temporary users: the script removed all 3 and reported 0 users, entries, custom foods and targets remaining.
+- Secrets: the API key and database password don't appear in the report or server log.
+- Diagnostics: provider HTTP errors now log for both USDA and Open Food Facts, except normal 404s, with the timestamp, path, status, allowlisted tracing headers and a sanitized excerpt.
+
+## Possible explanations (not confirmed)
+- **USDA-2:** the gateway headers suggest the 400 passed through the API gateway, which would make a local proxy or VPN unlikely. The remaining quota suggests rate limiting isn't the cause. Which nginx produced the 400, and why, is unknown.
+- **`age=2`:** this sits oddly beside `x-cache=MISS` and might point to a stored error response, but one header doesn't establish that.
+- **OFF-1:** the page and the fact that only searches failed suggest Open Food Facts' search service was temporarily unavailable.
+- **Application:** nothing in this run identifies an application defect, but it doesn't rule one out.
+
+## Next step
+Report the USDA 400 to USDA/api.data.gov with the request ID above, then rerun the live check once Open Food Facts search has recovered. Phase 2.5 live verification can only be recorded as passed if a run reports `LIVE VERIFICATION: PASSED`.
+
+# Phase 2.5 — Open Food Facts stabilization (2026-11-04)
+
+This section is the current state and supersedes the earlier status sections above, which stay as the historical record.
+
+## Status: Phase 2.5 live verification is INCOMPLETE. It has not passed.
+
+These changes were made after the 2026-11-04 20:03 UTC live run and have not been through a full live check. A passing run against the dedicated test database is still required for both USDA and Open Food Facts.
+
+## Implementation changes
+- **Text search:** moved from the legacy `/cgi/search.pl` to Search-a-licious (`search.openfoodfacts.org/search`). `/api/v2/search` was not used because it has no full-text search. User input is reduced to plain words because `q` uses Lucene syntax.
+- **Retry:** Open Food Facts search gets one retry after 400–600 ms for 502, 503 or 504 without `Retry-After`, and for network errors. It does not retry 429, 500, timeouts, malformed responses or 401/403. Product lookups and USDA are not retried.
+- **Budgets:** product lookups changed from 20/min per user and 90/min globally to 6/min per user and 12/min globally, because the documented limit is 15/min per IP. Search stays at 4/min per user and 10/min globally, matching the documented 10/min per IP.
+- **Retry accounting:** a retry passes the circuit and global budget again, but not the per-user budget. Each search counts once toward the circuit breaker.
+- **Search hit mapping:** non-text names are never used as display names, array brands are supported, and hits without a valid product code are dropped. Missing nutrients stay null.
+- **Temporary errors vs empty results:** a timed-out search with no hits is reported as an error, partial results from a timed-out search are not cached, and failures are not cached.
+- **Selecting a hit:** a hit is only a preview, and selecting it loads the full product through the existing product API. An Open Food Facts hit without preview nutrients can now be opened. If the full product has no nutrition data either, the user gets a message and nothing can be logged.
+- **Diagnostics:** provider HTTP errors log the timestamp, provider, path, status, allowlisted tracing headers and a sanitized excerpt, except normal 404s.
+
+## Verification so far
+
+| Evidence | Type | Result |
+|---|---|---|
+| `npm run lint` | Static | Passed |
+| `npm test` | Mocked provider responses; no network or database | 169/169 passed |
+| `node --test scripts/live-check.units.test.cjs` | Unit; no network or database | 17/17 passed |
+| Pure guard tests copied from `scripts/test-db-guard.test.cjs` | Unit; no network or database | 3/3 passed |
+| Live-check and marking script refusals | Placeholder URLs on a closed port | 7/7 refused, exit 4 |
+| `npm run build` | Build, with a placeholder database URL | Passed |
+| One direct Search-a-licious request for `nutella` | **Real provider**, outside the app's code | HTTP 200, 20 hits; 14 had nutrients, none had serving data |
+| Full live check since these changes | **Real provider** | **Not run** |
+| Server-based stub suites (`provider-protection`, `provider-malformed`, `nutrition-api`, `release-workflow`, E2E, safety suites) | Local stub and database | **Not run** since these changes; they need a database |
+
+## Known limitations
+- **Search-a-licious:** it publishes no rate limit or uptime commitment, and its API reports version 0.1.0. One successful request doesn't show it is reliable.
+- **Search results:** previews can lack nutrients and servings, and liquids can show as per 100 g until opened. Ranking differs from the legacy endpoint.
+- **Product budget:** 6 uncached product lookups per minute per user could be noticeable for someone scanning many new items. Cached foods don't use the budget.
+- **Worst-case search time:** about 16.6 s if a slow 503 is followed by a retry that times out.
+- **Selecting a hit without preview nutrients:** this client change has no automated UI test yet.
+- **Budgets:** they are held in memory per server process, so multiple instances would multiply the effective rate.
+- **USDA:** the intermittent HTTP 400 (for example request ID `d1l0k527ssqkj3ribod0`) is unexplained, and no code change addresses it.
+- **User-Agent:** Open Food Facts asks for a contact email. The default uses a project URL until `OFF_CONTACT` is set.
+
+## Remaining live verification
+1. Run the server-based stub suites against the dedicated test databases.
+2. Start the app against the marked `fitdb_test` database and capture its server output.
+3. Run `node --env-file=.env.test scripts/live-provider-check.cjs`.
+4. Record Phase 2.5 as passed only if that run reports `LIVE VERIFICATION: PASSED`.
+
+# Phase 2.5 — Final verification (2026-11-04)
+
+This section is the current state and supersedes the earlier status sections above, which stay as the historical record.
+
+## Status: all technical checks pass, but release approval is BLOCKED by a development-database incident
+
+**Live verification passed:** report time 2026-11-04 20:50:00 UTC, `LIVE VERIFICATION: PASSED`, 15 passed, 0 failed, 0 not run. The definition of done also requires the development database to be untouched, and that requirement was not met.
+
+## Development-database incident
+**What happened:** the first run of `nutrition-api.test.cjs` and `release-workflow.test.cjs` in this verification had no `DATABASE_URL` in the test process. Their default Prisma client fell back to `.env` and connected to the development database `fitdb`. The cause was the test harness, not application code.
+
+**Write operations executed on `fitdb`** (worked out from the failure log and test code; `fitdb` was not opened afterwards to confirm):
+
+| Operation | Row | Expected net effect |
+|---|---|---|
+| Upsert, then `deleteMany` | `Food` USDA `171477` | Row absent. If it existed before, its servings were removed and any entry's `foodId` set to null; entry snapshots remain |
+| Upsert | `Food` USDA `424243` | An `ORPHAN` row was created, or an existing row's `origin` set to null. The app doesn't serve untrusted rows |
+| `deleteMany` | `Food` OPEN_FOOD_FACTS `5000112637922` | Row absent if it existed. Same effect on servings and entries as above |
+
+Other direct queries in those suites on `fitdb` were reads, failed on a foreign key, or matched no rows. No users, targets, workouts or schema were changed by these operations.
+
+**Prevention:** both suites now refuse (exit 4) unless `DATABASE_URL` is a local test database and pass that URL to Prisma explicitly. A unit test checks those refusals and that no script opens a default Prisma client except the marking tool, which validates its target first. `test-db-guard.test.cjs` no longer connects to the development database to count its users.
+
+**Still required:** the owner must review `fitdb` and decide on any repair. No repair was attempted.
+
+## USDA HTTP 400: cause and fix
+**Observed:** 48 interleaved requests from this computer, same key, with queries rotated:
+
+| Request form | Succeeded |
+|---|---|
+| `GET` with `dataType`, encoded as the app did (`%2C`, `+`) | 5/12 |
+| `GET` with `dataType`, literal commas and `%20` | 7/12 |
+| `GET` without `dataType` | 12/12 |
+| `POST` with `dataType` in the JSON body | 12/12 |
+
+Every failure was the same nginx HTML 400 with API gateway headers and quota remaining.
+
+**Conclusion:** the failures followed `GET` with a `dataType` query parameter, not the key, search term or encoding. Which server rejects it, and why only some of the time, remains unknown because it sits on the provider's side.
+
+**Fix:** `searchUsda` now uses `POST /foods/search` with `dataType` as a JSON array, the form the API guide documents. The filter, results and client API are unchanged. The live check confirmed real results contained only the three requested data types.
+
+## Open Food Facts
+Search-a-licious passed live: `nutella` returned 20 results, of which 6 had no preview nutrients. Barcode `3017620422003` returned Nutella at 539 kcal per 100 g. The real product reported no serving size, so only 100 g was offered, which is the correct result, not a fabricated one. A new E2E check, using stub data, confirms hits without preview nutrients open the full product, and a product with no nutrition data can't be logged.
+
+## Final test results (after the last code change)
+
+| Check | Type | Result |
+|---|---|---|
+| `npm run lint` | Static | Passed |
+| `npm test` | Mocked | 169/169 passed |
+| `scripts/live-check.units.test.cjs` | Unit | 19/19 passed |
+| `npm run build` | Build | Passed |
+| `nutrition-api` | Stub + `fitdb_test` | 31/31 passed |
+| `release-workflow` | Stub + `fitdb_test` | 8/8 passed |
+| `provider-protection` | Stub + `fitdb_test` | 7/7 passed |
+| `provider-malformed` | Stub + `fitdb_test` | 4/4 passed |
+| `provider-config` | Stub + `fitdb_test` | 1/1 passed |
+| `usda-missing-nutrients` | Stub + `fitdb_test` | 4/4 passed |
+| `live-provider-check.safety` | Stub + `fitdb_test`, `fitdb_test_other` | 11 passed, 1 skipped (POSIX signal test on Windows), 0 failed |
+| `test-db-guard` | `fitdb_test`, `fitdb_test_other` | 6/6 passed |
+| `e2e-nutrition` | Stub + `fitdb_test` | All UI checks passed |
+| `e2e-smoke` (Phase 1) | Stub + `fitdb_test` | All Phase 1 checks passed |
+| `live-provider-check.cjs` | **Real USDA and Open Food Facts** + `fitdb_test` | 15/15 passed |
+
+## Provider limitations
+- **One live pass:** the `POST` fix has 12 clean direct requests and one clean live run behind it, which is good evidence but not a long-term reliability measure.
+- **USDA:** the provider-side reason for the `GET` 400s is unknown, and `POST` could in principle behave differently later.
+- **Search-a-licious:** it publishes no rate limit or uptime commitment, and previews can lack nutrients and servings.
+- **Open Food Facts search:** earlier 503s came from the legacy endpoint. The new service has not been observed under failure.
+- **SIGTERM cleanup test:** skipped on Windows, so that path is not verified on this platform in this run.
+
+## Release readiness
+Not ready for release approval until the development-database incident has been reviewed and closed by the owner. No known application defect blocks release.
+
+# Phase 2.5 — Development-database incident closed; release readiness (2026-11-04)
+
+This section is the current state and supersedes the BLOCKED status in the section above, which stays as the historical record. The test evidence recorded there remains valid: no application or test code changed after it was produced.
+
+## Status: READY FOR RELEASE APPROVAL (not released)
+
+## Incident
+At about 20:39 UTC, a harness error on the first integration run gave `nutrition-api.test.cjs` and `release-workflow.test.cjs` no `DATABASE_URL`. Their default Prisma client fell back to `.env` and connected to the development database `fitdb`.
+
+## Read-only findings (20:56 UTC, before the repair)
+Queries ran in a read-only transaction, on loopback, with the database confirmed as exactly `fitdb`.
+
+| Finding | Result |
+|---|---|
+| USDA `424243` | Present: `ORPHAN`, 1 kcal, `origin` null, 0 servings, 0 entries, created 2026-11-04 20:39:42.960 UTC |
+| USDA `171477` | Absent |
+| OPEN_FOOD_FACTS `5000112637922` | Absent |
+| `FoodEntry` rows | 0 in total, so 0 with null `foodId` and 0 referencing these records |
+| `Food` statistics | 2 inserted, 0 updated, 1 deleted |
+| `FoodServing` statistics | 1 inserted, 0 updated, 0 deleted, 0 live |
+| `FoodEntry` statistics | 0 inserted, 0 updated, 0 deleted |
+
+**Interpretation (evidence, not proof):** the statistics fit the test creating `171477` and `424243` as new rows, deleting its own `171477`, and its other delete matching nothing. No earlier data loss was found. No pre-incident backup was examined, so the earlier contents of `fitdb` can't be proven exactly.
+
+## Repair (owner approved)
+One guarded transaction deleted the single row USDA `424243`, after confirming its source, id, name, null `origin`, creation time, and 0 entries and 0 servings. It required exactly one deleted row, otherwise it would roll back. No other development data was changed, and no migrations or seeds were run.
+
+## Final verification
+| Check | Result |
+|---|---|
+| Transaction | Committed, exactly 1 row removed |
+| USDA `424243` and `ORPHAN` rows afterward | 0 |
+| The three incident rows afterward | 0 |
+| All 15 public tables, by row count and checksum, before and after the delete (`Food` excluding the removed row) | No other changes |
+| `Food` rows afterward | 0 |
+
+**Prevention:** suites that query the database directly now refuse (exit 4) unless `DATABASE_URL` is a local test database, and a unit test enforces this. `test-db-guard.test.cjs` no longer connects to the development database.
+
+## Verified technical results
+- Live check: `LIVE VERIFICATION: PASSED`, 15/15, real USDA and Open Food Facts, report time 2026-11-04 20:50:00 UTC.
+- `npm run lint` passed, `npm run build` passed, `npm test` 169/169, `live-check.units` 19/19.
+- Against stub providers and test databases: `nutrition-api` 31/31, `release-workflow` 8/8, `provider-protection` 7/7, `provider-malformed` 4/4, `provider-config` 1/1, `usda-missing-nutrients` 4/4, `test-db-guard` 6/6, `live-provider-check.safety` 11 passed and 1 skipped, `e2e-nutrition` and `e2e-smoke` passed.
+
+## Remaining release risks
+- **USDA:** the provider-side reason `GET` with `dataType` returned intermittent 400s is unknown. `POST` has 12 clean direct requests and one clean live run behind it.
+- **Search-a-licious:** it publishes no rate limit or uptime commitment, its API reports version 0.1.0, and previews can lack nutrients and servings.
+- **Single live pass:** the release evidence is one complete live run, so longer-term provider reliability isn't measured.
+- **Windows:** the POSIX `SIGTERM` cleanup test was skipped.
+- **Development database:** it was not literally untouched. It was repaired, and earlier contents can't be proven without a backup.
+- **Configuration:** `OFF_CONTACT` is unset, so the Open Food Facts User-Agent has no contact email. The product budget of 6 lookups per minute per user may be noticeable to heavy users. Budgets are per server process.

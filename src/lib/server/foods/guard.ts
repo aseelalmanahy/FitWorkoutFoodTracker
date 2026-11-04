@@ -3,7 +3,7 @@ import "server-only";
  * Provider protection for USDA FoodData Central and Open Food Facts.
  *
  * 1. Budgets (sliding windows, same approach as the login throttle in auth.ts):
- *    - a GLOBAL budget per provider operation, kept below the provider's
+ *    - a GLOBAL budget per provider operation, kept within the provider's
  *      published limit, so the whole app stays a good API citizen;
  *    - a PER-USER budget, a fraction of the global one, so one user can't
  *      consume capacity everyone shares (the USDA key quota, OFF's per-IP limit).
@@ -32,12 +32,14 @@ const MIN = 60_000, HOUR = 3_600_000;
 /**
  * Published provider limits:
  *  - USDA FDC via api.data.gov: 1,000 requests/hour per key by default.
- *  - Open Food Facts: 10 req/min for search, 100 req/min for product reads (per IP).
+ *  - Open Food Facts (per IP, exceeding them can return HTTP 503): 10 req/min for search and
+ *    15 req/min for product reads. Search-a-licious publishes no limit of its own, so text
+ *    search keeps the 10/min budget. The product budget stays below 15 to leave a margin.
  */
 const BASE_LIMITS: Record<ProviderOp, { global: Budget[]; perUser: Budget[] }> = {
   USDA: { global: [{ limit: 900, windowMs: HOUR }], perUser: [{ limit: 20, windowMs: MIN }, { limit: 150, windowMs: HOUR }] },
   OFF_SEARCH: { global: [{ limit: 10, windowMs: MIN }], perUser: [{ limit: 4, windowMs: MIN }] },
-  OFF_PRODUCT: { global: [{ limit: 90, windowMs: MIN }], perUser: [{ limit: 20, windowMs: MIN }] },
+  OFF_PRODUCT: { global: [{ limit: 12, windowMs: MIN }], perUser: [{ limit: 6, windowMs: MIN }] },
 };
 
 /**

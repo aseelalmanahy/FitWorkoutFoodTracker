@@ -48,7 +48,7 @@ before(async () => {
 });
 
 test("per-user limit: 4 Open Food Facts searches per minute, then user_rate_limited (not sent to provider)", async () => {
-  const before = hits(/cgi\/search\.pl/);
+  const before = hits(/\/off\/search\?/);
   for (let i = 0; i < 4; i++) {
     const r = await offSearch(users.p1, `p1query${i}${run}`);
     assert.equal(r.status, 200);
@@ -58,7 +58,7 @@ test("per-user limit: 4 Open Food Facts searches per minute, then user_rate_limi
   assert.equal(r.status, 200, "search still answers (other sources unaffected)");
   assert.equal(offErr(r).kind, "user_rate_limited");
   assert.ok(offErr(r).retryAfterSec > 0 && offErr(r).retryAfterSec <= 60);
-  assert.equal(hits(/cgi\/search\.pl/) - before, 4, "5th search never reached the provider");
+  assert.equal(hits(/\/off\/search\?/) - before, 4, "5th search never reached the provider");
 });
 
 test("a limited user's cached queries and other providers still work", async () => {
@@ -81,12 +81,12 @@ test("global budget: OFF search capped at 10/min for the whole app, reported as 
   const r = await offSearch(users.p4, `p4query${run}`);
   assert.equal(offErr(r).kind, "unavailable");
   assert.ok(offErr(r).retryAfterSec > 0);
-  assert.equal(hits(/cgi\/search\.pl/) >= 10, true);
+  assert.equal(hits(/\/off\/search\?/) >= 10, true);
 });
 
-test("per-user limit on barcode/resolve: 20 product lookups per minute → 429 with Retry-After", async () => {
+test("per-user limit on barcode/resolve: 6 product lookups per minute → 429 with Retry-After", async () => {
   const before = hits(/api\/v2\/product/);
-  for (let i = 0; i < 20; i++) {
+  for (let i = 0; i < 6; i++) {
     const r = await users.p5.get(`/api/foods/barcode/${String(900000000000 + i)}`); // unknown → provider 404
     assert.equal(r.status, 404, `lookup ${i + 1}`);
   }
@@ -96,7 +96,7 @@ test("per-user limit on barcode/resolve: 20 product lookups per minute → 429 w
   assert.ok(Number(over.headers.get("retry-after")) > 0, "Retry-After header set");
   const resolve = await users.p5.post("/api/foods/resolve", { source: "OPEN_FOOD_FACTS", sourceId: "900000000098" });
   assert.equal(resolve.status, 429, "resolve shares the same product budget");
-  assert.equal(hits(/api\/v2\/product/) - before, 20);
+  assert.equal(hits(/api\/v2\/product/) - before, 6);
   // Another user is unaffected.
   assert.equal((await users.p6.get("/api/foods/barcode/3017624010966")).status, 200);
 });

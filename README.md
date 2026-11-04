@@ -49,8 +49,10 @@ npm run db:seed                 # built-in exercise library
 npm run dev                     # http://localhost:3000
 ```
 
-Set `FDC_API_KEY` in `.env` to enable USDA search (free key: https://fdc.nal.usda.gov/api-key-signup).
-Open Food Facts needs no key. Set `OFF_CONTACT` so requests identify your deployment.
+Set `FDC_API_KEY` in `.env` to enable USDA search (free key: https://fdc.nal.usda.gov/api-key-signup). USDA search uses `POST /foods/search`, because `GET` with a `dataType` filter intermittently returned HTTP 400.
+Open Food Facts needs no key. Set `OFF_CONTACT` so requests identify your deployment. Its docs ask for a contact email in the User-Agent.
+
+Open Food Facts text search uses [Search-a-licious](https://search.openfoodfacts.org/docs) (`search.openfoodfacts.org`), because the legacy `/cgi/search.pl` returns intermittent HTTP 503s and `/api/v2/search` has no full-text search. Search results are previews and may lack nutrients or servings. Selecting one loads the full product from the product API, as barcode lookup does. Budgets stay within the documented per-IP limits: search 10/min app-wide and 4/min per user, product lookups 12/min app-wide and 6/min per user.
 
 ## Scripts
 
@@ -62,33 +64,116 @@ Open Food Facts needs no key. Set `OFF_CONTACT` so requests identify your deploy
 | `npm run lint` | Type-check |
 | `node scripts/e2e-smoke.cjs` | Playwright end-to-end smoke test of Phase 1 workouts against a running server (`BASE_URL`) |
 | `npm run stub:food-apis` | Local stand-in for USDA/OFF (documented response shapes) for offline testing |
-| `npm run test:api` | Nutrition API integration tests (21) against a running server using the stub (`BASE_URL`) |
+| `npm run test:api` | Nutrition API integration tests (31) against a running server using the stub (`BASE_URL`) |
 | `node scripts/e2e-nutrition.cjs` | Playwright end-to-end test of Phase 2 nutrition flows |
+| `node --test scripts/live-provider-check.safety.test.cjs` | Database-safety tests for the live check (needs a build and the `fitdb_test` + `fitdb_test_other` databases) |
 
-### Running the integration and E2E suites
+### Live provider check (real USDA + Open Food Facts)
 
-Use a **separate test database**. With the stub, the food cache would otherwise store stub data under real USDA/OFF ids in your dev database.
-Playwright is a dev dependency (`npm ci` installs it). Browsers come from `npx playwright install chromium` (or a pre-installed `PLAYWRIGHT_BROWSERS_PATH`).
+Every automated suite in this repository uses mocked `fetch` or the local stub, so none of them proves the real
+providers work. `scripts/live-provider-check.cjs` is the live check. It needs Node.js 20.6 or later (for `--env-file`)
+and is written for Windows PowerShell as well as bash.
+
+**1. Create a dedicated test database and a `.env.test` file.** `.env.test` is git-ignored, like every `.env*` file except
+`.env.example`. Put your real key in it, never in `.env.example`:
+
+```
+DATABASE_URL="postgresql://USER:PASSWORD@localhost:5432/fitdb_test"
+FDC_API_KEY="your-key"
+```
+
+Then create, migrate and mark the database once. Marking is deliberate: the database must be local, its name must contain
+`test`, and `--confirm` must repeat the exact name.
+
+```powershell
+# PowerShell (bash is identical apart from the prompt)
+createdb -U USER fitdb_test                    # or create it in pgAdmin
+node --env-file=.env.test node_modules/prisma/build/index.js migrate deploy
+node --env-file=.env.test scripts/mark-test-database.cjs --confirm fitdb_test
+```
+
+**2. Start the app against the test database** (your `.env` still points at the dev database; a process environment
+variable overrides it):
+
+```powershell
+# PowerShell
+$env:DATABASE_URL = "postgresql://USER:PASSWORD@localhost:5432/fitdb_test"; npm run dev
+```
+```bash
+# bash
+DATABASE_URL="postgresql://USER:PASSWORD@localhost:5432/fitdb_test" npm run dev
+```
+
+**3. In a second terminal, run the check:** `node --env-file=.env.test scripts/live-provider-check.cjs`
+
+What it does and guarantees:
+- **Same code path as the app:** it uses the app's own API, so the provider calls go through the existing server-side
+  clients. The key and the database password are redacted from everything it prints and from its report.
+- **Refuses before any write** (exit 4) unless all of these hold:
+  - `BASE_URL` is local;
+  - the database name contains `test`;
+  - the **running server's database** is proven to be the same database, via an opaque fingerprint from
+    `GET /api/health/db-identity`;
+  - that database carries a **valid test-database marker**, as reported by the server.
+
+  The endpoint is on under `npm run dev`; for `npm start`, set `EXPOSE_DB_IDENTITY=1`. It returns only a hash and the
+  marker. It never returns other database comments, names or credentials.
+- **Cleans up after itself:** it deletes the throwaway `live-check-*@example.test` users (and, by cascade, their entries,
+  targets, sessions and custom foods) after success, failure, crashes, request timeouts and Ctrl+C / termination. If a
+  request was aborted, a second sweep runs after `LIVE_CHECK_CLEANUP_GRACE_MS` (default 15 s) to catch late writes.
+- **Checks missing nutrients independently (USDA-6):** it compares the app's values for real USDA foods with a raw USDA
+  response fetched with USDA's public `DEMO_KEY`, never your key. Absent nutrients must be null, and a reported 0 must
+  stay 0. USDA-6 reports NOT RUN if no food with a genuinely absent nutrient is found, or if the `DEMO_KEY` oracle is
+  rate-limited or unreachable. Set `LIVE_CHECK_USDA_ORACLE=off` to skip it.
+- **Verdict:** `LIVE VERIFICATION: PASSED` (exit 0) needs, for BOTH providers, a server-recorded origin of the real host
+  (`api.nal.usda.gov` / `world.openfoodfacts.org`) and a successful search with a realistic result count, plus 0 FAIL and
+  0 NOT RUN. Any contradiction gives NOT LIVE (exit 3). Missing evidence or any failure gives INCOMPLETE OR FAILED (exit 1).
+  Exit 2 means cleanup needs manual attention.
+- **Run it at most about once a minute:** PROT-1 needs the app-wide Open Food Facts search budget (10/min) to be free.
+- **Report:** it writes `live-provider-report.json` (git-ignored, no secrets).
+
+### Running the integration and E2E suites (stub, not live)
+
+Use the **test database**, never the dev database. `nutrition-api` and `release-workflow` also query the database directly, so set `DATABASE_URL` for the test process too. They refuse to run (exit 4) unless it is a local database with `test` in its name. With the stub, the food cache would otherwise store stub data under real
+USDA/OFF ids in your dev database. Playwright is a dev dependency (`npm ci` installs it); browsers come from
+`npx playwright install chromium`. Build first: `npm run build`.
+
+Server-based suites (`nutrition-api`, `release-workflow`, `provider-*`, E2E) need a running app pointed at the stub. Set the
+variables for the **server process** itself. (`VAR=x npm run build && npx next start` sets them for `npm run build` only.)
 
 ```bash
-createdb fitdb_test
-export DATABASE_URL="postgresql://fit:fitdev@localhost:5432/fitdb_test?schema=public"
-npx prisma migrate deploy && npm run db:seed
-npm run stub:food-apis &                       # :4010, documented USDA/OFF response shapes
-FDC_BASE_URL=http://localhost:4010/fdc/v1 OFF_BASE_URL=http://localhost:4010/off FDC_API_KEY=stub \
-  npm run build && npx next start -p 3000 &
+# bash — terminal 1: stub; terminal 2: app (restart it between suites: sign-ups are limited to 10 per IP per 15 min)
+node scripts/stub-food-apis.cjs 4010
+export DATABASE_URL="postgresql://USER:PASSWORD@localhost:5432/fitdb_test" FDC_BASE_URL=http://localhost:4010/fdc/v1 \
+  OFF_BASE_URL=http://localhost:4010/off FDC_API_KEY=stub FOOD_RATE_LIMIT_MULTIPLIER=100
+npx next start -p 3000
+# terminal 3
 BASE_URL=http://localhost:3000 npm run test:api
-BASE_URL=http://localhost:3000 node scripts/e2e-nutrition.cjs
-BASE_URL=http://localhost:3000 node scripts/e2e-smoke.cjs
 ```
-Start the server for the general suites with `FOOD_RATE_LIMIT_MULTIPLIER=100` (test-only). Run
-`scripts/provider-protection.test.cjs` against a *fresh* server with default budgets and the stub started with
-`STUB_LOG_FILE`. Run `scripts/provider-config.test.cjs` against a server started without `FDC_API_KEY` and with
-`SERVER_LOG_FILE` pointing at its log. Run `scripts/provider-malformed.test.cjs` against another *fresh* server (same setup as
-provider-protection; takes about 35 s because it waits for a circuit to close).
+```powershell
+# PowerShell — terminal 2 (app)
+$env:DATABASE_URL="postgresql://USER:PASSWORD@localhost:5432/fitdb_test"; $env:FDC_BASE_URL="http://localhost:4010/fdc/v1"
+$env:OFF_BASE_URL="http://localhost:4010/off"; $env:FDC_API_KEY="stub"; $env:FOOD_RATE_LIMIT_MULTIPLIER="100"; npx next start -p 3000
+# terminal 3
+$env:BASE_URL="http://localhost:3000"; npm run test:api
+```
 
-Each suite registers new accounts. The server's in-memory sign-up throttle (10 per IP per 15 min) means you should
-restart the server between suites.
+Notes for the other server-based suites:
+- `provider-protection.test.cjs` and `provider-malformed.test.cjs` need a *fresh* server with default budgets (no multiplier)
+  and the stub started with `STUB_LOG_FILE`.
+- `provider-config.test.cjs` needs a server without `FDC_API_KEY`, with `SERVER_LOG_FILE` pointing at its log.
+
+**Self-contained database-safety suites** start their own stub and app servers on free ports and clean up all processes.
+They need two migrated local test databases. They refuse to run (and change nothing) unless the URLs are local, the names
+contain `test`, and `SAFETY_DB_CONFIRM` repeats the first database's exact name:
+
+```powershell
+$env:SAFETY_DB_URL="postgresql://USER:PASSWORD@localhost:5432/fitdb_test"; $env:SAFETY_DB_CONFIRM="fitdb_test"
+$env:SAFETY_OTHER_DB_URL="postgresql://USER:PASSWORD@localhost:5432/fitdb_test_other"
+node --test scripts/live-check.units.test.cjs scripts/test-db-guard.test.cjs scripts/live-provider-check.safety.test.cjs scripts/usda-missing-nutrients.test.cjs
+```
+`live-provider-check.safety.test.cjs` unmarks and re-marks `SAFETY_DB_URL`'s database while it runs. It leaves it validly
+marked.
 
 ## Project layout
 
