@@ -1,0 +1,999 @@
+# PHASE_2.5_REVIEW.diff — FitWorkoutFoodTracker Phase 2.5 changes, for review only.
+# Base commit: 383fca2 (branch claude/ai-fitness-tracker-spec-r9uk32, equal to main).
+# Contents: all tracked changes vs the base (staged + unstaged) and all new untracked
+# Phase 2.5 files (8 files total). These changes are NOT committed to any code branch.
+# Redaction: the local development database password in 3 default connection strings
+# was replaced with <redacted>. No other content was altered. .env is not included.
+#
+diff --git a/.gitignore b/.gitignore
+index 0babaf7..b8a0af4 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -6,3 +6,6 @@ out
+ *.tsbuildinfo
+ next-env.d.ts
+ coverage
++
++# Live provider check output (scripts/live-provider-check.cjs)
++live-provider-report.json
+diff --git a/PHASE_2_PROGRESS.md b/PHASE_2_PROGRESS.md
+index ba8a2f6..5c93ec1 100644
+--- a/PHASE_2_PROGRESS.md
++++ b/PHASE_2_PROGRESS.md
+@@ -429,3 +429,101 @@ To unblock: allow those hosts in the environment's network settings, and provide
+ 
+ ## Defects
+ Found: none. Fixed: none (no application code changes).
++
++---
++
++# Phase 2.5 — Live provider verification handoff (2026-11-04)
++
++**Code under test:** `383fca2` (no application code changes in this step).
++
++## Status: live USDA and Open Food Facts verification is still NOT VERIFIED
++
++The developer reports a working local setup on their Windows machine: PostgreSQL running, migrations applied, Prisma Client generated, seed done (47 exercises), app started and manually tried, and `FDC_API_KEY` in the local `.env`. That report is recorded as **user-reported**. The assistant could not observe it, because the verification session runs in a cloud container that can reach none of the following:
++- **Local machine:** the project folder (DESKTOP-PLGDCGO) is on the Remote Control list but marked *not available to cloud sessions*. The likely cause is that the Claude app needs updating.
++- **Key:** `FDC_API_KEY` is absent in the container (correct: the key stays local).
++- **Providers:** egress to `api.nal.usda.gov`, `world.openfoodfacts.org` and `search.openfoodfacts.org` is refused by the container's proxy (403).
++
++## Live checks still required (to be run on the developer's machine)
++New script `scripts/live-provider-check.cjs` drives the running app through its own API, so it uses the existing server-side provider clients with no bypass. It never prints the key and only uses it to confirm no response contains it.
++
++| ID | Live check |
++|---|---|
++| USDA-1..3 | searches "banana", "chicken breast", "white rice": results, generic data types only, plausible values |
++| USDA-4 | food detail (resolve): fdcId preserved, servings incl. 100 g, nutrients numbers or null |
++| USDA-5 | Foundation food: energy present (Atwater 2047/2048 path) |
++| USDA-6 | missing nutrients reported as null |
++| USDA-7 | invalid searches: 1-char → 400, nonsense → empty without error, unknown fdcId → 404/502 |
++| OFF-1 | search "nutella" |
++| OFF-2 | barcode 3017624010966: name, serving, nutrition |
++| OFF-3 | nonexistent barcode → 404, barcode-style search → empty |
++| OFF-4 | energy vs 4P+4C+9F sanity (kJ-only conversion stays unit-tested) |
++| PROT-1 | per-user OFF search limit stops the 5th search before the provider |
++| FLOW-1 | log a live USDA food with a serving → totals; edit ×2; other user 404 / sees 0; delete → 0 |
++| FLOW-2 | log a live OFF product by grams; history day keeps its target |
++| SEC-1 | key absent from every API response |
++
++Run: `node --env-file=.env scripts/live-provider-check.cjs` with the app running against a test database (see README). Report: `live-provider-report.json` (git-ignored, no secrets). Release evidence requires **LIVE VERIFICATION: PASSED** (exit 0).
++
++**Deliberately not tested live:** provider 429s, provider outages, timeouts and malformed responses. Triggering them on purpose would mean abusing the real services. They stay covered by stub and mock tests only.
++
++**Script safeguards** (all self-tested in the cloud container against the local stub — NOT live tests):
++
++| Safeguard | Self-test | Result |
++|---|---|---|
++| Refuses a non-local `BASE_URL` | `BASE_URL=https://example.com` | REFUSED, exit 4, nothing created |
++| Refuses a non-test database | `DATABASE_URL=…/fitdb` (dev DB) | REFUSED, exit 4, 0 users created |
++| Can't pass with stub data (fail-closed live evidence) | server on stub, sentinel key | 14 PASS, 1 NOT RUN, but **NOT LIVE** for 4 reasons: banana 1 result; nutella 1 result; both food origins `localhost:4010`. Exit 3 |
++| Cleanup after failing checks | server without USDA key | 4 FAIL, NOT LIVE; users/entries/custom foods/targets left: 0/0/0/0 |
++| Cleanup after Ctrl+C | SIGINT during sign-up (×3) and after 2/6/10 passing checks (×3) | exit 130; users and entries left: 0 every time |
++| Key never printed | sentinel `FDC_API_KEY` | 0 occurrences in stdout and report |
++| **Server and script on different databases** | server `fitdb_test`, script `fitdb_test_other` | **REFUSED before any write, exit 4**; row counts in both DBs unchanged (regression test below) |
++| Server can't prove its database | identity endpoint disabled / server unreachable | REFUSED, exit 4, no rows |
++| **Missing test-database marker** | marker removed | REFUSED before any write, exit 4, 0 rows in both DBs |
++| **Invalid test-database marker** | garbage value; marker naming another DB (restored copy); wrong version | REFUSED before any write, exit 4, 0 rows in both DBs |
++
++**Defect found and fixed during this self-test:** Ctrl+C during sign-up first left 1 user behind (a sign-up request in flight completed after cleanup), and a later race let the main flow exit before the signal handler's deletion ran. Fixed: in-flight requests are tracked and awaited before deletion, no new requests start after an interrupt, and cleanup is a single shared promise. Re-tested at 6 interrupt points: 0 rows left each time. A further gap was found in review: the database guard used only the *script's* `DATABASE_URL`, so a server started with a different database would receive writes, with the mismatch noticed only afterwards.
++
++**Fix (pre-write server database verification):** new read-only endpoint `GET /api/health/db-identity` (`src/app/api/health/db-identity/route.ts`, `src/lib/server/db-identity.ts`). It returns only `{ fingerprint }`: a SHA-256 of the connected database's name, its OID and the cluster start time (epoch seconds, independent of the session time zone). It has no auth, does no writes and never returns names or credentials, and in production builds it returns 404 unless `EXPOSE_DB_IDENTITY=1`. The script computes the same fingerprint from its own test-named database (read-only query) and refuses (exit 4) unless the server's matches. It also refuses if the endpoint is unreachable, disabled or errors. This runs before the first sign-up. The post-run mismatch check stays as defence in depth.
++
++**Regression test** `scripts/live-provider-check.safety.test.cjs` (self-contained: own stub and app servers, counts every `User`/`Session`/`FoodEntry`/`NutritionTarget`/custom-food row in **both** databases before and after) → **5/5 pass**:
++1. mismatched DBs → exit 4, "does not match", no "Verified"/PASS/Cleanup output, **0 rows created in either DB**;
++2. identity endpoint disabled → exit 4, 0 rows;
++3. server unreachable → exit 4, 0 rows;
++4. non-test DB name / non-local `BASE_URL` → exit 4, 0 rows;
++5. matching DB → "Verified before any write" printed before any check; run continues (stub → NOT LIVE, exit 3); every created row removed.
++
++**Negative control:** with the verification call removed, test 1 **fails**. The script reached the writes, created 3 users in the server's database and exited 2 at cleanup ("Cleanup MISMATCH"). This proves the test detects the original problem. The file was restored byte-for-byte, and those 3 test users were removed from `fitdb_test`.
++
++**Explicit test-database marker (final safety improvement):** a database name containing `test` is not treated as sufficient proof. A dedicated test database must be marked deliberately with `scripts/mark-test-database.cjs --confirm <name>`, which requires repeating the exact database name. The marker is a PostgreSQL database comment, `fitworkoutfoodtracker:test-database:v1:<database name>`. No schema change and no migration: migrations never set it, so dev and production databases can't be marked by accident. The server reports it through `GET /api/health/db-identity` (`{ fingerprint, testMarker }`, read from the server's own connection). The script refuses (exit 4, nothing written) when the marker is missing, or when it is invalid (any value other than the exact marker for this database name: garbage, a marker naming another database as in a restored copy, or a different version).
++
++**Safety regression suite** `scripts/live-provider-check.safety.test.cjs` → **10/10 pass** (the 5 tests above plus):
++6. the provisioning script refuses without the exact `--confirm` name (4 variants), and the marker is unchanged;
++7. **missing marker** → endpoint reports `testMarker: null`; exit 4; no "Verified"/PASS/Cleanup output; 0 rows in either DB;
++8–10. **invalid marker** (garbage / other database's marker / wrong version) → exit 4; 0 rows in either DB.
++
++**Negative control (marker):** with only the marker checks removed from the script, tests 7–10 **all fail**. Each run passed verification, created 3 users and ran to completion (exit 3 instead of 4). The script was restored byte-for-byte. Final marker state: `fitdb_test` marked, `fitdb` and `fitdb_test_other` unmarked; 0 `live-check` users in all three.
++
++**Residual limits of the safeguards:**
++- Anyone with owner rights on a database could deliberately mark it. The marker prevents accidents, not intentional misuse.
++- Live evidence relies on the server-recorded `Food.origin` host. A mock served at the real hostname (e.g. via a hosts-file override) could still defeat it.
++- Cached provider foods fetched during the run stay in the test database's shared food cache (real provider data, not test records).
++
++## Regression results in the cloud container (mocks and local stub only — not live)
++| Check | Result |
++|---|---|
++| `npm run lint` (`tsc --noEmit`; ESLint not configured) | exit 0 |
++| `npx vitest run` | 112/112 |
++| `npm run build` | exit 0 |
++| `prisma validate` / `migrate status` (dev, test) / drift diff | valid / up to date / no difference |
++| `nutrition-api.test.cjs` | 31/31 |
++| `release-workflow.test.cjs` | 8/8 |
++| `provider-protection.test.cjs` | 7/7 |
++| `provider-malformed.test.cjs` | 4/4 |
++| `provider-config.test.cjs` | 1/1 |
++| `e2e-nutrition.cjs` | passed |
++| `e2e-smoke.cjs` (Phase 1) | passed |
++
++## Release readiness
++**NOT READY — LIVE PROVIDER VERIFICATION BLOCKED.** No code defects are known. Phase 2 becomes release-ready once `scripts/live-provider-check.cjs` reports **LIVE VERIFICATION: PASSED** on a machine with real network access and the real key. Any FAIL must be investigated before release.
++
++Files changed: `scripts/live-provider-check.cjs` (new), `scripts/live-provider-check.safety.test.cjs` (new), `scripts/mark-test-database.cjs` (new), `src/app/api/health/db-identity/route.ts` (new), `src/lib/server/db-identity.ts` (new), `.gitignore` (report file), `README.md` (usage), `PHASE_2_PROGRESS.md` (this section).
+diff --git a/README.md b/README.md
+index 375142e..d30ca36 100644
+--- a/README.md
++++ b/README.md
+@@ -64,6 +64,40 @@ Open Food Facts needs no key. Set `OFF_CONTACT` so requests identify your deploy
+ | `npm run stub:food-apis` | Local stand-in for USDA/OFF (documented response shapes) for offline testing |
+ | `npm run test:api` | Nutrition API integration tests (21) against a running server using the stub (`BASE_URL`) |
+ | `node scripts/e2e-nutrition.cjs` | Playwright end-to-end test of Phase 2 nutrition flows |
++| `node --test scripts/live-provider-check.safety.test.cjs` | Database-safety tests for the live check (needs a build and the `fitdb_test` + `fitdb_test_other` databases) |
++
++### Live provider check (real USDA + Open Food Facts)
++
++All automated suites below use mocked `fetch` or the local stub. To verify the **real** providers, run the app on a
++machine with internet access, using your real `.env` (with `FDC_API_KEY` set and no `FDC_BASE_URL`/`OFF_BASE_URL`
++overrides) and a **test database** (a `DATABASE_URL` whose database name contains `test`, e.g. `fitdb_test`). Then, in a
++second terminal with the same `.env`, run:
++
++```bash
++node --env-file=.env scripts/live-provider-check.cjs        # BASE_URL defaults to http://localhost:3000
++```
++
++- It goes through the app's own API (the existing server-side provider clients). It never prints the key, and only uses it to
++  confirm no response contains it.
++- It refuses to run (exit 4, nothing written) unless all of these hold:
++  - `BASE_URL` is local.
++  - The database name contains `test` (override with `LIVE_CHECK_ALLOW_DATABASE=<name>`).
++  - The **running server's own database** is proven to be that same database. The script compares the server's
++    `GET /api/health/db-identity` fingerprint (an opaque hash) with its own, before any sign-up or other write.
++  - That database carries the explicit **test-database marker**, as reported by the server through the same endpoint. A
++    database name containing `test` isn't enough. Mark a *dedicated* test database once, deliberately:
++    ```bash
++    node --env-file=<test env> scripts/mark-test-database.cjs --confirm fitdb_test
++    ```
++    The marker is a PostgreSQL comment, `fitworkoutfoodtracker:test-database:v1:<database name>`. Migrations never set it.
++
++  The endpoint is on under `npm run dev`. For a production build (`npm start`), set `EXPOSE_DB_IDENTITY=1` on the server.
++- The throwaway `live-check-*@example.test` users it creates are deleted at the end, including after failures and Ctrl+C.
++  Their entries, targets and custom foods are removed by cascade.
++- It reports **LIVE VERIFICATION: PASSED** (exit 0) only with real-provider evidence: no stub overrides, food origins
++  recorded as `api.nal.usda.gov` / `world.openfoodfacts.org`, and realistic result counts. It also needs 0 failed and
++  0 not run. Otherwise it reports NOT LIVE (exit 3) or INCOMPLETE OR FAILED (exit 1).
++- It writes `live-provider-report.json` (git-ignored, no secrets).
+ 
+ ### Running the integration and E2E suites
+ 
+diff --git a/scripts/live-provider-check.cjs b/scripts/live-provider-check.cjs
+new file mode 100644
+index 0000000..9f868fb
+--- /dev/null
++++ b/scripts/live-provider-check.cjs
+@@ -0,0 +1,469 @@
++// LIVE provider verification for Phase 2 (USDA FoodData Central + Open Food Facts).
++//
++// Drives a RUNNING local instance of this app through its own HTTP API, so every
++// provider call goes through the existing server-side clients (no separate
++// integration, no mocks, no stubs).
++//
++// Usage, with the app running against a TEST database and your real .env:
++//   node --env-file=.env scripts/live-provider-check.cjs
++// The script must see the same DATABASE_URL as the server (use the same .env).
++// Env options: BASE_URL (default http://localhost:3000), REPORT_FILE (default
++// live-provider-report.json, listed in .gitignore), LIVE_CHECK_ALLOW_DATABASE
++// (see safety guard 2).
++//
++// SAFETY GUARDS (the script refuses to run, exit code 4, BEFORE any write anywhere):
++//   1. BASE_URL must be localhost / 127.0.0.1 / [::1]. It never targets a deployed app.
++//   2. The database name in DATABASE_URL must contain "test" (e.g. fitdb_test), unless
++//      LIVE_CHECK_ALLOW_DATABASE is set to exactly that database name, which acknowledges
++//      that throwaway rows are written there and cleaned up.
++//   3. The RUNNING SERVER's actual database must be that same database. The script reads an
++//      opaque fingerprint from the server (GET /api/health/db-identity: hash of database name,
++//      OID and cluster start time) and compares it with the fingerprint of its own
++//      DATABASE_URL (read-only query). If the endpoint is unreachable, disabled, errors, or
++//      the fingerprints differ, the script refuses. Nothing has been written by then: no
++//      sign-up, no request that writes, no database write.
++//      The endpoint is on under `npm run dev`; for a production build (`npm start`) start the
++//      server with EXPOSE_DB_IDENTITY=1.
++//   4. That database must carry the explicit TEST-DATABASE MARKER, as reported by the running
++//      server through the same endpoint: the PostgreSQL comment on the database must be exactly
++//      `fitworkoutfoodtracker:test-database:v1:<database name>`. It's created only deliberately,
++//      when provisioning the test database:
++//        node --env-file=<test env> scripts/mark-test-database.cjs --confirm <database name>
++//      A missing or invalid marker means immediate refusal. A database name containing "test" is
++//      NOT sufficient on its own.
++//
++// CLEANUP: the throwaway users this run creates (live-check-<n>-<run>@example.test) are
++// deleted in a `finally` block, including after failures, crashes and Ctrl+C. Their
++// entries, targets, sessions and custom foods are removed by the schema's ON DELETE
++// CASCADE. Cached provider foods (the shared `Food` cache of real USDA/OFF data) are
++// kept, because they're normal app cache, not test data.
++//
++// LIVE EVIDENCE (fail-closed): the run counts as LIVE only if ALL of these hold.
++//   - FDC_BASE_URL / OFF_BASE_URL (the stub overrides) aren't set in this environment;
++//   - the server recorded the providers' real hosts as the origin of the foods it fetched
++//     (Food.origin = api.nal.usda.gov / world.openfoodfacts.org, read from the database);
++//   - result volumes look like the real services (USDA "banana" ≥ 5 results, OFF "nutella" ≥ 3).
++//   Otherwise it prints NOT LIVE and exits 3, whatever the individual checks say.
++//   "PASSED" additionally requires 0 FAIL and 0 NOT RUN.
++//
++// SECRETS: FDC_API_KEY is read only to confirm that no API response contains it. It is
++// never printed, logged or written to the report. DATABASE_URL credentials are never
++// printed; only the host and database name are shown.
++//
++// Exit codes: 0 live PASSED · 1 live but FAIL / NOT RUN · 3 NOT LIVE · 4 refused (nothing written) ·
++// 2 cleanup incomplete or server/script database mismatch (manual cleanup needed).
++const fs = require("node:fs");
++const { createHash } = require("node:crypto");
++
++const BASE = process.env.BASE_URL || "http://localhost:3000";
++const REPORT = process.env.REPORT_FILE || "live-provider-report.json";
++const KEY = process.env.FDC_API_KEY || "";
++const REAL_HOSTS = { USDA: "api.nal.usda.gov", OPEN_FOOD_FACTS: "world.openfoodfacts.org" };
++const run = Date.now();
++const results = [];
++const bodies = []; // every response body, scanned for the key at the end
++const createdEmails = [];
++let registered = 0; // sign-ups the server confirmed (HTTP 200)
++const evidence = { notLive: [], origins: {} };
++let prisma = null;
++let interrupted = false;
++const inflight = new Set(); // HTTP requests not yet settled (cleanup waits for them)
++
++// ─── Safety guards (before anything is created) ──────────────────────────────
++function refuse(msg) {
++  console.error(`REFUSED (nothing was written): ${msg}`);
++  process.exit(4);
++}
++let baseUrl;
++try { baseUrl = new URL(BASE); } catch { refuse(`BASE_URL is not a valid URL`); }
++if (!["localhost", "127.0.0.1", "[::1]", "::1"].includes(baseUrl.hostname)) {
++  refuse(`BASE_URL host "${baseUrl.hostname}" is not local. This script only runs against a local app.`);
++}
++if (!process.env.DATABASE_URL) refuse("DATABASE_URL is not set (run with --env-file=.env, the same file the server uses).");
++let dbName, dbHost;
++try {
++  const u = new URL(process.env.DATABASE_URL);
++  dbName = decodeURIComponent(u.pathname.replace(/^\//, ""));
++  dbHost = u.hostname;
++} catch { refuse("DATABASE_URL can't be parsed."); }
++if (!/test/i.test(dbName) && process.env.LIVE_CHECK_ALLOW_DATABASE !== dbName) {
++  refuse(`database "${dbName}" doesn't look like a test database. Point the server and this script at a test database ` +
++    `(e.g. fitdb_test), or set LIVE_CHECK_ALLOW_DATABASE=${dbName} to accept throwaway rows (they are cleaned up).`);
++}
++const ORIGIN = baseUrl.origin;
++
++// Must match src/lib/server/db-identity.ts exactly (SQL, hash format, marker format).
++const DB_IDENTITY_SQL =
++  "SELECT current_database() || '|' || (SELECT oid::text FROM pg_database WHERE datname = current_database()) || '|' || extract(epoch from pg_postmaster_start_time())::text AS identity, " +
++  "shobj_description((SELECT oid FROM pg_database WHERE datname = current_database()), 'pg_database') AS marker";
++const TEST_DB_MARKER_PREFIX = "fitworkoutfoodtracker:test-database:v1:";
++const fingerprintOf = (identity) => createHash("sha256").update(`fwft-db-identity-v1|${identity}`).digest("hex");
++
++/**
++ * Guards 3 and 4: prove the running server uses this script's database, and that the
++ * server reports that database's explicit test marker. Read-only query here, read-only
++ * GET there. Refuses (exit 4) unless both are verified.
++ */
++async function verifyServerDatabase() {
++  let mine;
++  try {
++    prisma = prisma || new (require("@prisma/client").PrismaClient)();
++    const rows = await prisma.$queryRawUnsafe(DB_IDENTITY_SQL);
++    mine = fingerprintOf(rows[0].identity);
++  } catch (e) {
++    refuse(`can't read the identity of the script's database "${dbName}" (${e.message}).`);
++  }
++  let res, body;
++  try {
++    res = await fetch(`${BASE}/api/health/db-identity`, { signal: AbortSignal.timeout(10_000), cache: "no-store" });
++    body = await res.json().catch(() => null);
++  } catch (e) {
++    refuse(`can't reach ${BASE}/api/health/db-identity to verify the server's database (${e.message}). Is the app running?`);
++  }
++  if (res.status === 404) {
++    refuse("the server doesn't expose /api/health/db-identity, so its database can't be verified. Run it with `npm run dev`, " +
++      "or for a production build start it with EXPOSE_DB_IDENTITY=1.");
++  }
++  if (!res.ok || !body || typeof body.fingerprint !== "string" || !/^[0-9a-f]{64}$/.test(body.fingerprint)) {
++    refuse(`the server couldn't report its database identity (HTTP ${res.status}).`);
++  }
++  if (body.fingerprint !== mine) {
++    refuse(`the server's database does not match this script's database "${dbName}" on ${dbHost}. ` +
++      "Start the server with the same .env (test DATABASE_URL) as this script.");
++  }
++  const marker = body.testMarker;
++  if (marker === null || marker === undefined || marker === "") {
++    refuse(`the server's database "${dbName}" has no test-database marker. Mark a dedicated test database deliberately: ` +
++      `node --env-file=<test env> scripts/mark-test-database.cjs --confirm ${dbName}`);
++  }
++  if (typeof marker !== "string" || marker !== TEST_DB_MARKER_PREFIX + dbName) {
++    refuse(`the server's database "${dbName}" has an invalid test-database marker (expected the marker for "${dbName}"). ` +
++      "Re-mark it with scripts/mark-test-database.cjs only if it really is a dedicated test database.");
++  }
++  console.log(`Verified before any write: the server uses this script's database ("${dbName}"), and it carries a valid test-database marker.`);
++}
++
++// ─── Cleanup (always runs) ───────────────────────────────────────────────────
++// One shared promise: the signal handler and the normal `finally` path both await the
++// same cleanup, so neither can exit while the other's deletion is still running.
++let cleanupPromise = null;
++const cleanup = () => (cleanupPromise ??= doCleanup());
++async function doCleanup() {
++  if (!createdEmails.length) return;
++  // A request already sent (e.g. a sign-up) still completes on the server, so wait for
++  // every in-flight request to settle before deleting, or its row would be missed.
++  await Promise.allSettled([...inflight]);
++  try {
++    prisma = prisma || new (require("@prisma/client").PrismaClient)();
++    const users = await prisma.user.findMany({ where: { email: { in: createdEmails } }, select: { id: true } });
++    const ids = users.map((u) => u.id);
++    const del = await prisma.user.deleteMany({ where: { id: { in: ids } } }); // cascades entries/targets/sessions/custom foods
++    const leftUsers = await prisma.user.count({ where: { email: { in: createdEmails } } });
++    const leftEntries = await prisma.foodEntry.count({ where: { userId: { in: ids } } });
++    const leftFoods = await prisma.food.count({ where: { userId: { in: ids } } });
++    const leftTargets = await prisma.nutritionTarget.count({ where: { userId: { in: ids } } });
++    console.log(`Cleanup: removed ${del.count} test user(s); remaining → users ${leftUsers}, entries ${leftEntries}, custom foods ${leftFoods}, targets ${leftTargets}.`);
++    if (leftUsers + leftEntries + leftFoods + leftTargets > 0) process.exitCode = 2;
++    // Defense in depth (guard 3 should make this unreachable): fewer rows found than the
++    // server confirmed would mean the server wrote to a different database.
++    if (del.count < registered) {
++      console.error(`Cleanup MISMATCH: the server confirmed ${registered} sign-up(s) but only ${del.count} were found in "${dbName}". ` +
++        `The server is using a different database. Remove users matching live-check-*-${run}@example.test there manually, ` +
++        `and start the server with the same .env as this script.`);
++      process.exitCode = 2;
++    }
++  } catch (e) {
++    console.error(`Cleanup FAILED (${e.message}). Remove users matching live-check-*-${run}@example.test manually.`);
++    process.exitCode = 2;
++  } finally {
++    if (prisma) await prisma.$disconnect().catch(() => {});
++  }
++}
++for (const sig of ["SIGINT", "SIGTERM"]) {
++  process.on(sig, async () => {
++    interrupted = true; // no new requests from here on
++    console.error(`\nInterrupted (${sig}); waiting for in-flight requests, then cleaning up…`);
++    await cleanup();
++    process.exit(process.exitCode === 2 ? 2 : 130); // 2 = cleanup incomplete
++  });
++}
++
++// ─── HTTP helper ─────────────────────────────────────────────────────────────
++function client() {
++  let cookie = "";
++  const call = async (method, path, body) => {
++    if (interrupted) throw new Error("interrupted");
++    const t0 = Date.now();
++    const req = fetch(BASE + path, {
++      method, body: body !== undefined ? JSON.stringify(body) : undefined,
++      headers: { ...(body !== undefined ? { "Content-Type": "application/json" } : {}), Origin: ORIGIN, ...(cookie ? { Cookie: cookie } : {}) },
++    });
++    inflight.add(req);
++    let res;
++    try { res = await req; } finally { inflight.delete(req); }
++    const set = res.headers.get("set-cookie");
++    if (set && set.startsWith("fit_session=")) cookie = set.split(";")[0];
++    const text = await res.text();
++    bodies.push(text);
++    let json = null;
++    try { json = JSON.parse(text); } catch {}
++    return { status: res.status, body: json, ms: Date.now() - t0 };
++  };
++  return { get: (p) => call("GET", p), post: (p, b) => call("POST", p, b), put: (p, b) => call("PUT", p, b), patch: (p, b) => call("PATCH", p, b), del: (p) => call("DELETE", p) };
++}
++
++async function check(id, area, description, fn) {
++  if (interrupted) throw new Error("interrupted"); // abort the run; don't record further checks
++  try {
++    const detail = await fn();
++    results.push({ id, area, description, status: "PASS", detail: detail ?? "" });
++    console.log(`PASS     ${id}  ${description}${detail ? `  — ${detail}` : ""}`);
++  } catch (e) {
++    if (interrupted) throw e;
++    const status = e && e.skip ? "NOT RUN" : "FAIL";
++    const msg = String(e && e.message ? e.message : e);
++    results.push({ id, area, description, status, detail: msg });
++    console.log(`${status.padEnd(8)} ${id}  ${description}  — ${msg}`);
++  }
++}
++const must = (cond, msg) => { if (!cond) throw new Error(msg); };
++const skip = (msg) => Object.assign(new Error(msg), { skip: true });
++const fmt = (n) => (n == null ? "null" : Math.round(n * 10) / 10);
++const per100 = (f) => `kcal ${fmt(f.per100.kcal)}, P ${fmt(f.per100.protein)}, C ${fmt(f.per100.carbs)}, F ${fmt(f.per100.fat)}`;
++const plausible = (n) => n.kcal == null || (n.kcal >= 0 && n.kcal <= 950);
++/** Energy vs Atwater 4/4/9 from macros: a sanity check, not an exact identity. */
++function atwaterGap(n) {
++  if ([n.kcal, n.protein, n.carbs, n.fat].some((v) => v == null)) return null;
++  const est = 4 * n.protein + 4 * n.carbs + 9 * n.fat;
++  return { est: Math.round(est), diff: Math.round(n.kcal - est) };
++}
++/** Read the server-recorded origin of a cached provider food (live evidence). */
++async function recordOrigin(source, sourceId) {
++  prisma = prisma || new (require("@prisma/client").PrismaClient)();
++  const row = await prisma.food.findUnique({ where: { source_sourceId: { source, sourceId } }, select: { origin: true } });
++  evidence.origins[`${source}:${sourceId}`] = row ? row.origin : "(not found in this DATABASE_URL)";
++  if (!row || row.origin !== REAL_HOSTS[source]) {
++    evidence.notLive.push(`${source} ${sourceId} was produced by "${row ? row.origin : "unknown"}", not ${REAL_HOSTS[source]}`);
++  }
++}
++
++const profile = { name: "Live check", birthDate: "1990-01-01", sex: "MALE", heightCm: 180, currentWeightKg: 80, goalWeightKg: null,
++  goal: "MAINTENANCE", activityLevel: "MODERATE", experience: "BEGINNER", workoutDaysPerWeek: 3, unitSystem: "METRIC", timezone: "UTC", calorieTargetOverride: null };
++
++async function main() {
++  console.log(`Live provider check → app ${BASE}, database "${dbName}" on ${dbHost}. FDC_API_KEY ${KEY ? "present in this shell" : "NOT present in this shell"}.`);
++  await verifyServerDatabase(); // refuses (exit 4) unless verified; must stay before the first write
++  for (const v of ["FDC_BASE_URL", "OFF_BASE_URL"]) if (process.env[v]) evidence.notLive.push(`${v} is set (stub/override endpoint)`);
++
++  const A = client(), B = client(), L = client();
++  for (const [c, n] of [[A, "a"], [B, "b"], [L, "l"]]) {
++    const email = `live-check-${n}-${run}@example.test`;
++    createdEmails.push(email); // recorded before creation so cleanup also covers half-created state
++    const r = await c.post("/api/auth/register", { email, password: "live check password 123" });
++    if (r.status !== 200) throw new Error(`cannot register test user (HTTP ${r.status}). Is the app running at ${BASE}?`);
++    registered++;
++    await c.put("/api/profile", profile);
++  }
++  const ctx = {};
++
++  // ─── USDA FoodData Central ────────────────────────────────────────────────
++  for (const [id, q] of [["USDA-1", "banana"], ["USDA-2", "chicken breast"], ["USDA-3", "white rice"]]) {
++    await check(id, "USDA", `search "${q}" returns normalised results`, async () => {
++      const r = await A.get(`/api/foods/search?q=${encodeURIComponent(q)}&sources=USDA`);
++      must(r.status === 200, `HTTP ${r.status}`);
++      const err = r.body.errors.find((e) => e.source === "USDA");
++      must(!err, `provider error: ${err && `${err.kind} — ${err.message}`}`);
++      const list = r.body.results.USDA;
++      must(list.length > 0, "no results");
++      must(list.every((i) => i.source === "USDA" && /^\d+$/.test(i.sourceId)), "non-USDA item or non-numeric fdcId");
++      must(list.every((i) => ["Foundation", "SR Legacy", "Survey (FNDDS)"].includes(i.dataType)), "unexpected dataType (generic types only)");
++      must(list.every((i) => plausible(i.per100)), "implausible kcal value");
++      ctx[q] = list;
++      const types = [...new Set(list.map((i) => i.dataType))].join(", ");
++      return `${list.length} results in ${r.ms} ms; types: ${types}; incomplete: ${list.filter((i) => !i.complete).length}; first: "${list[0].name}" (${per100(list[0])})`;
++    });
++  }
++  if ((ctx.banana || []).length < 5) evidence.notLive.push(`USDA "banana" returned ${(ctx.banana || []).length} results (real service returns ≥ 5)`);
++
++  await check("USDA-4", "USDA", "food detail (resolve) for a banana result: servings + nutrients", async () => {
++    const item = (ctx.banana || [])[0];
++    if (!item) throw skip("no banana search result");
++    const r = await A.post("/api/foods/resolve", { source: "USDA", sourceId: item.sourceId });
++    must(r.status === 200, `HTTP ${r.status} ${r.body && r.body.error}`);
++    const f = r.body.food;
++    must(f.source === "USDA" && f.sourceId === item.sourceId, "source id not preserved");
++    must(f.servings.some((s) => s.label === "100 g" && s.amount === 100), "100 g serving missing");
++    for (const k of ["kcal", "protein", "carbs", "fat"]) must(f.per100[k] === null || typeof f.per100[k] === "number", `${k} not number|null`);
++    await recordOrigin("USDA", f.sourceId);
++    ctx.bananaFood = f;
++    const gap = atwaterGap(f.per100);
++    return `fdcId ${f.sourceId} (${f.dataType}); ${per100(f)}; servings: ${f.servings.map((s) => s.label).slice(0, 4).join(" | ")}${gap ? `; 4P+4C+9F ≈ ${gap.est} (Δ ${gap.diff})` : ""}`;
++  });
++
++  await check("USDA-5", "USDA", "Foundation food detail: energy present (Atwater ids 2047/2048 when 1008 absent)", async () => {
++    let found = [...(ctx.banana || []), ...(ctx["chicken breast"] || []), ...(ctx["white rice"] || [])].find((i) => i.dataType === "Foundation");
++    for (const q of ["apple raw", "egg whole raw"]) {
++      if (found) break;
++      const r = await A.get(`/api/foods/search?q=${encodeURIComponent(q)}&sources=USDA`);
++      found = (r.body?.results?.USDA || []).find((i) => i.dataType === "Foundation");
++    }
++    if (!found) throw skip("no Foundation food found in five searches");
++    const r = await A.post("/api/foods/resolve", { source: "USDA", sourceId: found.sourceId });
++    must(r.status === 200, `HTTP ${r.status}`);
++    const f = r.body.food;
++    must(f.per100.kcal != null, "energy missing for a Foundation food (Atwater mapping may have failed)");
++    must(f.per100.protein != null && f.per100.fat != null, "protein/fat missing");
++    const gap = atwaterGap(f.per100);
++    return `"${f.name}" fdcId ${f.sourceId}: ${per100(f)}${gap ? `; 4P+4C+9F ≈ ${gap.est} (Δ ${gap.diff})` : ""}`;
++  });
++
++  await check("USDA-6", "USDA", "missing nutrients stay null (observed, not fabricated)", async () => {
++    const all = [...(ctx.banana || []), ...(ctx["chicken breast"] || []), ...(ctx["white rice"] || [])];
++    if (!all.length) throw skip("no USDA results");
++    must(all.every((i) => Object.values(i.per100).every((v) => v === null || (typeof v === "number" && v >= 0))), "non-number, non-null nutrient");
++    const nulls = all.flatMap((i) => Object.entries(i.per100).filter(([, v]) => v === null).map(([k]) => k));
++    return nulls.length ? `null values observed: ${[...new Set(nulls)].join(", ")} (${nulls.length} total)` : "all values reported for these results";
++  });
++
++  await check("USDA-7", "USDA", "invalid searches handled safely", async () => {
++    const short = await A.get("/api/foods/search?q=a&sources=USDA");
++    must(short.status === 400, `1-char query → ${short.status}, expected 400`);
++    const none = await A.get(`/api/foods/search?q=${encodeURIComponent("zzqxjv" + run)}&sources=USDA`);
++    must(none.status === 200, `nonsense query → ${none.status}`);
++    must(!none.body.errors.length, `nonsense query produced provider error: ${JSON.stringify(none.body.errors)}`);
++    const bad = await A.post("/api/foods/resolve", { source: "USDA", sourceId: "1" });
++    must([404, 502].includes(bad.status), `unknown fdcId → ${bad.status}`);
++    return `short → 400; nonsense → 200 with ${none.body.results.USDA.length} results, no error; unknown id → ${bad.status}`;
++  });
++
++  // ─── Open Food Facts ──────────────────────────────────────────────────────
++  await check("OFF-1", "OFF", 'search "nutella" returns packaged products', async () => {
++    const r = await A.get("/api/foods/search?q=nutella&sources=OPEN_FOOD_FACTS");
++    must(r.status === 200, `HTTP ${r.status}`);
++    const err = r.body.errors.find((e) => e.source === "OPEN_FOOD_FACTS");
++    must(!err, `provider error: ${err && `${err.kind} — ${err.message}`}`);
++    const list = r.body.results.OPEN_FOOD_FACTS;
++    must(list.length > 0, "no results");
++    must(list.every((i) => plausible(i.per100)), "implausible kcal value");
++    ctx.nutellaCount = list.length;
++    return `${list.length} results in ${r.ms} ms; incomplete: ${list.filter((i) => !i.complete).length}; no nutrition: ${list.filter((i) => !i.hasNutrition).length}; first: "${list[0].name}" (${per100(list[0])})`;
++  });
++  if ((ctx.nutellaCount || 0) < 3) evidence.notLive.push(`OFF "nutella" returned ${ctx.nutellaCount || 0} results (real service returns ≥ 3)`);
++
++  await check("OFF-2", "OFF", "barcode 3017624010966 lookup: name, serving, nutrition", async () => {
++    const r = await A.get("/api/foods/barcode/3017624010966");
++    must(r.status === 200, `HTTP ${r.status} ${r.body && r.body.error}`);
++    const f = r.body.food;
++    must(/nutella/i.test(f.name), `unexpected name "${f.name}"`);
++    must(f.source === "OPEN_FOOD_FACTS" && f.sourceId === "3017624010966", "source/barcode not preserved");
++    must(f.per100.kcal != null && f.per100.kcal > 400 && f.per100.kcal < 650, `kcal/100 g ${f.per100.kcal} outside expected range for a hazelnut spread`);
++    await recordOrigin("OPEN_FOOD_FACTS", "3017624010966");
++    ctx.nutella = f;
++    return `"${f.name}"${f.brand ? ` (${f.brand})` : ""}; ${per100(f)}; servings: ${f.servings.map((s) => s.label).join(" | ")}`;
++  });
++
++  await check("OFF-3", "OFF", "nonexistent barcode → not found, no provider error", async () => {
++    const r = await A.get("/api/foods/barcode/0000000000017");
++    must(r.status === 404, `HTTP ${r.status}, expected 404`);
++    const s = await A.get("/api/foods/search?q=00000000000017&sources=OPEN_FOOD_FACTS");
++    must(s.status === 200 && s.body.errors.length === 0 && s.body.results.OPEN_FOOD_FACTS.length === 0, "barcode-style search should be empty without error");
++    return "lookup → 404; barcode search → empty, no error";
++  });
++
++  await check("OFF-4", "OFF", "energy consistent with macros (kcal used directly or converted from kJ)", async () => {
++    if (!ctx.nutella) throw skip("barcode lookup failed");
++    const gap = atwaterGap(ctx.nutella.per100);
++    must(gap, "macros incomplete for this product");
++    must(Math.abs(gap.diff) < 0.15 * ctx.nutella.per100.kcal, `energy ${ctx.nutella.per100.kcal} vs 4P+4C+9F ${gap.est} differs by > 15 %`);
++    return `kcal ${fmt(ctx.nutella.per100.kcal)} vs 4P+4C+9F ≈ ${gap.est} (Δ ${gap.diff}); kJ-only conversion remains unit-tested`;
++  });
++
++  // ─── App protection (without abusing providers) ───────────────────────────
++  await check("PROT-1", "Protection", "per-user OFF search limit (4/min) stops the 5th search before the provider", async () => {
++    const kinds = [];
++    for (let i = 0; i < 5; i++) {
++      const r = await L.get(`/api/foods/search?q=${encodeURIComponent(`limitcheck${run}x${i}`)}&sources=OPEN_FOOD_FACTS`);
++      const e = r.body.errors.find((x) => x.source === "OPEN_FOOD_FACTS");
++      kinds.push(e ? e.kind : "ok");
++    }
++    must(kinds.slice(0, 4).every((k) => k === "ok"), `first 4: ${kinds.slice(0, 4).join(",")}`);
++    must(kinds[4] === "user_rate_limited", `5th: ${kinds[4]}`);
++    return kinds.join(", ");
++  });
++
++  // ─── Workflow with real provider data ─────────────────────────────────────
++  const today = new Date().toISOString().slice(0, 10);
++  await check("FLOW-1", "Workflow", "log a USDA food with a serving; totals; edit ×2; isolation; delete → 0", async () => {
++    const f = ctx.bananaFood;
++    if (!f) throw skip("USDA detail unavailable");
++    if (f.per100.kcal == null) throw skip("chosen food has no energy value");
++    const serving = f.servings[0];
++    const e = await A.post("/api/nutrition/entries", { date: today, mealType: "BREAKFAST", foodId: f.id, servingId: serving.id, quantity: 1 });
++    must(e.status === 200, `log → ${e.status} ${e.body && e.body.error}`);
++    const expected = Math.round((f.per100.kcal * serving.amount) / 100 * 100) / 100;
++    must(Math.abs(e.body.entry.nutrients.kcal - expected) < 0.011, `entry kcal ${e.body.entry.nutrients.kcal} ≠ ${expected}`);
++    let d = (await A.get(`/api/nutrition/day?date=${today}`)).body;
++    must(Math.abs(d.totals.kcal - expected) < 0.011, `day total ${d.totals.kcal} ≠ ${expected}`);
++    must((await A.patch(`/api/nutrition/entries/${e.body.entry.id}`, { quantity: 2 })).status === 200, "edit failed");
++    d = (await A.get(`/api/nutrition/day?date=${today}`)).body;
++    must(Math.abs(d.totals.kcal - Math.round(expected * 200) / 100) < 0.021, `after edit ${d.totals.kcal} ≠ ${expected * 2}`);
++    must(d.target && d.calories, "target/remaining missing");
++    must((await B.patch(`/api/nutrition/entries/${e.body.entry.id}`, { quantity: 9 })).status === 404, "other user could edit");
++    must((await B.get(`/api/nutrition/day?date=${today}`)).body.totals.kcal === 0, "other user sees entries");
++    must((await A.del(`/api/nutrition/entries/${e.body.entry.id}`)).status === 200, "delete failed");
++    d = (await A.get(`/api/nutrition/day?date=${today}`)).body;
++    must(d.totals.kcal === 0, `after delete ${d.totals.kcal}`);
++    return `"${f.name}", ${serving.label}: ${expected} kcal → ×2 ${Math.round(expected * 200) / 100} → deleted 0; other user: 404 / sees 0`;
++  });
++
++  await check("FLOW-2", "Workflow", "log an OFF product by grams; history keeps the day's target", async () => {
++    const f = ctx.nutella;
++    if (!f) throw skip("OFF product unavailable");
++    const e = await A.post("/api/nutrition/entries", { date: today, mealType: "SNACK", foodId: f.id, servingId: null, quantity: 30 });
++    must(e.status === 200, `log → ${e.status}`);
++    const h = (await A.get(`/api/nutrition/history?end=${today}&days=7`)).body;
++    const day = h.days.find((x) => x.date === today);
++    must(day.entries === 1 && Math.abs(day.totals.kcal - e.body.entry.nutrients.kcal) < 0.011, "history totals mismatch");
++    must(day.target && day.target.kcal > 0, "history day has no target");
++    await A.del(`/api/nutrition/entries/${e.body.entry.id}`);
++    return `30 g → ${e.body.entry.nutrients.kcal} kcal; history day target ${day.target.kcal} kcal; entry removed`;
++  });
++
++  // ─── Secret exposure ──────────────────────────────────────────────────────
++  await check("SEC-1", "Security", "FDC_API_KEY never appears in any API response", async () => {
++    if (!KEY) throw skip("FDC_API_KEY not available to this script (run with --env-file=.env)");
++    const leaks = bodies.filter((b) => b.includes(KEY)).length;
++    must(leaks === 0, `key found in ${leaks} response(s)`);
++    return `${bodies.length} responses scanned, 0 contain the key`;
++  });
++
++  if (!Object.keys(evidence.origins).length) evidence.notLive.push("no provider food was fetched, so origin couldn't be checked");
++}
++
++(async () => {
++  let crashed = null;
++  try {
++    await main();
++  } catch (e) {
++    crashed = e;
++    console.error(`Live check stopped early: ${e.message}`);
++  } finally {
++    await cleanup();
++  }
++  if (interrupted) return; // the signal handler reports and exits after the same cleanup
++  const summary = { PASS: 0, FAIL: 0, "NOT RUN": 0 };
++  for (const r of results) summary[r.status]++;
++  const live = evidence.notLive.length === 0 && !crashed;
++  const verdict = !live ? "NOT LIVE" : crashed || summary.FAIL || summary["NOT RUN"] ? "INCOMPLETE OR FAILED" : "PASSED";
++  fs.writeFileSync(REPORT, JSON.stringify({ base: BASE, database: dbName, ranAt: new Date().toISOString(), live, verdict,
++    notLiveReasons: evidence.notLive, origins: evidence.origins, summary, results }, null, 2));
++  console.log(`\n${summary.PASS} passed, ${summary.FAIL} failed, ${summary["NOT RUN"]} not run. Report: ${REPORT} (no secrets; git-ignored).`);
++  if (!live) {
++    console.log("NOT LIVE — these results do not verify the real providers:");
++    for (const r of evidence.notLive) console.log(`  - ${r}`);
++    if (crashed) console.log(`  - run stopped early: ${crashed.message}`);
++  }
++  console.log(`LIVE VERIFICATION: ${verdict}`);
++  const code = verdict === "PASSED" ? 0 : !live ? 3 : 1;
++  process.exit(process.exitCode && process.exitCode !== 0 ? process.exitCode : code);
++})();
+diff --git a/scripts/live-provider-check.safety.test.cjs b/scripts/live-provider-check.safety.test.cjs
+new file mode 100644
+index 0000000..68d15fa
+--- /dev/null
++++ b/scripts/live-provider-check.safety.test.cjs
+@@ -0,0 +1,233 @@
++// Regression tests for the database-safety guards of scripts/live-provider-check.cjs.
++// Proves the script verifies the RUNNING SERVER's database, and its explicit test-database
++// marker, before any write. A mismatch, a missing or invalid marker, or an unverifiable
++// server makes it exit 4 with NO rows created anywhere.
++// The test (re)marks SAFETY_DB_URL's database with scripts/mark-test-database.cjs and leaves
++// it marked; it never marks SAFETY_OTHER_DB_URL.
++//
++// Self-contained: starts its own stub (scripts/stub-food-apis.cjs) and app servers from the
++// existing production build (run `npm run build` first). Needs two migrated test databases:
++//   SAFETY_DB_URL        the database the app server uses (default: postgresql://fit:<redacted>@localhost:5432/fitdb_test)
++//   SAFETY_OTHER_DB_URL  a different database the script is pointed at (default: …/fitdb_test_other)
++//   node --test scripts/live-provider-check.safety.test.cjs
++const { test, before, after } = require("node:test");
++const assert = require("node:assert/strict");
++const { spawn } = require("node:child_process");
++const path = require("node:path");
++const { PrismaClient } = require("@prisma/client");
++
++const ROOT = path.resolve(__dirname, "..");
++const DB = process.env.SAFETY_DB_URL || "postgresql://fit:<redacted>@localhost:5432/fitdb_test?schema=public";
++const OTHER = process.env.SAFETY_OTHER_DB_URL || "postgresql://fit:<redacted>@localhost:5432/fitdb_test_other?schema=public";
++const STUB_PORT = 4020, PORT = 3320, DEAD_PORT = 3329;
++const procs = [];
++const MARKER_PREFIX = "fitworkoutfoodtracker:test-database:v1:";
++const dbNameOf = (url) => decodeURIComponent(new URL(url).pathname.replace(/^\//, ""));
++const SERVER_DB_NAME = dbNameOf(DB);
++const dbs = { server: new PrismaClient({ datasources: { db: { url: DB } } }), other: new PrismaClient({ datasources: { db: { url: OTHER } } }) };
++
++function start(cmd, args, env) {
++  const env2 = { ...process.env, ...env };
++  delete env2.NODE_PATH;
++  const p = spawn(cmd, args, { cwd: ROOT, env: env2, detached: true, stdio: "ignore" });
++  procs.push(p);
++  return p;
++}
++/** Stop a process group and wait until it has exited, so the next test can reuse the port. */
++function stop(p) {
++  if (p.exitCode !== null || p.signalCode !== null) return Promise.resolve();
++  return new Promise((resolve) => {
++    const t = setTimeout(resolve, 10_000);
++    p.once("exit", () => { clearTimeout(t); resolve(); });
++    try { process.kill(-p.pid, "SIGTERM"); } catch { clearTimeout(t); resolve(); }
++  });
++}
++async function waitFor(url, ms = 30_000) {
++  const t0 = Date.now();
++  for (;;) {
++    try { const r = await fetch(url); if (r.status < 500) return; } catch {}
++    if (Date.now() - t0 > ms) throw new Error(`timeout waiting for ${url}`);
++    await new Promise((r) => setTimeout(r, 300));
++  }
++}
++async function startApp(extraEnv) {
++  const p = start("npx", ["next", "start", "-p", String(PORT)], {
++    DATABASE_URL: DB, FDC_BASE_URL: `http://localhost:${STUB_PORT}/fdc/v1`, OFF_BASE_URL: `http://localhost:${STUB_PORT}/off`,
++    FDC_API_KEY: "stub", ...extraEnv,
++  });
++  await waitFor(`http://localhost:${PORT}/login`);
++  return p;
++}
++function runScript(env) {
++  return new Promise((resolve) => {
++    const env2 = { ...process.env, REPORT_FILE: path.join(require("node:os").tmpdir(), `lpc-safety-${Date.now()}.json`), ...env };
++    delete env2.NODE_PATH;
++    delete env2.FDC_API_KEY;
++    const p = spawn(process.execPath, [path.join(ROOT, "scripts/live-provider-check.cjs")], { cwd: ROOT, env: env2 });
++    let out = "";
++    p.stdout.on("data", (d) => (out += d));
++    p.stderr.on("data", (d) => (out += d));
++    p.on("close", (code) => resolve({ code, out }));
++  });
++}
++/** Every row the script could create, in a database. */
++async function counts(db) {
++  const [users, sessions, entries, targets, customFoods] = await Promise.all([
++    db.user.count(), db.session.count(), db.foodEntry.count(), db.nutritionTarget.count(), db.food.count({ where: { userId: { not: null } } }),
++  ]);
++  return { users, sessions, entries, targets, customFoods };
++}
++const snapshot = async () => ({ server: await counts(dbs.server), other: await counts(dbs.other) });
++
++/** Run the provisioning script for a database URL with extra args. */
++function markScript(url, args) {
++  return new Promise((resolve) => {
++    const env = { ...process.env, DATABASE_URL: url };
++    delete env.NODE_PATH;
++    const p = spawn(process.execPath, [path.join(ROOT, "scripts/mark-test-database.cjs"), ...args], { cwd: ROOT, env });
++    let out = "";
++    p.stdout.on("data", (d) => (out += d));
++    p.stderr.on("data", (d) => (out += d));
++    p.on("close", (code) => resolve({ code, out }));
++  });
++}
++const readMarker = async () =>
++  (await dbs.server.$queryRawUnsafe("SELECT shobj_description((SELECT oid FROM pg_database WHERE datname = current_database()), 'pg_database') AS m"))[0].m;
++/** Simulate tampering or a restored copy by writing the comment directly. */
++const setMarkerRaw = (value) =>
++  dbs.server.$executeRawUnsafe(`COMMENT ON DATABASE "${SERVER_DB_NAME}" IS ${value === null ? "NULL" : `'${value.replace(/'/g, "''")}'`}`);
++const markProperly = async () => {
++  const r = await markScript(DB, ["--confirm", SERVER_DB_NAME]);
++  assert.equal(r.code, 0, r.out);
++};
++
++before(async () => {
++  await dbs.server.$queryRaw`SELECT 1`;
++  await dbs.other.$queryRaw`SELECT 1`;
++  await markProperly(); // deliberate provisioning step for the dedicated test database
++  assert.equal(await readMarker(), MARKER_PREFIX + SERVER_DB_NAME);
++  start(process.execPath, ["scripts/stub-food-apis.cjs", String(STUB_PORT)], {});
++  await waitFor(`http://localhost:${STUB_PORT}/off/cgi/search.pl?search_terms=x`);
++});
++after(async () => {
++  await Promise.all(procs.map(stop));
++  await dbs.server.$disconnect();
++  await dbs.other.$disconnect();
++});
++
++test("mismatch: server on one test DB, script on another → exit 4 before any write; no rows in either DB", { timeout: 120_000 }, async () => {
++  const app = await startApp({ EXPOSE_DB_IDENTITY: "1" });
++  const before = await snapshot();
++  const r = await runScript({ BASE_URL: `http://localhost:${PORT}`, DATABASE_URL: OTHER });
++  const after = await snapshot();
++  await stop(app);
++  assert.equal(r.code, 4, r.out);
++  assert.match(r.out, /REFUSED \(nothing was written\): the server's database does not match/);
++  assert.doesNotMatch(r.out, /Verified before any write|PASS|Cleanup/);
++  assert.deepEqual(after, before, "no rows created in the server's DB or the script's DB");
++});
++
++test("server can't prove its database (identity endpoint disabled) → exit 4, no rows", { timeout: 120_000 }, async () => {
++  const app = await startApp({}); // production build without EXPOSE_DB_IDENTITY → endpoint returns 404
++  const before = await snapshot();
++  const r = await runScript({ BASE_URL: `http://localhost:${PORT}`, DATABASE_URL: DB });
++  const after = await snapshot();
++  await stop(app);
++  assert.equal(r.code, 4, r.out);
++  assert.match(r.out, /doesn't expose \/api\/health\/db-identity/);
++  assert.deepEqual(after, before);
++});
++
++test("server unreachable → exit 4, no rows", { timeout: 60_000 }, async () => {
++  const before = await snapshot();
++  const r = await runScript({ BASE_URL: `http://localhost:${DEAD_PORT}`, DATABASE_URL: DB });
++  const after = await snapshot();
++  assert.equal(r.code, 4, r.out);
++  assert.match(r.out, /can't reach/);
++  assert.deepEqual(after, before);
++});
++
++test("non-test database name and non-local BASE_URL → exit 4, no rows", { timeout: 60_000 }, async () => {
++  const before = await snapshot();
++  const devName = await runScript({ BASE_URL: `http://localhost:${PORT}`, DATABASE_URL: DB.replace(/\/[^/?]+(\?|$)/, "/fitdb$1") });
++  const remote = await runScript({ BASE_URL: "https://example.com", DATABASE_URL: DB });
++  assert.equal(devName.code, 4, devName.out);
++  assert.match(devName.out, /doesn't look like a test database/);
++  assert.equal(remote.code, 4, remote.out);
++  assert.match(remote.out, /is not local/);
++  assert.deepEqual(await snapshot(), before);
++});
++
++test("matching DB: verification passes BEFORE the first write; run proceeds; cleanup restores row counts", { timeout: 180_000 }, async () => {
++  const app = await startApp({ EXPOSE_DB_IDENTITY: "1" });
++  const before = await snapshot();
++  const r = await runScript({ BASE_URL: `http://localhost:${PORT}`, DATABASE_URL: DB });
++  const after = await snapshot();
++  await stop(app);
++  assert.match(r.out, /Verified before any write: the server uses this script's database \("[^"]+"\), and it carries a valid test-database marker/);
++  assert.ok(r.out.indexOf("Verified before any write") < r.out.indexOf("PASS"), "verification is reported before any check");
++  assert.equal(r.code, 3, "stub data must be reported NOT LIVE");
++  assert.match(r.out, /LIVE VERIFICATION: NOT LIVE/);
++  assert.match(r.out, /remaining → users 0, entries 0, custom foods 0, targets 0/);
++  assert.deepEqual(after.other, before.other, "the other DB is untouched");
++  assert.deepEqual(
++    { users: after.server.users, sessions: after.server.sessions, entries: after.server.entries, targets: after.server.targets, customFoods: after.server.customFoods },
++    before.server, "every row the run created was removed",
++  );
++});
++
++// ─── Explicit test-database marker ──────────────────────────────────────────
++
++test("provisioning script refuses without the exact --confirm name and leaves the marker unchanged", { timeout: 60_000 }, async () => {
++  const before = await readMarker();
++  for (const args of [[], ["--confirm"], ["--confirm", "fitdb"], ["--remove", "--confirm", "wrong"]]) {
++    const r = await markScript(DB, args);
++    assert.equal(r.code, 4, `${args.join(" ")}: ${r.out}`);
++    assert.match(r.out, /NOT MARKED/);
++  }
++  assert.equal(await readMarker(), before);
++});
++
++test("MISSING marker: matching DB but no test-database marker → exit 4 before any write, no rows", { timeout: 120_000 }, async () => {
++  const unmark = await markScript(DB, ["--remove", "--confirm", SERVER_DB_NAME]);
++  assert.equal(unmark.code, 0, unmark.out);
++  assert.equal(await readMarker(), null);
++  const app = await startApp({ EXPOSE_DB_IDENTITY: "1" });
++  try {
++    const ident = await (await fetch(`http://localhost:${PORT}/api/health/db-identity`)).json();
++    assert.equal(ident.testMarker, null, "endpoint reports the marker as missing");
++    const before = await snapshot();
++    const r = await runScript({ BASE_URL: `http://localhost:${PORT}`, DATABASE_URL: DB });
++    const after = await snapshot();
++    assert.equal(r.code, 4, r.out);
++    assert.match(r.out, /REFUSED \(nothing was written\): the server's database "[^"]+" has no test-database marker/);
++    assert.doesNotMatch(r.out, /Verified before any write|PASS|Cleanup/);
++    assert.deepEqual(after, before, "no rows created in either DB");
++  } finally {
++    await stop(app);
++    await markProperly();
++  }
++});
++
++for (const [label, value] of [
++  ["garbage value", "not a marker"],
++  ["marker for a different database (e.g. restored copy)", `${MARKER_PREFIX}fitdb`],
++  ["wrong marker version", `fitworkoutfoodtracker:test-database:v0:${SERVER_DB_NAME}`],
++]) {
++  test(`INVALID marker (${label}) → exit 4 before any write, no rows`, { timeout: 120_000 }, async () => {
++    await setMarkerRaw(value);
++    const app = await startApp({ EXPOSE_DB_IDENTITY: "1" });
++    try {
++      const before = await snapshot();
++      const r = await runScript({ BASE_URL: `http://localhost:${PORT}`, DATABASE_URL: DB });
++      const after = await snapshot();
++      assert.equal(r.code, 4, r.out);
++      assert.match(r.out, /REFUSED \(nothing was written\): the server's database "[^"]+" has an invalid test-database marker/);
++      assert.doesNotMatch(r.out, /Verified before any write|PASS|Cleanup/);
++      assert.deepEqual(after, before, "no rows created in either DB");
++    } finally {
++      await stop(app);
++      await markProperly();
++    }
++  });
++}
+diff --git a/scripts/mark-test-database.cjs b/scripts/mark-test-database.cjs
+new file mode 100644
+index 0000000..7c096cd
+--- /dev/null
++++ b/scripts/mark-test-database.cjs
+@@ -0,0 +1,43 @@
++// Deliberately mark the database in DATABASE_URL as a dedicated TEST database, so that
++// scripts/live-provider-check.cjs is allowed to write throwaway records to it.
++// The marker is a PostgreSQL database comment:
++//   fitworkoutfoodtracker:test-database:v1:<database name>
++// Migrations never set it, so a development or production database is never marked by
++// accident. Only run this on a database created solely for testing.
++//
++// Usage (the --confirm value must repeat the database name exactly):
++//   node --env-file=.env.test scripts/mark-test-database.cjs --confirm fitdb_test
++//   node --env-file=.env.test scripts/mark-test-database.cjs --remove --confirm fitdb_test
++const { PrismaClient } = require("@prisma/client");
++
++const PREFIX = "fitworkoutfoodtracker:test-database:v1:";
++const args = process.argv.slice(2);
++const confirm = args[args.indexOf("--confirm") + 1];
++const remove = args.includes("--remove");
++
++function fail(msg) {
++  console.error(`NOT MARKED: ${msg}`);
++  process.exit(4);
++}
++if (!process.env.DATABASE_URL) fail("DATABASE_URL is not set.");
++let dbName;
++try { dbName = decodeURIComponent(new URL(process.env.DATABASE_URL).pathname.replace(/^\//, "")); } catch { fail("DATABASE_URL can't be parsed."); }
++if (!args.includes("--confirm") || confirm !== dbName) {
++  fail(`to ${remove ? "unmark" : "mark"} "${dbName}", repeat its name: --confirm ${dbName}`);
++}
++if (!/^[A-Za-z0-9_]+$/.test(dbName)) fail(`unsupported database name "${dbName}" (letters, digits and _ only).`);
++
++(async () => {
++  const prisma = new PrismaClient();
++  try {
++    const [{ current }] = await prisma.$queryRawUnsafe("SELECT current_database() AS current");
++    if (current !== dbName) fail(`connected to "${current}", expected "${dbName}".`);
++    // Identifier is validated above; COMMENT ON DATABASE doesn't accept bind parameters.
++    await prisma.$executeRawUnsafe(remove ? `COMMENT ON DATABASE "${dbName}" IS NULL` : `COMMENT ON DATABASE "${dbName}" IS '${PREFIX}${dbName}'`);
++    console.log(remove ? `Removed the test-database marker from "${dbName}".` : `Marked "${dbName}" as a dedicated test database.`);
++  } catch (e) {
++    fail(e.message);
++  } finally {
++    await prisma.$disconnect();
++  }
++})();
+diff --git a/src/app/api/health/db-identity/route.ts b/src/app/api/health/db-identity/route.ts
+new file mode 100644
+index 0000000..b49ea7b
+--- /dev/null
++++ b/src/app/api/health/db-identity/route.ts
+@@ -0,0 +1,20 @@
++import { NextResponse } from "next/server";
++import { databaseIdentity, dbIdentityEndpointEnabled } from "@/lib/server/db-identity";
++
++export const dynamic = "force-dynamic";
++
++/**
++ * GET /api/health/db-identity → { fingerprint, testMarker } (read-only, no auth, no writes).
++ * Lets the live-provider check verify, before creating any record, that the server's
++ * actual database is the deliberately marked test database. Returns an opaque hash and
++ * the database's test marker comment (or null), never names of other objects or credentials.
++ * Disabled (404) in production builds unless EXPOSE_DB_IDENTITY=1.
++ */
++export async function GET() {
++  if (!dbIdentityEndpointEnabled()) return NextResponse.json({ error: "Not found" }, { status: 404 });
++  try {
++    return NextResponse.json(await databaseIdentity(), { headers: { "Cache-Control": "no-store" } });
++  } catch {
++    return NextResponse.json({ error: "Database unavailable" }, { status: 503 });
++  }
++}
+diff --git a/src/lib/server/db-identity.ts b/src/lib/server/db-identity.ts
+new file mode 100644
+index 0000000..5af1323
+--- /dev/null
++++ b/src/lib/server/db-identity.ts
+@@ -0,0 +1,35 @@
++import "server-only";
++import { createHash } from "node:crypto";
++import { prisma } from "./db";
++
++/**
++ * Database identity for scripts/live-provider-check.cjs, which uses it to prove,
++ * BEFORE writing anything, that the running server is connected to a deliberately
++ * provisioned test database.
++ *
++ * fingerprint: SHA-256 over current_database(), the database's OID and the cluster
++ *   start time (epoch seconds). Identical for every connection to the same database,
++ *   independent of session settings such as the time zone. Only the hash is returned.
++ * testMarker: the PostgreSQL comment on the current database (or null). A dedicated
++ *   test database is marked deliberately with scripts/mark-test-database.cjs. The
++ *   valid value is `${TEST_DB_MARKER_PREFIX}<database name>`. Migrations never set it.
++ *
++ * The SQL and formats are duplicated in the scripts and must stay in sync.
++ */
++export const TEST_DB_MARKER_PREFIX = "fitworkoutfoodtracker:test-database:v1:";
++
++export const DB_IDENTITY_SQL =
++  "SELECT current_database() || '|' || (SELECT oid::text FROM pg_database WHERE datname = current_database()) || '|' || extract(epoch from pg_postmaster_start_time())::text AS identity, " +
++  "shobj_description((SELECT oid FROM pg_database WHERE datname = current_database()), 'pg_database') AS marker";
++
++export async function databaseIdentity(): Promise<{ fingerprint: string; testMarker: string | null }> {
++  const rows = await prisma.$queryRawUnsafe<{ identity: string; marker: string | null }[]>(DB_IDENTITY_SQL);
++  return {
++    fingerprint: createHash("sha256").update(`fwft-db-identity-v1|${rows[0].identity}`).digest("hex"),
++    testMarker: rows[0].marker ?? null,
++  };
++}
++
++/** Off in production builds unless explicitly enabled; always on in development. */
++export const dbIdentityEndpointEnabled = () =>
++  process.env.NODE_ENV !== "production" || process.env.EXPOSE_DB_IDENTITY === "1";
