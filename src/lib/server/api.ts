@@ -3,6 +3,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { z, ZodError } from "zod";
 import { Prisma } from "@prisma/client";
 import { getCurrentUser, type AuthUser } from "./auth";
+import { trustedProxyHops } from "./login-throttle";
 
 export class HttpError extends Error {
   constructor(public status: number, message: string, public details?: unknown, public headers?: Record<string, string>) {
@@ -19,16 +20,32 @@ export function jsonError(status: number, error: string, details?: unknown, head
 const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 /**
+ * The host this request should have come from. X-Forwarded-Host is believed only when trusted
+ * proxies are configured (the same entry position as X-Forwarded-For), because anyone can send it.
+ */
+function expectedHost(req: NextRequest): string | null {
+  const hops = trustedProxyHops();
+  if (hops >= 1) {
+    const chain = (req.headers.get("x-forwarded-host") ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+    const forwarded = chain[chain.length - hops];
+    if (forwarded) return forwarded;
+  }
+  return req.headers.get("host");
+}
+
+/**
  * CSRF defence in depth: SameSite=Lax cookies already block cross-site POSTs,
  * and here we additionally require same-origin Origin headers on mutations.
+ * With APP_ORIGIN set, the Origin must match it exactly and no request header is believed.
  */
 function checkOrigin(req: NextRequest): boolean {
   if (!MUTATING.has(req.method)) return true;
   const origin = req.headers.get("origin");
   if (!origin) return false;
-  const host = req.headers.get("x-forwarded-host") ?? req.headers.get("host");
+  const appOrigin = process.env.APP_ORIGIN?.replace(/\/$/, "");
+  if (appOrigin) return origin === appOrigin;
   try {
-    return new URL(origin).host === host;
+    return new URL(origin).host === expectedHost(req);
   } catch {
     return false;
   }
@@ -81,11 +98,35 @@ export function publicRoute(handler: (req: NextRequest) => Promise<Response | un
   };
 }
 
-export async function parseBody<T extends z.ZodType>(req: NextRequest, schema: T): Promise<z.infer<T>> {
+/** Credentials fit well within this, even with every password character escaped. */
+export const AUTH_BODY_LIMIT_BYTES = 4096;
+const tooLarge = () => new HttpError(413, "Request body is too large");
+
+/** Read at most maxBytes and cancel the rest, so an unauthenticated caller can't fill memory. */
+async function readLimitedText(req: NextRequest, maxBytes: number): Promise<string> {
+  if (Number(req.headers.get("content-length")) > maxBytes) throw tooLarge();
+  const reader = req.body?.getReader();
+  if (!reader) return "";
+  const decoder = new TextDecoder();
+  let text = "", received = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) return text + decoder.decode();
+    received += value.length;
+    if (received > maxBytes) {
+      void reader.cancel().catch(() => {});
+      throw tooLarge();
+    }
+    text += decoder.decode(value, { stream: true });
+  }
+}
+
+export async function parseBody<T extends z.ZodType>(req: NextRequest, schema: T, options: { maxBytes?: number } = {}): Promise<z.infer<T>> {
   let body: unknown;
   try {
-    body = await req.json();
-  } catch {
+    body = options.maxBytes ? JSON.parse(await readLimitedText(req, options.maxBytes)) : await req.json();
+  } catch (err) {
+    if (err instanceof HttpError) throw err;
     throw new HttpError(400, "Body must be valid JSON");
   }
   return schema.parse(body);

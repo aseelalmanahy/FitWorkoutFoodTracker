@@ -173,8 +173,8 @@ Unique constraints: `Food(source, sourceId)`, `FoodServing(foodId, label)`, `Nut
 
 * Argon2id password hashing. Equal-cost verification for unknown emails (no user enumeration through timing).
 * Session cookie: `httpOnly`, `SameSite=Lax`, `Secure` in production, 30-day expiry. Server-side revocation on logout.
-* Login throttling: 10 failed attempts per email per 15 minutes. Registration is throttled per IP.
-* Same-origin `Origin` header required on all mutating API calls.
+* Login throttling (`src/lib/server/login-throttle.ts`): 10 failures per client and account, and 100 per client, per 15 minutes. An account is never locked: after 5 failures, attempts from clients it hasn't seen are spaced 1 to 30 s apart, about 40 per 15 minutes, and a browser with a valid signed device cookie from an earlier login skips that queue. At most 16 password checks and registration hashes run at once, with 2 kept for known devices. Login and registration bodies are limited to 4 KB. Per-client limits need `TRUST_PROXY_HOPS`, because `X-Forwarded-For` proves nothing without a trusted proxy. Registration uses the same client identity, and without it all callers share one limit of 10 per 15 minutes. State is in memory per process, so multi-instance deployments need a shared store.
+* Same-origin `Origin` header required on all mutating API calls. With `APP_ORIGIN` set it must match exactly. `X-Forwarded-Host` is read only when `TRUST_PROXY_HOPS` is set.
 * Security headers: `X-Frame-Options: DENY`, `nosniff`, a strict referrer policy, and a permissions policy (camera allowed for self only).
 * All input is validated server-side with Zod, and numeric ranges are bounded.
 

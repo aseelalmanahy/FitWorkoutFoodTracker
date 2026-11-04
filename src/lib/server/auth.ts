@@ -2,7 +2,7 @@ import "server-only";
 import { cache } from "react";
 import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
-import { createHash, randomBytes } from "node:crypto";
+import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { hash, verify } from "@node-rs/argon2";
 import { prisma } from "./db";
 
@@ -26,6 +26,43 @@ let dummyHash: Promise<string> | null = null;
 export const getDummyHash = () => (dummyHash ??= hashPassword(randomBytes(16).toString("hex")));
 
 const hashToken = (token: string) => createHash("sha256").update(token).digest("hex");
+
+// ─── Known-device cookie ────────────────────────────────────────────────────
+// Lets a browser that logged in before skip the per-account spacing (login-throttle.ts), so an
+// attacker can't keep the owner out. It grants no access: the password is still required. Signed
+// with the user's password hash, a server-side value that needs no new secret, so it stops working
+// when the password changes. Only one account per browser is remembered.
+const DEVICE_COOKIE = "fit_device";
+const DEVICE_TTL_MS = 90 * 24 * 60 * 60 * 1000;
+const DEVICE_PATH = "/api/auth/login";
+const DEVICE_FORMAT = /^v1\.(\d{1,16})\.([0-9a-f]{64})$/;
+type DeviceUser = { id: string; passwordHash: string };
+const deviceSignature = (user: DeviceUser, issuedAt: string) =>
+  createHmac("sha256", user.passwordHash).update(`fit-device-v1|${user.id}|${issuedAt}`).digest("hex");
+
+const readDeviceCookie = async () => (await cookies()).get(DEVICE_COOKIE)?.value.match(DEVICE_FORMAT) ?? null;
+export const hasDeviceCookie = async () => (await readDeviceCookie()) !== null;
+
+export async function isTrustedDevice(user: DeviceUser): Promise<boolean> {
+  const parsed = await readDeviceCookie();
+  if (!parsed) return false;
+  const [, issuedAt, signature] = parsed;
+  const age = Date.now() - Number(issuedAt);
+  if (age < 0 || age > DEVICE_TTL_MS) return false;
+  return timingSafeEqual(Buffer.from(signature), Buffer.from(deviceSignature(user, issuedAt)));
+}
+
+export async function setDeviceCookie(user: DeviceUser): Promise<void> {
+  const now = Date.now();
+  const issuedAt = String(now);
+  (await cookies()).set(DEVICE_COOKIE, `v1.${issuedAt}.${deviceSignature(user, issuedAt)}`, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === "production",
+    sameSite: "lax",
+    path: DEVICE_PATH,
+    expires: new Date(now + DEVICE_TTL_MS),
+  });
+}
 
 export async function createSession(userId: string): Promise<void> {
   const token = randomBytes(32).toString("base64url");
@@ -77,22 +114,28 @@ export async function requireUser(): Promise<AuthUser> {
   return user;
 }
 
-// ─── Login throttling ───────────────────────────────────────────────────────
-// In-memory sliding window. Adequate for a single instance; replace with a
-// shared store (e.g. Redis) when horizontally scaling.
+// ─── Registration throttling ────────────────────────────────────────────────
+// Login uses login-throttle.ts. In-memory sliding window. Adequate for a single
+// instance; replace with a shared store (e.g. Redis) when horizontally scaling.
 const attempts = new Map<string, number[]>();
 const WINDOW_MS = 15 * 60 * 1000;
 const MAX_ATTEMPTS = 10;
+const MAX_KEYS = 50_000;
 
 export function isRateLimited(key: string): boolean {
   const now = Date.now();
-  const list = (attempts.get(key) ?? []).filter((t) => now - t < WINDOW_MS);
-  attempts.set(key, list);
+  const existing = attempts.get(key);
+  if (!existing) return false;
+  const list = existing.filter((t) => now - t < WINDOW_MS);
+  if (list.length) attempts.set(key, list); else attempts.delete(key);
   return list.length >= MAX_ATTEMPTS;
 }
 export function recordAttempt(key: string): void {
+  // Keys can come from caller-supplied values, so the map must stay bounded.
+  if (!attempts.has(key) && attempts.size >= MAX_KEYS) attempts.delete(attempts.keys().next().value as string);
   const list = attempts.get(key) ?? [];
   list.push(Date.now());
   attempts.set(key, list);
 }
-export const clearAttempts = (key: string) => attempts.delete(key);
+/** Test hook. */
+export const _attemptKeyCount = () => attempts.size;

@@ -52,6 +52,17 @@ npm run dev                     # http://localhost:3000
 Set `FDC_API_KEY` in `.env` to enable USDA search (free key: https://fdc.nal.usda.gov/api-key-signup). USDA search uses `POST /foods/search`, because `GET` with a `dataType` filter intermittently returned HTTP 400.
 Open Food Facts needs no key. Set `OFF_CONTACT` so requests identify your deployment. Its docs ask for a contact email in the User-Agent.
 
+**Before public deployment:**
+
+1. Set `APP_ORIGIN` to the public origin, such as `https://app.example.com`. CSRF checks then rely on no forwarded header.
+2. If the app runs behind reverse proxies, set `TRUST_PROXY_HOPS` to their exact number, and make sure the app can only be reached through them. Each proxy must append the caller's address to `X-Forwarded-For`, and replace any `X-Forwarded-Host` the caller sent.
+3. Run one instance. Limits are held in memory per process, so they multiply across instances and reset on restart.
+4. Confirm it works by sending forged `X-Forwarded-For` and `X-Forwarded-Host` headers through the deployed proxy. These settings are prerequisites, and nothing in this repository can verify them.
+
+Without `TRUST_PROXY_HOPS`, forwarded headers are ignored. Login then has no per-client limits, only per-account spacing (returning browsers skip it), and all registrations share one limit of 10 per 15 minutes. That is safe but restrictive: anyone can use up the registration limit and block sign-ups for up to 15 minutes, and a sustained flood can slow logins from new browsers.
+
+**Moving to several instances:** the login records, password-check slots and registration counters all need a shared store. Counting an attempt and checking its limit must be one atomic step, or parallel requests will get past the limits. Records also need to expire, and to stay bounded as they do today.
+
 Open Food Facts text search uses [Search-a-licious](https://search.openfoodfacts.org/docs) (`search.openfoodfacts.org`), because the legacy `/cgi/search.pl` returns intermittent HTTP 503s and `/api/v2/search` has no full-text search. Search results are previews and may lack nutrients or servings. Selecting one loads the full product from the product API, as barcode lookup does. Budgets stay within the documented per-IP limits: search 10/min app-wide and 4/min per user, product lookups 12/min app-wide and 6/min per user.
 
 ## Scripts
