@@ -22,27 +22,53 @@ FitWorkoutFoodTracker helps people plan and record workouts, track strength prog
 
 Defined in [`.claude/agents/product-strategy-agent.md`](../.claude/agents/product-strategy-agent.md). It's the first review stage for every feature, gives an independent recommendation, and may challenge the owner, ChatGPT, Claude Code, existing architecture and this roadmap.
 
-**How to invoke it:**
-
-- **Guaranteed:** type `@agent-product-strategy-agent` in Claude Code and describe the feature.
-- **By request:** "Use the product-strategy-agent to evaluate <feature>".
-- **For a whole session:** `claude --agent product-strategy-agent`.
-- **In any other tool:** give it that file as its instructions, since it's plain Markdown. **Its access rules aren't enforced there.**
-
-**Known limitation:** Claude Code needs a restart to find the first agent file in a new `.claude/agents` directory. **Invoking it by name hasn't been tested yet,** as it failed in the session that created it, which is the expected behaviour. Confirm in a new session. See the documentation at `code.claude.com/docs/en/sub-agents`.
-
 **Authority:** recommendations only. It can't authorize implementation, migrations, paid requests, deployment, merges or major architecture changes.
 
-**What's enforced, and what isn't:**
+### How to invoke it
+
+Tested on Claude Code 2.1.318 on Windows, in fresh non-interactive sessions (`claude -p`), with the agent file at commit `435ad21`.
+
+| Syntax | Result |
+|---|---|
+| `@agent-product-strategy-agent Evaluate adding a daily water tracker with an eight-glass goal.` | **Worked once in `claude -p`.** The named agent ran and returned the required record. The main session made the call, so this doesn't show that the mention always bypasses its judgement. The interactive typeahead wasn't tested |
+| `Use the product-strategy-agent subagent to ...` | **Worked once in `claude -p`.** The docs say Claude decides whether to delegate, so it may not always run |
+| `claude --agent product-strategy-agent` | **Worked once with `-p`.** The session's tool list was only Read, Glob and Grep |
+| Giving the file to another tool as instructions | Not tested. **Its access rules aren't enforced there** |
+
+**A session started before the agent file existed can't find it.** The creating session returned "not found" every time, even after retrying. The docs say the first agent file in a new `.claude/agents` directory needs a restart.
+
+### What has been verified, by kind of evidence
+
+| Kind of evidence | What was done | Result |
+|---|---|---|
+| **Format validation** | Compared with the official docs. Parsed the frontmatter as YAML. Ran `claude plugin validate` on a copy | Matches the docs, and parses. The validator raised nothing about the agent file, though plugin agents ignore hooks, so it doesn't check them |
+| **Direct hook tests** | Ran the hook command itself on sample JSON, in Git Bash and PowerShell. No files are opened | 12 of 12 allowed, 36 of 36 denied, and malformed input blocked, in both shells |
+| **Live agent invocation** | The water tracker proposal, in a fresh session | The stream shows `subagent_type: product-strategy-agent`, and all 16 fields of the record are in the agent's own report |
+| **Live hook enforcement: real agent** | Hook events captured during real runs | The hook fired on its tool calls and allowed approved paths. It blocked a real Glob at the project root with exit 2. **With `node` removed from `PATH`, it blocked both reads, including an allowed file** (exit 127), so a failed hook failed closed |
+| **Live hook enforcement: identical copy** | See below | Blocked a path outside the allowlist, a traversal path, a file outside the project, secret names, a missing path and secret globs, each with exit 2 |
+
+**Why a copy was needed:** when asked to attempt blocked files, the real agent declined, following its instruction never to try such files, so those calls never reached its hook. That's a useful first layer, but it isn't a hook test. So those calls ran through a temporary session-only agent, whose tools and hooks were taken from the real file and checked as equal, with no refusal instruction. **Blocking of secret names inside a real session is therefore verified on that copy, not on the named agent itself.**
+
+**Not verified live:**
+
+- **Malformed requests:** Claude Code sends well-formed input to hooks, so this was only tested directly.
+- **`.db` files:** the Read tool refused one as binary before the hook ran, so that refusal isn't evidence about the hook. The `.db` rule was tested directly, and `.dump` and `.key` were blocked by the hook live.
+- **A hook that hangs:** only a hook that couldn't start was tested, so the 10-second timeout path is untested.
+- **An untrusted workspace:** this one is trusted. The docs say hooks are skipped until trust is accepted.
+- **macOS and Linux,** and any other Claude Code version.
+
+### What's enforced, and what isn't
 
 | Control | How | Limit |
 |---|---|---|
 | Can't change files or run commands | Tool allowlist: Read, Glob and Grep only | Enforced by Claude Code |
-| Can only read named project folders, and nothing that looks like a secret | A `PreToolUse` hook in the agent file. It's an allowlist, and it blocks if the hook itself fails | Only tested directly with sample input so far. It hasn't yet run inside a live agent session |
-| Hook is active | Claude Code runs a project agent's hooks only after the folder's trust prompt is accepted | **Before that, the docs say the agent still runs without its hooks** |
-| Other agents and main sessions | Not covered: the hook applies only to this agent | Project-wide `Read` deny rules in `.claude/settings.json` could cover them, which is open decision 12 |
+| Can only read named project folders, and nothing that looks like a secret | A `PreToolUse` hook in the agent file, as an allowlist | A name-based rule: a secret with an ordinary name in an allowed folder isn't recognized |
+| A hook that can't run | `onFailure: block`, and a deny decision alongside exit 2 | See "not verified live" |
+| Hook is active | Claude Code runs a project agent's hooks only after the folder's trust prompt is accepted | **Per the docs, an untrusted folder runs the agent without its hooks** |
+| Other agents and main sessions | Not covered: the hook applies only to this agent | Project-wide `Read` deny rules could cover them, which is open decision 12 |
 | Files inside allowed folders | Grep and Glob are checked by the folder they're given, not per file | A secret placed inside `src/` or `scripts/` could be searched. None exist today, and those folders must stay free of them |
-| Node.js | The hook needs `node` on the path | If it can't run, the call is blocked, not allowed |
+| Node.js | The hook needs `node` on the path | Without it, every tool call is blocked, so the agent can't work until it's fixed |
+| Refusing to try secret files | An instruction in the agent | Observed working, but it's an instruction rather than an enforcement |
 
 ## 3. Feature inventory
 
