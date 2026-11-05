@@ -27,7 +27,7 @@ function client() {
     try { json = await res.json(); } catch {}
     return { status: res.status, body: json };
   };
-  return { call, get: (p) => call("GET", p), post: (p, b) => call("POST", p, b), put: (p, b) => call("PUT", p, b), patch: (p, b) => call("PATCH", p, b), del: (p) => call("DELETE", p) };
+  return { cookie: () => cookie, call, get: (p) => call("GET", p), post: (p, b) => call("POST", p, b), put: (p, b) => call("PUT", p, b), patch: (p, b) => call("PATCH", p, b), del: (p) => call("DELETE", p) };
 }
 
 const profile = (tz = "UTC") => ({
@@ -460,4 +460,276 @@ test("D6: heavy concurrent create and refresh of one food is safe (native upsert
     assert.equal(new Set(row.servings.map((s) => s.label)).size, row.servings.length, "no duplicate servings");
     assert.equal(row.servings.filter((s) => s.isDefault).length, 1);
   }
+});
+
+// ─── Phase 3.6: matching, provenance and duplicate submissions ───────────────
+
+const withKey = (c, path, body, key) => c.call("POST", path, body, { "Idempotency-Key": key });
+const uniqueKey = (label) => `${label}-${run}-${Math.random().toString(36).slice(2)}`.padEnd(16, "x");
+const customBody = (name, over = {}) => ({ name, basisUnit: "G", servingLabel: "1 pot", servingAmount: 100, perServing: { kcal: 100, protein: 9, carbs: 5, fat: 4 }, ...over });
+const foodsNamed = async (c, name) => (await c.get("/api/foods")).body.foods.filter((f) => f.name === name);
+const dayEntries = async (c, date) => (await c.get(`/api/nutrition/day?date=${date}`)).body.meals.flatMap((m) => m.entries);
+
+test("idempotency: a retried custom food returns the first, with one row", async () => {
+  const name = `Idem food ${run}`, key = uniqueKey("food");
+  const first = await withKey(A, "/api/foods", customBody(name), key);
+  assert.equal(first.status, 200);
+  const retry = await withKey(A, "/api/foods", customBody(name), key);
+  assert.equal(retry.status, 200);
+  assert.equal(retry.body.food.id, first.body.food.id);
+  assert.deepEqual(retry.body.food, first.body.food);
+  assert.equal((await foodsNamed(A, name)).length, 1);
+});
+
+test("idempotency: the same key with different values is refused, and saves nothing", async () => {
+  const name = `Idem conflict ${run}`, key = uniqueKey("conflict");
+  await withKey(A, "/api/foods", customBody(name), key);
+  for (const change of [{ name: `${name} 2` }, { perServing: { kcal: 101, protein: 9, carbs: 5, fat: 4 } }, { servingAmount: 50 }, { basisUnit: "ML" }, { brand: "Other" }, { servingLabel: "1 tub" }]) {
+    const r = await withKey(A, "/api/foods", customBody(name, change), key);
+    assert.equal(r.status, 409, JSON.stringify(change));
+    assert.equal(r.body.details.reason, "idempotency_conflict");
+  }
+  assert.equal((await A.get("/api/foods")).body.foods.filter((f) => f.name.startsWith(name)).length, 1);
+});
+
+test("idempotency: concurrent saves with one key make one food, and all answer with it", async () => {
+  const name = `Idem race ${run}`, key = uniqueKey("race");
+  const all = await Promise.all(Array.from({ length: 10 }, () => withKey(A, "/api/foods", customBody(name), key)));
+  assert.deepEqual([...new Set(all.map((r) => r.status))], [200]);
+  assert.equal(new Set(all.map((r) => r.body.food.id)).size, 1);
+  assert.equal((await foodsNamed(A, name)).length, 1);
+});
+
+test("idempotency: a different key, or none, is a separate deliberate food with the same name", async () => {
+  const name = `Idem repeat ${run}`;
+  await withKey(A, "/api/foods", customBody(name), uniqueKey("one"));
+  await withKey(A, "/api/foods", customBody(name), uniqueKey("two"));
+  await A.post("/api/foods", customBody(name));
+  await A.post("/api/foods", customBody(name));
+  assert.equal((await foodsNamed(A, name)).length, 4, "names alone never deduplicate");
+});
+
+test("idempotency: one user's key can't reach another user's food or entry", async () => {
+  const name = `Idem users ${run}`, key = uniqueKey("users");
+  const a = await withKey(A, "/api/foods", customBody(`${name} A`), key);
+  const b = await withKey(B, "/api/foods", customBody(`${name} B`), key);
+  assert.equal(b.status, 200, "no conflict across users");
+  assert.notEqual(b.body.food.id, a.body.food.id);
+  assert.equal(b.body.food.name, `${name} B`);
+  assert.equal((await A.get(`/api/foods/${b.body.food.id}`)).status, 404);
+
+  const date = addDays(today(), -40);
+  const entry = (food) => ({ date, mealType: "LUNCH", foodId: food.id, servingId: null, quantity: 10 });
+  const ea = await withKey(A, "/api/nutrition/entries", entry(a.body.food), key);
+  const eb = await withKey(B, "/api/nutrition/entries", entry(b.body.food), key);
+  assert.equal(ea.status, 200);
+  assert.equal(eb.status, 200);
+  assert.notEqual(eb.body.entry.id, ea.body.entry.id);
+  assert.equal((await A.patch(`/api/nutrition/entries/${eb.body.entry.id}`, { quantity: 1 })).status, 404);
+});
+
+test("idempotency: a retried entry returns the first, with one row, and totals count it once", async () => {
+  const { body: { food } } = await A.post("/api/foods", customBody(`Idem entry ${run}`));
+  const date = addDays(today(), -41), key = uniqueKey("entry");
+  const input = { date, mealType: "LUNCH", foodId: food.id, servingId: food.servings[0].id, quantity: 1.5 };
+  const first = await withKey(A, "/api/nutrition/entries", input, key);
+  assert.equal(first.status, 200);
+  const retry = await withKey(A, "/api/nutrition/entries", input, key);
+  assert.equal(retry.status, 200);
+  assert.deepEqual(retry.body.entry, first.body.entry);
+  assert.equal((await dayEntries(A, date)).length, 1);
+  assert.equal((await A.get(`/api/nutrition/day?date=${date}`)).body.totals.kcal, 150);
+});
+
+test("idempotency: an entry retried with different values is refused", async () => {
+  const { body: { food } } = await A.post("/api/foods", customBody(`Idem entry conflict ${run}`));
+  const date = addDays(today(), -42), key = uniqueKey("entryconflict");
+  const input = { date, mealType: "LUNCH", foodId: food.id, servingId: food.servings[0].id, quantity: 1 };
+  assert.equal((await withKey(A, "/api/nutrition/entries", input, key)).status, 200);
+  const { body: { food: other } } = await A.post("/api/foods", customBody(`Idem entry other ${run}`));
+  for (const change of [{ quantity: 2 }, { mealType: "DINNER" }, { date: addDays(date, -1) }, { servingId: null }, { foodId: other.id, servingId: other.servings[0].id }]) {
+    assert.equal((await withKey(A, "/api/nutrition/entries", { ...input, ...change }, key)).status, 409, JSON.stringify(change));
+  }
+  assert.equal((await dayEntries(A, date)).length, 1);
+  assert.equal((await dayEntries(A, addDays(date, -1))).length, 0);
+});
+
+test("idempotency: concurrent entries with one key make one row", async () => {
+  const { body: { food } } = await A.post("/api/foods", customBody(`Idem entry race ${run}`));
+  const date = addDays(today(), -43), key = uniqueKey("entryrace");
+  const input = { date, mealType: "LUNCH", foodId: food.id, servingId: null, quantity: 80 };
+  const all = await Promise.all(Array.from({ length: 10 }, () => withKey(A, "/api/nutrition/entries", input, key)));
+  assert.deepEqual([...new Set(all.map((r) => r.status))], [200]);
+  assert.equal(new Set(all.map((r) => r.body.entry.id)).size, 1);
+  assert.equal((await dayEntries(A, date)).length, 1);
+});
+
+test("idempotency: deliberate repeats of one food stay separate entries", async () => {
+  const { body: { food } } = await A.post("/api/foods", customBody(`Idem entry repeat ${run}`));
+  const date = addDays(today(), -44);
+  const input = { date, mealType: "SNACK", foodId: food.id, servingId: null, quantity: 50 };
+  await withKey(A, "/api/nutrition/entries", input, uniqueKey("r1"));
+  await withKey(A, "/api/nutrition/entries", input, uniqueKey("r2"));
+  await A.post("/api/nutrition/entries", input);
+  await A.post("/api/nutrition/entries", input);
+  assert.equal((await dayEntries(A, date)).length, 4);
+});
+
+test("idempotency: a badly formed key is refused, before anything is saved", async () => {
+  const name = `Idem bad key ${run}`;
+  for (const key of ["short", "has spaces in this key", "x".repeat(200)]) {
+    assert.equal((await withKey(A, "/api/foods", customBody(name), key)).status, 400, key);
+  }
+  assert.equal((await foodsNamed(A, name)).length, 0);
+});
+
+test("idempotency: the retry check still needs a signed-in user and the right origin", async () => {
+  const key = uniqueKey("anon");
+  assert.equal((await withKey(anon, "/api/foods", customBody("x"), key)).status, 401);
+  assert.equal((await A.call("POST", "/api/foods", customBody("x"), { Origin: "https://evil.example", "Idempotency-Key": key })).status, 403);
+});
+
+test("a JSON body over the limit is refused, whatever its Content-Length says", async () => {
+  const big = customBody(`Too big ${run}`, { padding: "x".repeat(300 * 1024) });
+  assert.equal((await A.post("/api/foods", big)).status, 413);
+  assert.equal((await foodsNamed(A, `Too big ${run}`)).length, 0);
+  // Chunked, so there's no Content-Length to reject on: the reader's own count has to catch it.
+  const res = await fetch(`${BASE}/api/foods`, {
+    method: "POST",
+    headers: { Origin: ORIGIN, "Content-Type": "application/json", Cookie: A.cookie() },
+    duplex: "half",
+    body: new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode(JSON.stringify(big))); c.close(); } }),
+  });
+  assert.equal(res.status, 413);
+  assert.equal((await A.post("/api/foods", customBody(`Normal size ${run}`))).status, 200, "ordinary bodies still work");
+  assert.equal((await A.call("POST", "/api/foods", undefined)).status, 400, "an empty body is invalid JSON, as before");
+});
+
+test("matching: custom foods match every word, in any order, on name or brand, for their owner only", async () => {
+  const word = `zq${run}`;
+  await A.post("/api/foods", customBody(`Yogurt, Greek ${word}`));
+  await A.post("/api/foods", customBody(`Plain oats ${word}`, { brand: "Greek Valley" }));
+  await A.post("/api/foods", customBody(`Greek salad only ${word}x`));
+  await B.post("/api/foods", customBody(`Yogurt, Greek ${word} of B`));
+  const names = async (q) => (await A.get(`/api/foods/search?sources=CUSTOM&q=${encodeURIComponent(q)}`)).body.results.CUSTOM.map((f) => f.name);
+  assert.deepEqual(await names(`greek yogurt ${word}`), [`Yogurt, Greek ${word}`], "word order doesn't matter");
+  assert.deepEqual(await names(`oats greek ${word}`), [`Plain oats ${word}`], "the brand counts");
+  assert.equal((await names(`greek ${word}`)).length, 3, "each record stays separate");
+  assert.deepEqual(await names(`greek yogurt missingword ${word}`), [], "every word must match");
+});
+
+test("matching: search never merges different records, and reports each one's own values", async () => {
+  const r = await A.get("/api/foods/search?q=greek%20yogurt&sources=USDA,OPEN_FOOD_FACTS");
+  assert.equal(r.status, 200);
+  assert.deepEqual(r.body.results.USDA.map((f) => [f.sourceId, f.per100.kcal]), [["900101", 59], ["900102", 97]]);
+  assert.deepEqual(r.body.results.OPEN_FOOD_FACTS.map((f) => [f.brand, f.per100.kcal]), [["Hillside", 73], ["Hillside", 120]]);
+  const honey = r.body.results.OPEN_FOOD_FACTS[1];
+  assert.equal(honey.per100.fat, null, "missing stays null");
+  assert.equal(honey.complete, false);
+  assert.equal(honey.hasNutrition, true);
+});
+
+test("provenance: entries report their record's source, and null once it's gone, with values kept", async () => {
+  const date = addDays(today(), -45);
+  const { body: { food: mine } } = await A.post("/api/foods", customBody(`Provenance ${run}`));
+  const { body: { food: usda } } = await A.post("/api/foods/resolve", { source: "USDA", sourceId: "900201" });
+  const { body: { food: off } } = await A.post("/api/foods/resolve", { source: "OPEN_FOOD_FACTS", sourceId: "8800000000127" });
+  for (const food of [mine, usda, off]) {
+    const r = await A.post("/api/nutrition/entries", { date, mealType: "LUNCH", foodId: food.id, servingId: null, quantity: 100 });
+    assert.equal(r.body.entry.foodSource, food.source, "on creating");
+  }
+  const sources = async () => (await dayEntries(A, date)).map((e) => [e.foodName, e.foodSource, e.nutrients.kcal]);
+  assert.deepEqual(await sources(), [[`Provenance ${run}`, "CUSTOM", 100], ["Beef, steak, sirloin, grilled", "USDA", 243], ["Premium White Rice", "OPEN_FOOD_FACTS", 355]]);
+  const [entry] = await dayEntries(A, date);
+  assert.equal((await A.patch(`/api/nutrition/entries/${entry.id}`, { quantity: 50 })).body.entry.foodSource, "CUSTOM", "on editing");
+  assert.equal((await A.del(`/api/foods/${mine.id}`)).status, 200);
+  assert.deepEqual((await sources())[0], [`Provenance ${run}`, null, 50], "the record is gone, and its saved values remain");
+});
+
+test("provenance: a custom food saved from a label looks like any custom food, as nothing else is stored", async () => {
+  const { body: { food } } = await A.post("/api/foods", customBody(`Stored custom ${run}`));
+  assert.equal(food.source, "CUSTOM");
+  assert.equal(food.dataType, "Custom");
+});
+
+test("idempotency: a retry still matches when the database rounded what was sent", async () => {
+  // Decimal(9,3): 33.3333 is stored as 33.333, and that must not read as a different request.
+  const name = `Idem rounding ${run}`, key = uniqueKey("round");
+  const body = customBody(name, { servingAmount: 33.3333, perServing: { kcal: 123.456789, protein: 1.111111, carbs: 2.222222, fat: 3.333333, fiber: 0.123456 } });
+  const first = await withKey(A, "/api/foods", body, key);
+  assert.equal(first.status, 200);
+  const retry = await withKey(A, "/api/foods", body, key);
+  assert.equal(retry.status, 200, "a retry of the same values isn't a conflict");
+  assert.equal(retry.body.food.id, first.body.food.id);
+  assert.equal((await foodsNamed(A, name)).length, 1);
+
+  const date = addDays(today(), -46), entryKey = uniqueKey("roundentry");
+  const entry = { date, mealType: "LUNCH", foodId: first.body.food.id, servingId: first.body.food.servings[0].id, quantity: 1.23456 };
+  const logged = await withKey(A, "/api/nutrition/entries", entry, entryKey);
+  assert.equal(logged.status, 200);
+  const again = await withKey(A, "/api/nutrition/entries", entry, entryKey);
+  assert.equal(again.status, 200);
+  assert.equal(again.body.entry.id, logged.body.entry.id);
+});
+
+test("idempotency: a retry naming another food's serving is refused, even with the same label and size", async () => {
+  const { body: { food } } = await A.post("/api/foods", customBody(`Idem serving a ${run}`));
+  const { body: { food: other } } = await A.post("/api/foods", customBody(`Idem serving b ${run}`));
+  assert.equal(other.servings[0].label, food.servings[0].label);
+  const date = addDays(today(), -47), key = uniqueKey("serving");
+  const input = { date, mealType: "LUNCH", foodId: food.id, servingId: food.servings[0].id, quantity: 1 };
+  assert.equal((await withKey(A, "/api/nutrition/entries", input, key)).status, 200);
+  assert.equal((await withKey(A, "/api/nutrition/entries", { ...input, servingId: other.servings[0].id }, key)).status, 409);
+  assert.equal((await dayEntries(A, date)).length, 1);
+});
+
+test("idempotency: a stale retry can't reach another user, and can't damage anything", async () => {
+  const { body: { food } } = await A.post("/api/foods", customBody(`Idem stale ${run}`));
+  const date = addDays(today(), -48), key = uniqueKey("stale");
+  const input = { date, mealType: "LUNCH", foodId: food.id, servingId: null, quantity: 100 };
+  const first = await withKey(A, "/api/nutrition/entries", input, key);
+  const id = first.body.entry.id;
+
+  // Another user can't read, change or delete it by its derived id, or log against A's private food.
+  assert.equal((await B.patch(`/api/nutrition/entries/${id}`, { quantity: 1 })).status, 404);
+  assert.equal((await B.del(`/api/nutrition/entries/${id}`)).status, 404);
+  assert.equal((await withKey(B, "/api/nutrition/entries", input, key)).status, 404);
+  assert.equal((await dayEntries(B, date)).length, 0);
+  assert.equal((await dayEntries(A, date)).length, 1);
+
+  // A later edit is kept: the old request no longer matches, so it's refused rather than undoing it.
+  assert.equal((await A.patch(`/api/nutrition/entries/${id}`, { quantity: 150 })).status, 200);
+  assert.equal((await withKey(A, "/api/nutrition/entries", input, key)).status, 409);
+  assert.equal((await dayEntries(A, date))[0].quantity, 150);
+
+  // Without its record, the saved entry stays as it was, and the old request is refused.
+  assert.equal((await A.del(`/api/foods/${food.id}`)).status, 200);
+  assert.equal((await withKey(A, "/api/nutrition/entries", input, key)).status, 409);
+  assert.equal((await dayEntries(A, date))[0].nutrients.kcal, 150);
+
+  // A delete frees the key, which is the documented limit: only the owner's own request can recreate it.
+  const { body: { food: kept } } = await A.post("/api/foods", customBody(`Idem stale kept ${run}`));
+  const again = { ...input, foodId: kept.id, date: addDays(date, -1) }, keyTwo = uniqueKey("staletwo");
+  const made = await withKey(A, "/api/nutrition/entries", again, keyTwo);
+  assert.equal((await A.del(`/api/nutrition/entries/${made.body.entry.id}`)).status, 200);
+  const remade = await withKey(A, "/api/nutrition/entries", again, keyTwo);
+  assert.equal(remade.status, 200);
+  assert.equal((await dayEntries(A, again.date)).length, 1);
+});
+
+test("the body limit leaves room for the largest real form", async () => {
+  const { body: { exercises } } = await A.get("/api/exercises");
+  const exercise = (id) => ({ exerciseId: id, targetSets: 20, targetRepsMin: 1, targetRepsMax: 100, targetWeightKg: 500, restSeconds: 600, notes: "n".repeat(1000) });
+  const body = { name: `Largest plan ${run}`, notes: "n".repeat(1000), exercises: Array.from({ length: 30 }, (_, i) => exercise(exercises[i % exercises.length].id)) };
+  assert.ok(JSON.stringify(body).length > 30_000);
+  const r = await A.post("/api/templates", body);
+  assert.equal(r.status, 200);
+  assert.equal(r.body.template.exercises?.length ?? 30, 30);
+});
+
+test("a server error says nothing about why", async () => {
+  // PostgreSQL can't store this character, so it fails in the database rather than in validation.
+  const r = await A.post("/api/foods", customBody(`Bad \u0000 character ${run}`));
+  assert.ok(r.status >= 400, `status ${r.status}`);
+  assert.doesNotMatch(JSON.stringify(r.body), /prisma|postgres|invalid byte|sequence|\bquery\b/i);
 });

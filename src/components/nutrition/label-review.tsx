@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useMemo, useRef, useState } from "react";
-import { api } from "@/lib/client/api";
+import { api, newIdempotencyKey, SAVE_TIMEOUT_MS, saveFailureMessage } from "@/lib/client/api";
 import type { LabelExtraction } from "@/lib/label-extraction";
 import {
   BASIS_LABELS, buildReviewDraft, fieldOrigin, flagTargets, isManualColumn, manualBases, NUTRIENT_LABELS, NUTRIENT_UNITS, ORIGIN_LABELS, reviewFlags, savePreview, servingOrigin, validateReview,
@@ -66,6 +66,7 @@ function SavedFood({ food, onScanAnother }: { food: FoodDto; onScanAnother: () =
     <div className="space-y-4" data-testid="saved-food">
       <Card className="border-up/40 p-4">
         <p className="font-medium" role="status">Saved to My foods. It hasn&apos;t been added to your diary.</p>
+        <p className="mt-1 text-xs text-muted" data-testid="saved-provenance">You confirmed these values against the label. That records your check, not independent verification. It appears as one of your foods from now on, as where its values came from isn&apos;t stored.</p>
         <p className="mt-1 text-lg font-semibold" data-testid="saved-name">{food.name}</p>
         {food.brand && <p className="text-sm text-muted">{food.brand}</p>}
       </Card>
@@ -98,7 +99,7 @@ function SavedFood({ food, onScanAnother }: { food: FoodDto; onScanAnother: () =
   );
 }
 
-export function LabelReview({ extraction, notice, preparedUrl, originalUrl, rescanLabel = "Scan this image again", onRescan, onScanAnother }: {
+export function LabelReview({ extraction, notice, preparedUrl, originalUrl, rescanLabel = "Scan this image again", onRescan, onScanAnother, onSavingChange }: {
   extraction: LabelExtraction;
   notice: string;
   preparedUrl: string;
@@ -107,6 +108,8 @@ export function LabelReview({ extraction, notice, preparedUrl, originalUrl, resc
   rescanLabel?: string;
   onRescan: () => void;
   onScanAnother: () => void;
+  /** So the page around this can stop someone leaving in the middle of a save. */
+  onSavingChange?: (saving: boolean) => void;
 }) {
   const [draft, setDraftState] = useState<ReviewDraft>(() => buildReviewDraft(extraction));
   const [confirmedValues, setConfirmedValues] = useState(false);
@@ -115,6 +118,8 @@ export function LabelReview({ extraction, notice, preparedUrl, originalUrl, resc
   const [saveError, setSaveError] = useState<string | null>(null);
   const [saved, setSaved] = useState<FoodDto | null>(null);
   const submitted = useRef(false);
+  // One per review: retrying a save can't create a second food.
+  const [idempotencyKey] = useState(newIdempotencyKey);
 
   const validation = useMemo(() => validateReview(draft), [draft]);
   const flags = useMemo(() => reviewFlags(draft, extraction), [draft, extraction]);
@@ -123,6 +128,7 @@ export function LabelReview({ extraction, notice, preparedUrl, originalUrl, resc
 
   /** Any change needs confirming again, as the person agreed to the values they saw. */
   const setDraft = (update: (current: ReviewDraft) => ReviewDraft) => {
+    if (submitted.current) return; // what's on screen must stay what was sent
     setDraftState(update);
     setConfirmedValues(false);
     setConfirmedWarnings(false);
@@ -143,15 +149,17 @@ export function LabelReview({ extraction, notice, preparedUrl, originalUrl, resc
     if (!canSave || submitted.current || !validation.payload) return; // a second click can't send a second request
     submitted.current = true;
     setSaving(true);
+    onSavingChange?.(true);
     setSaveError(null);
     try {
-      const { food } = await api<{ food: FoodDto }>("POST", "/api/foods", validation.payload);
+      const { food } = await api<{ food: FoodDto }>("POST", "/api/foods", validation.payload, { idempotencyKey, timeoutMs: SAVE_TIMEOUT_MS });
       setSaved(food);
     } catch (err) {
       submitted.current = false;
-      setSaveError(err instanceof Error ? err.message : "The food couldn't be saved. Try again.");
+      setSaveError(saveFailureMessage(err));
     } finally {
       setSaving(false);
+      onSavingChange?.(false);
     }
   };
 
@@ -167,6 +175,7 @@ export function LabelReview({ extraction, notice, preparedUrl, originalUrl, resc
           <p className="mt-1 text-sm text-muted">Nothing has been saved. Compare each value with the label, and correct anything that&apos;s wrong.</p>
         </Card>
 
+        <fieldset disabled={saving} className="min-w-0 space-y-4" data-testid="review-form">
         <Card className="space-y-3 p-4">
           <Field label="Product name" error={problemFor("name")}>
             <Input data-testid="input-name" value={draft.name.value} maxLength={200} onChange={(e) => { const value = e.target.value; setDraft((d) => ({ ...d, name: { ...d.name, value } })); }} />
@@ -328,7 +337,9 @@ export function LabelReview({ extraction, notice, preparedUrl, originalUrl, resc
             )}
           </Card>
         )}
+        </fieldset>
 
+        {saving && <p className="text-sm text-muted" role="status" data-testid="saving-note">Saving these values. They can&apos;t be changed until this finishes.</p>}
         <ErrorText>{saveError}</ErrorText>
 
         <div className="flex flex-wrap gap-2">

@@ -1,7 +1,8 @@
 import "server-only";
-import { Prisma, type FoodEntry, type Profile } from "@prisma/client";
+import { Prisma, type FoodEntry, type FoodSource, type Profile } from "@prisma/client";
 import { prisma } from "../db";
 import { HttpError, notFound } from "../api";
+import { idempotencyConflict, idempotentId, isUniqueViolation } from "../idempotency";
 import { dec, getLoggableFood, getVisibleFood, isTrustedFood, per100Of, toNum } from "../foods/service";
 import {
   addDays, dateRange, entryNutrients, MAX_ENTRY_AMOUNT, fromIsoDate, MEAL_TYPES, progress, remaining, round, sumNutrients, summarizePeriod,
@@ -14,6 +15,8 @@ export interface EntryDto {
   date: string;
   mealType: MealType;
   foodId: string | null;
+  /** Where the record came from. Null when it has since been deleted: the entry keeps its own values. */
+  foodSource: FoodSource | null;
   foodName: string;
   brand: string | null;
   basisUnit: "G" | "ML";
@@ -27,10 +30,13 @@ export interface EntryDto {
   createdAt: string;
 }
 
-export function entryToDto(e: FoodEntry): EntryDto {
+const WITH_SOURCE = { food: { select: { source: true } } } as const;
+type EntryWithSource = FoodEntry & { food: { source: FoodSource } | null };
+
+export function entryToDto(e: EntryWithSource): EntryDto {
   const servingAmount = Number(e.servingAmount), quantity = Number(e.quantity);
   return {
-    id: e.id, date: toIsoDate(e.date), mealType: e.mealType, foodId: e.foodId, foodName: e.foodName, brand: e.brand, basisUnit: e.basisUnit,
+    id: e.id, date: toIsoDate(e.date), mealType: e.mealType, foodId: e.foodId, foodSource: e.food?.source ?? null, foodName: e.foodName, brand: e.brand, basisUnit: e.basisUnit,
     servingLabel: e.servingLabel, servingAmount, quantity, amount: round(servingAmount * quantity, 2),
     per100: per100Of(e),
     nutrients: { kcal: toNum(e.kcal), protein: toNum(e.protein), carbs: toNum(e.carbs), fat: toNum(e.fat), fiber: toNum(e.fiber) },
@@ -64,7 +70,28 @@ function assertEntryAmount(servingAmount: number, quantity: number, unit: "G" | 
   }
 }
 
-export async function createEntry(userId: string, profile: Profile, input: { date: string; mealType: MealType; foodId: string; servingId: string | null; quantity: number }) {
+type NewEntry = { date: string; mealType: MealType; foodId: string; servingId: string | null; quantity: number };
+
+/** The row an earlier attempt with this key saved, if any. It must be the same request, or it's refused. */
+async function earlierAttempt(userId: string, id: string, input: NewEntry): Promise<EntryDto | null> {
+  const entry = await prisma.foodEntry.findFirst({ where: { id, userId }, include: WITH_SOURCE });
+  if (!entry) return null;
+  const serving = input.servingId === null ? rawServing(entry.basisUnit) : await prisma.foodServing.findUnique({ where: { id: input.servingId } }).then((s) => (s?.foodId === input.foodId ? { label: s.label, amount: Number(s.amount) } : null));
+  const same = toIsoDate(entry.date) === input.date && entry.mealType === input.mealType && entry.foodId === input.foodId
+    && entry.quantity.equals(new Prisma.Decimal(input.quantity).toDecimalPlaces(3))
+    && serving?.label === entry.servingLabel && serving.amount === Number(entry.servingAmount);
+  if (!same) throw idempotencyConflict();
+  return entryToDto(entry);
+}
+
+export async function createEntry(userId: string, profile: Profile, input: NewEntry, idempotencyKey: string | null = null) {
+  // With a key, the entry's id comes from it, so the primary key refuses a second row.
+  const id = idempotencyKey ? idempotentId("entry", userId, idempotencyKey) : undefined;
+  // Checked first, as a retry's answer can't depend on a date limit or food that has since changed.
+  if (id) {
+    const earlier = await earlierAttempt(userId, id, input);
+    if (earlier) return earlier;
+  }
   assertLoggableDate(input.date, profile);
   const food = await getLoggableFood(userId, input.foodId);
   if (!food) throw notFound("Food");
@@ -72,15 +99,23 @@ export async function createEntry(userId: string, profile: Profile, input: { dat
   assertEntryAmount(serving.amount, input.quantity, food.basisUnit);
   const per100 = per100Of(food);
   const nutrients = entryNutrients(per100, serving.amount, input.quantity);
-  const entry = await prisma.foodEntry.create({
-    data: {
-      userId, date: fromIsoDate(input.date), mealType: input.mealType, foodId: food.id, foodName: food.name, brand: food.brand, basisUnit: food.basisUnit,
-      kcalPer100: food.kcalPer100, proteinPer100: food.proteinPer100, carbsPer100: food.carbsPer100, fatPer100: food.fatPer100, fiberPer100: food.fiberPer100,
-      servingLabel: serving.label, servingAmount: new Prisma.Decimal(serving.amount), quantity: new Prisma.Decimal(input.quantity),
-      ...nutrientData(nutrients),
-    },
-  });
-  return entryToDto(entry);
+  const data = {
+    ...(id ? { id } : {}),
+    userId, date: fromIsoDate(input.date), mealType: input.mealType, foodId: food.id, foodName: food.name, brand: food.brand, basisUnit: food.basisUnit,
+    kcalPer100: food.kcalPer100, proteinPer100: food.proteinPer100, carbsPer100: food.carbsPer100, fatPer100: food.fatPer100, fiberPer100: food.fiberPer100,
+    servingLabel: serving.label, servingAmount: new Prisma.Decimal(serving.amount), quantity: new Prisma.Decimal(input.quantity),
+    ...nutrientData(nutrients),
+  };
+  try {
+    return entryToDto(await prisma.foodEntry.create({ data, include: WITH_SOURCE }));
+  } catch (err) {
+    // Two attempts raced, and the database let one through. This is the other.
+    if (id && isUniqueViolation(err)) {
+      const earlier = await earlierAttempt(userId, id, input);
+      if (earlier) return earlier;
+    }
+    throw err;
+  }
 }
 
 export async function updateEntry(
@@ -115,6 +150,7 @@ export async function updateEntry(
       servingLabel, servingAmount: new Prisma.Decimal(servingAmount), quantity: new Prisma.Decimal(quantity),
       ...nutrientData(nutrients),
     },
+    include: WITH_SOURCE,
   });
   return entryToDto(updated);
 }
@@ -126,7 +162,7 @@ export async function deleteEntry(userId: string, id: string) {
 
 export async function daySummary(userId: string, profile: Profile, date: string) {
   const [rows, targets] = await Promise.all([
-    prisma.foodEntry.findMany({ where: { userId, date: fromIsoDate(date) }, orderBy: { createdAt: "asc" } }),
+    prisma.foodEntry.findMany({ where: { userId, date: fromIsoDate(date) }, orderBy: { createdAt: "asc" }, include: WITH_SOURCE }),
     getTargets(userId, profile),
   ]);
   const entries = rows.map(entryToDto);

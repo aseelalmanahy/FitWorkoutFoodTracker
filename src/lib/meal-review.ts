@@ -50,7 +50,8 @@ const update = (items: ReviewItem[], id: string, change: (item: ReviewItem) => R
 export const renameItem = (items: ReviewItem[], id: string, name: string) => update(items, id, (item) => (item.status === "logged" ? item : { ...item, name, status: "suggested" }));
 export const acceptItem = (items: ReviewItem[], id: string) => update(items, id, (item) => (item.name.trim() === "" || item.status === "logged" ? item : { ...item, name: item.name.trim(), status: "accepted" }));
 export const markUnknown = (items: ReviewItem[], id: string) => update(items, id, (item) => (item.status === "logged" ? item : { ...item, name: "", status: "unknown" }));
-export const markLogged = (items: ReviewItem[], id: string) => update(items, id, (item) => (item.status === "accepted" ? { ...item, status: "logged" } : item));
+/** Only called once the server has saved an entry, so it's true whatever happened to the item meanwhile. Anything else could invite logging it twice. */
+export const markLogged = (items: ReviewItem[], id: string) => update(items, id, (item) => ({ ...item, status: "logged" }));
 export const removeItem = (items: ReviewItem[], id: string) => items.filter((item) => item.id !== id || item.status === "logged");
 
 let added = 0;
@@ -65,7 +66,7 @@ export const canFindFood = (item: ReviewItem) => item.status === "accepted" && i
 /** The search text. Only a name the person accepted can ever become a query. */
 export const searchQueryFor = (item: ReviewItem): string | null => (canFindFood(item) ? item.name.trim() : null);
 
-export const isCorrected = (item: ReviewItem) => item.suggestedName !== "" && item.name.trim() !== item.suggestedName;
+export const isCorrected = (item: Pick<ReviewItem, "name" | "suggestedName">) => item.suggestedName !== "" && item.name.trim() !== item.suggestedName;
 
 /** The AI's suggestion in plain words, which never reads as a fact. */
 export function describeSuggestion(item: Pick<ReviewItem, "certainty" | "suggestedName">): string {
@@ -73,6 +74,12 @@ export function describeSuggestion(item: Pick<ReviewItem, "certainty" | "suggest
   if (item.certainty === "possible") return `Possibly ${item.suggestedName}.`;
   if (item.certainty === "unknown") return "This food couldn't be identified.";
   return "Added by you.";
+}
+
+/** Who decided what this food is. A person's confirmation says nothing about its nutrition. */
+export function describeIdentity(item: Pick<ReviewItem, "name" | "suggestedName">): string {
+  if (item.suggestedName === "") return "You added this food yourself.";
+  return isCorrected(item) ? `You changed the AI's suggestion, ${item.suggestedName}, to ${item.name.trim()}.` : `You accepted the AI's suggestion, ${item.suggestedName}.`;
 }
 
 export const STATUS_LABELS: Record<ReviewStatus, string> = {

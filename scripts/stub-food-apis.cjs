@@ -38,6 +38,13 @@ const usdaFoods = [
   { fdcId: 999001, description: "Rice, white, cooked (no energy reported)", dataType: "Survey (FNDDS)",
     foodNutrients: [{ nutrientId: 1003, nutrientNumber: "203", unitName: "G", value: 2.7 }] },
 ];
+// Similar names with different nutrition, so nothing may ever treat them as one food.
+const flat = (kcal, protein, carbs, fat) => [[1008, "208", "KCAL", kcal], [1003, "203", "G", protein], [1005, "205", "G", carbs], [1004, "204", "G", fat]].map(([nutrientId, nutrientNumber, unitName, value]) => ({ nutrientId, nutrientNumber, unitName, value }));
+usdaFoods.push(
+  { fdcId: 900101, description: "Yogurt, Greek, plain, nonfat", dataType: "SR Legacy", foodNutrients: flat(59, 10.2, 3.6, 0.4) },
+  { fdcId: 900102, description: "Yogurt, Greek, plain, whole milk", dataType: "Foundation", foodNutrients: flat(97, 9, 4, 5) },
+  { fdcId: 900201, description: "Beef, steak, sirloin, grilled", dataType: "Survey (FNDDS)", foodNutrients: flat(243, 26, 0, 15) },
+);
 const usdaDetail = {
   173944: { ...usdaFoods[0], foodNutrients: usdaFoods[0].foodNutrients.map((n) => ({ nutrient: { id: n.nutrientId, number: n.nutrientNumber, unitName: n.unitName.toLowerCase() }, amount: n.value })),
     foodPortions: [{ gramWeight: 118, amount: 1, modifier: "medium (7\" to 7-7/8\" long)", measureUnit: { name: "undetermined" } }, { gramWeight: 150, amount: 1, modifier: "cup, sliced", measureUnit: { name: "undetermined" } }] },
@@ -57,6 +64,9 @@ const offProducts = [
   { code: "8800000000011", product_name: "Preview granola", brands: "Example", serving_size: "40 g", serving_quantity: 40, previewOnly: true,
     nutriments: { "energy-kcal_100g": 450, proteins_100g: 10, carbohydrates_100g: 60, fat_100g: 18 } },
   { code: "8800000000028", product_name: "Preview empty snack", brands: "Example", previewOnly: true },
+  { code: "8800000000103", product_name: "Greek Yogurt 2% Fat", brands: "Hillside", serving_size: "170 g", serving_quantity: 170, nutriments: { "energy-kcal_100g": 73, proteins_100g: 9.9, carbohydrates_100g: 3.9, fat_100g: 2 } },
+  { code: "8800000000110", product_name: "Greek Yogurt Honey", brands: "Hillside", nutriments: { "energy-kcal_100g": 120, proteins_100g: 8, carbohydrates_100g: 16 } },
+  { code: "8800000000127", product_name: "Premium White Rice", brands: "Goldgrain", serving_size: "45 g", serving_quantity: 45, nutriments: { "energy-kcal_100g": 355, proteins_100g: 7, carbohydrates_100g: 79, fat_100g: 0.6 } },
 ];
 
 const send = (res, status, body) => { res.writeHead(status, { "Content-Type": "application/json" }); res.end(JSON.stringify(body)); };
@@ -84,7 +94,11 @@ function handle(req, res, body = {}) {
       return send(res, 200, { totalHits: foods.length, currentPage: 1, foods });
     }
     const m = url.pathname.match(/^\/fdc\/v1\/food\/(\d+)$/);
-    if (m) return usdaDetail[m[1]] ? send(res, 200, usdaDetail[m[1]]) : send(res, 404, { error: "not found" });
+    if (m) {
+      const listed = usdaFoods.find((f) => String(f.fdcId) === m[1]);
+      const detail = usdaDetail[m[1]] ?? (listed && { ...listed, foodNutrients: listed.foodNutrients.map((n) => ({ nutrient: { id: n.nutrientId, number: n.nutrientNumber, unitName: n.unitName.toLowerCase() }, amount: n.value })), foodPortions: [] });
+      return detail ? send(res, 200, detail) : send(res, 404, { error: "not found" });
+    }
   }
   if (url.pathname === "/off/search") {
     const hits = offProducts.filter((p) => p.product_name.toLowerCase().includes(q)).map((p) => ({ ...p, brands: p.brands ? [p.brands] : [], nutriments: p.previewOnly ? undefined : p.nutriments }));

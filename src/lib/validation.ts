@@ -159,6 +159,8 @@ export const customFoodSchema = z
     }
   });
 
+export type CustomFoodInput = z.infer<typeof customFoodSchema>;
+
 export const createFoodEntrySchema = z.object({
   date: isoDateSchema,
   mealType: mealTypeSchema,

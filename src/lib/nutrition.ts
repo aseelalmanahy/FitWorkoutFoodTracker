@@ -13,6 +13,7 @@ export const NUTRIENT_KEYS = ["kcal", "protein", "carbs", "fat", "fiber"] as con
 export type NutrientKey = (typeof NUTRIENT_KEYS)[number];
 export type Nutrients = Record<NutrientKey, number | null>;
 export type NutrientTotals = Record<NutrientKey, number> & { incomplete: NutrientKey[] };
+export const NUTRIENT_LABELS_SHORT: Record<NutrientKey, string> = { kcal: "calories", protein: "protein", carbs: "carbs", fat: "fat", fiber: "fiber" };
 
 export const MEAL_TYPES = ["BREAKFAST", "LUNCH", "DINNER", "SNACK"] as const;
 export type MealType = (typeof MEAL_TYPES)[number];

@@ -234,6 +234,7 @@ function ExerciseCard({ ex, units, first, last, onLog, onUpdate, onDelete, onRem
   const [weight, setWeight] = useState("");
   const [reps, setReps] = useState("");
   const [warmup, setWarmup] = useState(false);
+  const [invalid, setInvalid] = useState(false);
   const [busy, setBusy] = useState(false);
   const [showMeta, setShowMeta] = useState(false);
   const [notes, setNotes] = useState(ex.notes ?? "");
@@ -247,7 +248,8 @@ function ExerciseCard({ ex, units, first, last, onLog, onUpdate, onDelete, onRem
   async function submit() {
     const w = weight.trim() === "" ? (suggestedWeightKg != null ? toDisplayMass(suggestedWeightKg, units) : 0) : parseNum(weight);
     const r = reps.trim() === "" ? suggestedReps ?? NaN : parseInt(reps);
-    if (!Number.isFinite(w) || w < 0 || !Number.isFinite(r) || r < 0) return;
+    if (!Number.isFinite(w) || w < 0 || !Number.isFinite(r) || r < 0) return setInvalid(true);
+    setInvalid(false);
     setBusy(true);
     const ok = await onLog(round(fromDisplayMass(w, units), 4), r, warmup);
     setBusy(false);
@@ -305,6 +307,8 @@ function ExerciseCard({ ex, units, first, last, onLog, onUpdate, onDelete, onRem
         </div>
       </div>
 
+      {invalid && <p className="px-4 pb-2 text-xs text-down" role="alert" data-testid="set-input-error">Enter the weight and reps as plain numbers, such as 62.5 and 8. Nothing was logged.</p>}
+
       <div className="flex items-center justify-between border-t border-line px-2 py-1">
         <Button variant="ghost" size="sm" className="text-muted" onClick={() => setShowMeta((v) => !v)}>
           {ex.notes ? "Notes ✓" : "Notes"} · Rest {ex.restSeconds ?? DEFAULT_REST}s
@@ -347,6 +351,8 @@ function LoggedRow({ set, label, prev, units, onUpdate, onDelete }: {
 
   const commit = () => {
     const wn = parseNum(w), rn = parseInt(r);
+    // Something unclear isn't saved, so it shouldn't stay on screen looking as if it was.
+    if (!(Number.isFinite(wn) && wn >= 0)) setW(String(toDisplayMass(set.weightKg, units)));
     const patch: Partial<LoggedSet> = {};
     if (Number.isFinite(wn) && wn >= 0 && Math.abs(wn - toDisplayMass(set.weightKg, units)) > 1e-9) patch.weightKg = round(fromDisplayMass(wn, units), 4);
     if (Number.isFinite(rn) && rn >= 0 && rn !== set.reps) patch.reps = rn;

@@ -12,8 +12,8 @@ This replaces the earlier plan in `ARCHITECTURE.md` for AI-estimated calories an
 | 3.2 | Nutrition-label scanning and structured extraction | Done |
 | 3.3 | User review, correction and confirmation | Done |
 | 3.4 | PDF nutrition extraction | Done |
-| 3.5 | Meal photo identification, with no AI-generated calories | Implemented, awaiting review |
-| 3.6 | Food matching, provenance indicators, security and full regression testing | Not started |
+| 3.5 | Meal photo identification, with no AI-generated calories | Done |
+| 3.6 | Food matching, provenance indicators, security and full regression testing | Implemented, awaiting review |
 
 Each milestone needs review before the next one starts.
 
@@ -286,7 +286,7 @@ After saving, the page shows the saved nutrition as the server returned it, and 
 
 - **Servings per container isn't saved:** it can be corrected, which settles any warning about it, but the food API has nowhere to store it.
 - **Where values came from isn't stored:** saved foods look like any other custom food. Field-level provenance needs the migration proposed above, which hasn't been approved.
-- **Duplicates:** a double click can't create two foods, but scanning and saving the same label twice will, and if the connection drops after the server saved, retrying can too.
+- **Duplicates:** a double click can't create two foods, and since 3.6 neither can retrying after a dropped connection. Scanning and saving the same label twice still will.
 - **The person is the final check:** the confirmation records that someone looked, not that the values are right.
 
 ## 3.4: PDF nutrition extraction
@@ -427,6 +427,131 @@ Up to about 5,400 input tokens, and up to 1,500 output tokens, including thinkin
 - **The text check is a word list, in English:** an amount in unusual phrasing, or in another language written in Latin letters such as "cien gramos", could pass. It would only ever be shown as text, as nothing reads numbers from it. Size words such as "large" are allowed, as they're part of names like "large egg".
 - **Numbered names outside the list are rejected:** a product such as "Pizza 73" fails closed and costs a scan, until it's added to the list.
 - **A false rejection costs a scan,** as described above.
+
+## 3.6: Integration and hardening
+
+No new AI functionality, no paid requests, no schema change and no new dependency. The production assessment is separate: `docs/PHASE_3_PRODUCTION_READINESS.md`.
+
+### Integration plan
+
+Written before the code changed, from reading the code as merged at the end of 3.5.
+
+| Area | What the code did | Gap | Plan |
+|---|---|---|---|
+| Matching | The person always chooses. Dedupe is only on `source:sourceId`, so nothing merges | Source shown only as a section heading. "Incomplete" doesn't say what's missing. Recent foods show neither. "greek yogurt" misses a custom "Yogurt, Greek", as the whole phrase had to match | Show source and missing values on every row. Match custom foods word by word, on name or brand. Ranking stays as it is |
+| Provenance | `Food.source` and `dataType` are stored. A saved label is `dataType: "Custom"`, like any custom food. `FoodEntry` has only `foodId` | The diary showed no source, though the `foodId` join can supply it | Show what the row really records. Never suggest a custom food came from a label. Propose the rest as a schema change |
+| Duplicates | `busy` state and, on label review, a ref | Two clicks in one task beat the re-render in the add and custom food sheets. Closing a sheet mid-save allowed a second save. A retry after a lost response created a second row | Guard with refs, lock sheets while saving, and add a persistent idempotency key, as below |
+| Save in progress | The payload is fixed on click | Label review stayed editable during a save, so someone could edit and believe the edit was saved. "Choose another page" stayed active and discarded the result | Disable the form while saving, and block leaving |
+| Network failure | `Failed to fetch` was shown as it came, and a request could hang forever | The message didn't say the save might have worked, and a hung request would trap a locked sheet | Plain message that says when the outcome is unknown, plus a client timeout |
+| Numbers | `parseNum` read "1,200" as 1.2, `0x10` as 16 and `1e3` as 1000 | A custom food typed as "1,200" kcal saved 1.2 kcal | Same strictness as label review, with a clear message wherever it's used, including workouts, profile and targets |
+| Resources | Image routes limit their bodies. `parseBody` used `req.json()` with no limit unless told | One signed-in request could fill the server's memory | A default limit for every JSON body |
+| Logging | `console.error(err)` on unexpected errors | Some Prisma errors hold the query's values | Log only the error's type and code for those |
+
+### Food matching
+
+Search stays deterministic and has no AI: USDA and Open Food Facts answer in their own order, and custom foods are listed by name. A confirmed name is only a search term. **No result is ever chosen automatically, even when there's only one.** "White rice" stays a list of different records, and the person chooses, or chooses none.
+
+- **Each row shows** its source (USDA with its data type, Open Food Facts, or My food), brand when known, nutrition per 100, and exactly which values are missing.
+- **Nothing merges:** two records with the same name stay two records, within a source and across sources.
+- **Missing stays missing:** a value not reported shows "—" and is named as missing. A record with no nutrition at all can't be chosen. The API itself would log one, with every value null, as nothing is invented either way.
+- **Custom food search** matches every word against the name or brand, in any order, and at most 8 words.
+- **Not added:** when a food database is down, cached records from it aren't searched. The person sees the source's error, and can use recent or custom foods.
+
+### What each indicator means
+
+| Shown | Comes from | Means | Doesn't mean |
+|---|---|---|---|
+| USDA | `Food.source`, `dataType` | A public USDA FoodData Central record | That it matches what was on the plate |
+| Open Food Facts | `Food.source` | A community-contributed product record | That it's verified against the package |
+| My food | `Food.source` | Values someone entered or confirmed in this account | That they came from a label: this isn't recorded, including for foods saved from a scan |
+| Possibly or likely X, Accepted by you | Browser state during a review | How sure the AI said it was, and that the person accepted the name | Anything about nutrition |
+| Missing: protein | Null values on the record | The source doesn't report it | That it's 0 |
+| Unverified, Read by AI | Scan response | Read by a model, and not yet checked | |
+| Source no longer available | `foodId` is null | The record was deleted, and the entry keeps the values saved when it was logged | |
+
+**Identity and nutrition are separate claims.** Finding a record doesn't verify an AI suggestion: the page says so, and states that the nutrition comes from the chosen record and the typed amount. A confirmation records that a person accepted the information, not that anyone measured it.
+
+**Not stored, so not shown after the review ends:** that an entry began as a photo suggestion, that a food came from a scan, or what was corrected.
+
+### Proposed schema for provenance (not implemented)
+
+No migration is authorized. This extends the proposal in 3.2:
+
+```prisma
+enum IdentityOrigin { USER_SEARCH  AI_SUGGESTION_ACCEPTED  AI_SUGGESTION_CORRECTED  USER_ADDED }
+
+model FoodEntry {
+  identityOrigin   IdentityOrigin?   // null: not recorded
+  quantityEvidence QuantityEvidence? // from 3.2
+}
+
+model Food {
+  evidence      NutritionEvidence? // from 3.2
+  labelEvidence Json?              // from 3.2
+  confirmedAt   DateTime?          // when a person confirmed a saved label
+}
+```
+
+- **Benefits:** the diary could show whether an entry began as an AI suggestion, foods saved from a label could say so, and accuracy could be audited later by correction rate.
+- **Migration risk:** low. These are nullable columns and new enums, with no rewrite of existing rows. `labelEvidence` can grow large, and would be exposed by any query that returns whole rows, so it needs explicit selects. The evidence is personal data, so it needs including in account deletion and any export.
+- **Existing records:** stay null, shown as "Not recorded", and are never backfilled with guesses. A custom food from before the migration can't be claimed as label-derived.
+
+### Duplicate submissions
+
+| Risk | Protection |
+|---|---|
+| Double click, or two clicks in one task | A ref checked before anything else, so the second click does nothing |
+| Repeated activation while saving | The button is disabled, and the form's fields with it |
+| Closing a sheet during a save, then saving again | Close, Escape and the backdrop do nothing until the save ends |
+| Leaving a label review during a save | "Choose another page" is disabled until it ends |
+| Concurrent requests, and retries after a lost response | The idempotency key below, enforced by the database |
+
+**Persistent idempotency needed no migration.** The client sends an `Idempotency-Key`, one per sheet or review, kept across retries. The server derives an existing unique value from `sha256(kind, userId, key)`:
+
+| Request | Value derived | Unique constraint |
+|---|---|---|
+| `POST /api/nutrition/entries` | `FoodEntry.id` | Primary key |
+| `POST /api/foods` | `Food.sourceId` | `@@unique([source, sourceId])` |
+
+- **A retry with the same values** gets the original record, and nothing new is created. Two racing requests make one row: the loser gets the database's unique violation and returns the winner's row.
+- **The same key with different values** gets 409 and creates nothing, as the first attempt may have saved. Silently returning the old values would claim that the new ones were saved. Values are compared as the columns store them, so a serving of 33.3333 g, stored as 33.333, still matches its own retry.
+- **A later edit wins:** a stale retry of a request whose entry has since been edited gets 409, and doesn't undo the edit.
+- **Another user's key** derives a different value, as the hash includes the user. The row is also read back by its owner, so the hash isn't the only protection. The value is 128 bits of SHA-256, and the key can't be recovered from it.
+- **Deliberate repeats stay possible:** each opening of the add sheet makes a new key, so logging the same food twice makes two entries. Nothing compares food names.
+- **No key:** behaves as before, so other clients still work.
+
+**Limits:** deleting a record frees its key, so a stale retry of that exact request could recreate it. The window is narrow, as only the sheet that sent it holds the key. Saving the same label from two separate scans makes two foods: they are two deliberate saves, and judging them identical would mean comparing names or values, which isn't safe. Keys don't expire, which costs nothing as they're just the row's id.
+
+### Saving
+
+The label form, add sheet, custom food sheet and diary entry editor all follow the same rules while saving:
+
+- **Fields are disabled,** so what's on screen is what was sent. Zooming the label image still works.
+- **A failure keeps everything typed,** including corrections and confirmations.
+- **The message says what's known.** No answer, or a server error, says the outcome is unknown, and that trying again is safe. A refusal gives the server's reason.
+- **A request gets 30 seconds** before it counts as no answer, so a hung connection can't trap a locked sheet.
+- **Deleting an entry that's already gone** counts as success, for a retry after a lost response.
+
+### Sheets and the keyboard
+
+A sheet is placed directly in `<body>`, and everything else is `inert` while it's open. Before this, pressing Tab during a save could reach a food name behind the sheet, and typing changed that item: the entry saved, but the item read "Not reviewed", which invited logging it again. The sheet was also pushed off screen on wide displays, by a CSS transform on the review layout.
+
+- **Focus** moves into the sheet, stays there, and returns to whatever opened it. If saving took focus away, it comes back to the sheet when the save ends.
+- **Not a trap:** the lock lasts only as long as the save, which has a 30-second deadline. Escape and Close then work again. Browser navigation still works, and leaves nothing inert.
+- **A successful save always shows as logged,** whatever happened to the item in the meantime.
+
+### Security review: changes made
+
+- `parseBody` limits every JSON body to 256 KiB by default, reading through the same bounded reader as uploads.
+- Prisma errors are logged by type and code only, as their messages can hold query values.
+- Scan and identify buttons guard against two clicks in one task. The server's one-upload-per-user limit already stopped the second request being sent to the provider.
+
+Everything else audited, and what remains for production, is in the readiness report.
+
+### Known limits
+
+- **Leaving the page during a save** can't be stopped. The save still completes, and the key can't help, as a new page makes a new key.
+- **Custom foods still need all four main values,** because the API requires them. A label that omits one needs a value typed, or can't be saved, rather than saving with a gap.
 
 ## Provider recommendation
 

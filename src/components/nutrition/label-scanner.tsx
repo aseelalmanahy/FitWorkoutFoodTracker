@@ -107,6 +107,8 @@ export function LabelScanner() {
   const [result, setResult] = useState<ScanResult | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [working, setWorking] = useState(false);
+  const [saving, setSaving] = useState(false);
+  const scanning = useRef(false);
   const urls = useRef(new Set<string>());
   const fileInput = useRef<HTMLInputElement>(null);
   const [pdf, setPdf] = useState<{ session: PdfSession; fileName: string } | null>(null);
@@ -310,7 +312,8 @@ export function LabelScanner() {
   };
 
   const onScan = async () => {
-    if (!prepared) return;
+    if (!prepared || scanning.current) return; // two clicks can land before the button is disabled, and each scan can be billed
+    scanning.current = true;
     setError(null);
     setStage("scanning");
     try {
@@ -326,6 +329,8 @@ export function LabelScanner() {
     } catch {
       setError("The label couldn't be scanned. Check your connection and try again.");
       setStage("review");
+    } finally {
+      scanning.current = false;
     }
   };
 
@@ -358,7 +363,7 @@ export function LabelScanner() {
       {pdf && pdfPage !== null && stage !== "pdf" && (
         <div className="flex flex-wrap items-center justify-between gap-2 text-sm" data-testid="pdf-source">
           <span>From page {pdfPage} of {pdf.session.pageCount} of <span className="font-medium">{pdf.fileName}</span></span>
-          <Button size="sm" variant="secondary" onClick={backToPages}>Choose another page</Button>
+          <Button size="sm" variant="secondary" disabled={saving} onClick={backToPages}>Choose another page</Button>
         </div>
       )}
 
@@ -402,6 +407,7 @@ export function LabelScanner() {
           // Corrections live in this component, so going back discards them, as the button says.
           onRescan={() => { setResult(null); setError(null); setFromText(false); setStage("review"); }}
           onScanAnother={reset}
+          onSavingChange={setSaving}
         />
       )}
 

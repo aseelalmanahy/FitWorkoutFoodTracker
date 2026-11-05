@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useState } from "react";
-import { api, parseNum } from "@/lib/client/api";
+import { useEffect, useRef, useState } from "react";
+import { api, ApiError, parseNum, SAVE_TIMEOUT_MS } from "@/lib/client/api";
+import { missingText, recordOrigin, SOURCE_NOT_AVAILABLE } from "@/lib/food-provenance";
 import { fmtG, fmtKcal, MEAL_LABELS, type MealType, type NutrientTotals } from "@/lib/nutrition";
 import { Button, Card, ErrorText } from "@/components/ui";
 import { PlusIcon } from "@/components/icons";
@@ -42,6 +43,7 @@ export function MealList({ meals, date }: { meals: MealGroup[]; date: string }) 
                   <button type="button" onClick={() => setEditing(e)} className="flex w-full items-center justify-between gap-3 px-4 py-2.5 text-left hover:bg-surface-2">
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-medium">{e.foodName}{e.brand && <span className="text-muted"> · {e.brand}</span>}</span>
+                      {missingText(e.nutrients) && <span className="block text-[11px] text-down" data-testid="entry-missing">{missingText(e.nutrients)}</span>}
                       <span className="num block truncate text-xs text-muted">
                         {e.servingAmount === 1 ? `${fmtG(e.quantity)} ${e.servingLabel}` : `${fmtG(e.quantity)} × ${e.servingLabel}`} · P {fmtG(e.nutrients.protein)} · C {fmtG(e.nutrients.carbs)} · F {fmtG(e.nutrients.fat)}
                       </span>
@@ -69,6 +71,7 @@ function EntryEditor({ entry, onClose }: { entry: EntryDto; onClose: () => void 
   const [mealType, setMealType] = useState(entry.mealType);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const saving = useRef(false);
 
   // Offer the food's other servings when the cached food still exists.
   useEffect(() => {
@@ -91,6 +94,8 @@ function EntryEditor({ entry, onClose }: { entry: EntryDto; onClose: () => void 
   async function save() {
     const q = parseNum(quantity);
     if (!(q > 0)) return setError("Quantity must be greater than 0.");
+    if (saving.current) return;
+    saving.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -98,43 +103,52 @@ function EntryEditor({ entry, onClose }: { entry: EntryDto; onClose: () => void 
         quantity: q,
         mealType,
         ...(servingId === "__current" ? {} : { servingId }),
-      });
+      }, { timeoutMs: SAVE_TIMEOUT_MS });
       onClose();
       router.refresh();
     } catch (e) {
       setError((e as Error).message);
+      saving.current = false;
       setBusy(false);
     }
   }
 
   async function remove() {
-    if (!confirm(`Delete ${entry.foodName}?`)) return;
+    if (saving.current || !confirm(`Delete ${entry.foodName}?`)) return;
+    saving.current = true;
     setBusy(true);
     try {
-      await api("DELETE", `/api/nutrition/entries/${entry.id}`);
+      // Already gone means an earlier attempt worked and its answer was lost.
+      await api("DELETE", `/api/nutrition/entries/${entry.id}`, undefined, { timeoutMs: SAVE_TIMEOUT_MS }).catch((e) => { if (!(e instanceof ApiError && e.status === 404)) throw e; });
       onClose();
       router.refresh();
     } catch (e) {
       setError((e as Error).message);
+      saving.current = false;
       setBusy(false);
     }
   }
 
   return (
-    <Sheet open title={entry.foodName} onClose={onClose}>
-      <PortionEditor
-        per100={entry.per100}
-        basisUnit={entry.basisUnit}
-        servings={servings}
-        servingId={servingId}
-        quantity={quantity}
-        mealType={mealType}
-        onChange={(p) => {
-          if (p.servingId !== undefined) setServingId(p.servingId);
-          if (p.quantity !== undefined) setQuantity(p.quantity);
-          if (p.mealType) setMealType(p.mealType);
-        }}
-      />
+    <Sheet open title={entry.foodName} locked={busy} onClose={onClose}>
+      <p className="-mt-2 mb-3 text-xs text-muted" data-testid="entry-provenance" data-source={entry.foodSource ?? "none"}>
+        {entry.foodSource ? `${recordOrigin({ source: entry.foodSource }).badge}. ${recordOrigin({ source: entry.foodSource }).detail}` : SOURCE_NOT_AVAILABLE}
+      </p>
+      <fieldset disabled={busy} className="min-w-0">
+        <PortionEditor
+          per100={entry.per100}
+          basisUnit={entry.basisUnit}
+          servings={servings}
+          servingId={servingId}
+          quantity={quantity}
+          mealType={mealType}
+          onChange={(p) => {
+            if (p.servingId !== undefined) setServingId(p.servingId);
+            if (p.quantity !== undefined) setQuantity(p.quantity);
+            if (p.mealType) setMealType(p.mealType);
+          }}
+        />
+      </fieldset>
       <div className="mt-4"><ErrorText>{error}</ErrorText></div>
       <div className="mt-3 flex gap-2">
         <Button variant="danger" onClick={remove} disabled={busy}>Delete</Button>

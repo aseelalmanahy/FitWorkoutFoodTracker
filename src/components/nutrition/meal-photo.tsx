@@ -3,20 +3,23 @@
 import { useEffect, useRef, useState } from "react";
 import { FULL_CROP, sniffFileKind } from "@/lib/label-image";
 import type { MealIdentification } from "@/lib/meal-identification";
+import { recordOrigin } from "@/lib/food-provenance";
 import { MEAL_LABELS, MEAL_TYPES, type MealType } from "@/lib/nutrition";
-import { acceptItem, addItem, buildMealReview, canFindFood, describeSuggestion, isCorrected, markLogged, markUnknown, removeItem, renameItem, searchQueryFor, STATUS_LABELS, type ReviewItem } from "@/lib/meal-review";
+import type { FoodDto } from "@/lib/server/foods/service";
+import { acceptItem, addItem, buildMealReview, canFindFood, describeIdentity, describeSuggestion, isCorrected, markLogged, markUnknown, removeItem, renameItem, searchQueryFor, STATUS_LABELS, type ReviewItem } from "@/lib/meal-review";
 import { Button, Card, cx, ErrorText, Field, Input, Select } from "@/components/ui";
 import { FoodSearch } from "./food-search";
 import { LabelImage } from "./label-review";
 import { HEIC_HELP, OPEN_FAILED, PREPARE_FAILED, prepare, type Opened, type Prepared } from "./label-scanner";
 
 interface IdentifyResponse { notice: string; identification: MealIdentification }
+interface LoggedRecord { meal: MealType; food: FoodDto }
 type Stage = "pick" | "check" | "identifying" | "review";
 
-function ItemCard({ item, selected, loggedTo, onRename, onAccept, onRemove, onUnknown, onFind }: {
+function ItemCard({ item, selected, logged: record, onRename, onAccept, onRemove, onUnknown, onFind }: {
   item: ReviewItem;
   selected: boolean;
-  loggedTo?: MealType;
+  logged?: LoggedRecord;
   onRename: (name: string) => void;
   onAccept: () => void;
   onRemove: () => void;
@@ -44,7 +47,13 @@ function ItemCard({ item, selected, loggedTo, onRename, onAccept, onRemove, onUn
           <Button size="sm" variant="secondary" data-testid="meal-remove" onClick={onRemove}>Remove</Button>
         </div>
       )}
-      {logged && <p className="text-sm" role="status">Added to {loggedTo ? MEAL_LABELS[loggedTo] : "your diary"}, with the amount you entered.</p>}
+      {logged && (
+        <div className="space-y-1" data-testid="meal-logged-record">
+          <p className="text-sm" role="status">Added to {record ? MEAL_LABELS[record.meal] : "your diary"}, with the amount you entered.</p>
+          {record && <p className="text-xs text-muted" data-testid="meal-logged-source">You chose {record.food.name}{record.food.brand ? ` (${record.food.brand})` : ""}. {recordOrigin(record.food).badge}.</p>}
+          <p className="text-xs text-muted">{describeIdentity(item)} Its nutrition comes only from the record you chose and your amount. Finding a record doesn&apos;t confirm that the AI was right.</p>
+        </div>
+      )}
     </Card>
   );
 }
@@ -58,12 +67,13 @@ export function MealPhoto({ today }: { today: string }) {
   const [finding, setFinding] = useState<string | null>(null);
   // No default: a photo says nothing about which meal it was. Starts empty, then holds the person's last choice.
   const [meal, setMeal] = useState<MealType | null>(null);
-  const [loggedTo, setLoggedTo] = useState<Record<string, MealType>>({});
+  const [loggedTo, setLoggedTo] = useState<Record<string, LoggedRecord>>({});
   const [error, setError] = useState<string | null>(null);
   const urls = useRef(new Set<string>());
   const track = (url: string) => { urls.current.add(url); return url; };
   const cameraInput = useRef<HTMLInputElement>(null);
   const photoInput = useRef<HTMLInputElement>(null);
+  const identifying = useRef(false);
 
   useEffect(() => {
     const all = urls.current;
@@ -115,7 +125,8 @@ export function MealPhoto({ today }: { today: string }) {
 
   /** One request, only when asked. Nothing is sent or saved by choosing a photo. */
   const identify = async () => {
-    if (!prepared) return;
+    if (!prepared || identifying.current) return; // two clicks can land before the button is disabled, and each scan can be billed
+    identifying.current = true;
     setError(null);
     setStage("identifying");
     try {
@@ -133,6 +144,8 @@ export function MealPhoto({ today }: { today: string }) {
     } catch {
       setError("The photo couldn't be read. Check your connection and try again.");
       setStage("check");
+    } finally {
+      identifying.current = false;
     }
   };
 
@@ -194,7 +207,7 @@ export function MealPhoto({ today }: { today: string }) {
                 key={item.id}
                 item={item}
                 selected={finding === item.id}
-                loggedTo={loggedTo[item.id]}
+                logged={loggedTo[item.id]}
                 onRename={(name) => { setItems((all) => renameItem(all, item.id, name)); if (finding === item.id) setFinding(null); }}
                 onAccept={() => setItems((all) => acceptItem(all, item.id))}
                 onRemove={() => { setItems((all) => removeItem(all, item.id)); if (finding === item.id) setFinding(null); }}
@@ -212,6 +225,7 @@ export function MealPhoto({ today }: { today: string }) {
                   <h3 className="font-medium">Choose the food for &ldquo;{findingItem.name}&rdquo;</h3>
                   <Button size="sm" variant="ghost" onClick={() => setFinding(null)}>Close</Button>
                 </div>
+                <p className="mb-3 text-xs text-muted" data-testid="meal-search-note">Each result is a separate record with its own nutrition, and similar names can differ. Choose the one that matches what you had, if any. Nothing is chosen for you.</p>
                 <Field label="Which meal is this food for?">
                   <Select data-testid="meal-type" value={meal ?? ""} onChange={(e) => setMeal(e.target.value as MealType)}>
                     {!meal && <option value="" disabled>Choose a meal</option>}
@@ -225,7 +239,7 @@ export function MealPhoto({ today }: { today: string }) {
                       date={today}
                       today={today}
                       initialMeal={meal}
-                      embedded={{ initialQuery: query, onLogged: (chosen) => { setItems((all) => markLogged(all, findingItem.id)); setLoggedTo((all) => ({ ...all, [findingItem.id]: chosen })); setMeal(chosen); setFinding(null); } }}
+                      embedded={{ initialQuery: query, onLogged: (chosen, food) => { setItems((all) => markLogged(all, findingItem.id)); setLoggedTo((all) => ({ ...all, [findingItem.id]: { meal: chosen, food } })); setMeal(chosen); setFinding(null); } }}
                     />
                   </div>
                 )}

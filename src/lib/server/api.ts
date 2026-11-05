@@ -4,6 +4,7 @@ import { z, ZodError } from "zod";
 import { Prisma } from "@prisma/client";
 import { getCurrentUser, type AuthUser } from "./auth";
 import { trustedProxyHops } from "./login-throttle";
+import { logServerError } from "./safe-log";
 
 export class HttpError extends Error {
   constructor(public status: number, message: string, public details?: unknown, public headers?: Record<string, string>) {
@@ -65,7 +66,7 @@ function handleError(err: unknown) {
   if (err instanceof Prisma.PrismaClientUnknownRequestError && /22003|numeric field overflow/.test(err.message)) {
     return jsonError(422, "A value is outside the supported range");
   }
-  console.error(err);
+  logServerError(err);
   return jsonError(500, "Internal server error");
 }
 
@@ -136,12 +137,13 @@ export async function readLimitedBytes(req: NextRequest, { maxBytes, timeoutMs }
   return bytes;
 }
 
-export async function parseBody<T extends z.ZodType>(req: NextRequest, schema: T, options: { maxBytes?: number } = {}): Promise<z.infer<T>> {
+/** Far beyond any form in this app. Without a limit, one request could fill the server's memory. */
+export const JSON_BODY_LIMIT_BYTES = 256 * 1024;
+
+export async function parseBody<T extends z.ZodType>(req: NextRequest, schema: T, { maxBytes = JSON_BODY_LIMIT_BYTES }: { maxBytes?: number } = {}): Promise<z.infer<T>> {
   let body: unknown;
   try {
-    body = options.maxBytes
-      ? JSON.parse(new TextDecoder().decode(await readLimitedBytes(req, { maxBytes: options.maxBytes })))
-      : await req.json();
+    body = JSON.parse(new TextDecoder().decode(await readLimitedBytes(req, { maxBytes })));
   } catch (err) {
     if (err instanceof HttpError) throw err;
     throw new HttpError(400, "Body must be valid JSON");

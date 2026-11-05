@@ -112,6 +112,7 @@ export function ProfileForm({ initial, submitLabel, redirectTo }: { initial: Pro
     if (!birthDate) return setError("Please enter your date of birth.");
     if (!Number.isFinite(computedHeightCm) || computedHeightCm < 100 || computedHeightCm > 250) return setError("Please enter a valid height.");
     if (!Number.isFinite(w)) return setError("Please enter your current weight.");
+    if (gw != null && !Number.isFinite(gw)) return setError("Please enter a valid goal weight.");
     setBusy(true);
     try {
       await api("PUT", "/api/profile", {

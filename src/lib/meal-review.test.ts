@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { acceptItem, addItem, buildMealReview, canFindFood, describeSuggestion, isCorrected, markLogged, markUnknown, removeItem, renameItem, searchQueryFor, type ReviewItem } from "./meal-review";
+import { acceptItem, addItem, buildMealReview, canFindFood, describeIdentity, describeSuggestion, isCorrected, markLogged, markUnknown, removeItem, renameItem, searchQueryFor, type ReviewItem } from "./meal-review";
 import type { MealIdentification } from "./meal-identification";
 
 const ident: MealIdentification = {
@@ -122,9 +122,21 @@ describe("removing, adding and marking unknown", () => {
 describe("logging", () => {
   const logged = () => markLogged(acceptItem(start(), steak), steak);
 
-  it("only an accepted item can be marked logged", () => {
-    expect(find(markLogged(start(), steak), steak).status).toBe("suggested");
+  it("a saved entry always shows as logged, even if the item changed during the save", () => {
     expect(find(logged(), steak).status).toBe("logged");
+    const renamed = renameItem(acceptItem(start(), steak), steak, "changed mid-save");
+    expect(find(renamed, steak).status).toBe("suggested");
+    expect(find(markLogged(renamed, steak), steak).status).toBe("logged");
+    expect(find(markLogged(markUnknown(start(), steak), steak), steak).status).toBe("logged");
+  });
+
+  it("marking one item logged leaves the others alone", () => {
+    expect(find(logged(), broccoli).status).toBe("suggested");
+  });
+
+  it("only an accepted item can be searched for, so nothing else reaches a save", () => {
+    expect(searchQueryFor(find(start(), steak))).toBeNull();
+    expect(searchQueryFor(find(acceptItem(start(), steak), steak))).toBe("grilled steak");
   });
 
   it("a logged item can't be changed, removed, or searched for again", () => {
@@ -136,5 +148,17 @@ describe("logging", () => {
 
   it("logging one food leaves the others alone", () => {
     expect(find(logged(), broccoli).status).toBe("suggested");
+  });
+});
+
+describe("who decided what a food is", () => {
+  it("separates accepting from changing, and from adding, and never mentions nutrition", () => {
+    const accepted = describeIdentity({ name: "white rice", suggestedName: "white rice" });
+    const changed = describeIdentity({ name: "basmati rice", suggestedName: "white rice" });
+    const added = describeIdentity({ name: "rice", suggestedName: "" });
+    expect(accepted).toBe("You accepted the AI's suggestion, white rice.");
+    expect(changed).toBe("You changed the AI's suggestion, white rice, to basmati rice.");
+    expect(added).toBe("You added this food yourself.");
+    for (const text of [accepted, changed, added]) expect(text).not.toMatch(/verified|accurate|calorie|nutrition/i);
   });
 });

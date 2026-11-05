@@ -27,7 +27,8 @@ export function TargetsEditor({ current, suggestion }: { current: DatedTarget | 
   async function save() {
     setError(null);
     setMsg(null);
-    if (!valid || carbs === null) return setError("Protein and fat contain more energy than the calorie target.");
+    if (!valid) return setError("Enter each target as a plain number, such as 2000.");
+    if (carbs === null) return setError("Protein and fat contain more energy than the calorie target.");
     setBusy(true);
     try {
       await api("PUT", "/api/nutrition/targets", { kcal: Math.round(k), proteinG: Math.round(p), fatG: Math.round(f) });

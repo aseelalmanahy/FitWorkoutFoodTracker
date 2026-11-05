@@ -2,8 +2,9 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, parseNum } from "@/lib/client/api";
-import { fmtG, fmtKcal, MEAL_LABELS, relativeDayLabel, scaleNutrients, type MealType } from "@/lib/nutrition";
+import { api, newIdempotencyKey, parseNum, SAVE_TIMEOUT_MS, saveFailureMessage } from "@/lib/client/api";
+import { hasNoNutrition, missingText, recordOrigin, type RecordSource } from "@/lib/food-provenance";
+import { fmtG, fmtKcal, MEAL_LABELS, relativeDayLabel, scaleNutrients, type MealType, type Nutrients } from "@/lib/nutrition";
 import { Button, Card, ErrorText, Field, Input, Select, cx } from "@/components/ui";
 import { Sheet } from "./sheet";
 import { PortionEditor } from "./portion-editor";
@@ -32,12 +33,23 @@ function Per100({ item }: { item: Pick<SearchItem, "per100" | "basisUnit"> }) {
   );
 }
 
+/** Where a record came from, and what it doesn't report. Shown wherever a record can be chosen. */
+function RecordFacts({ food }: { food: { source: RecordSource; dataType: string | null; per100: Nutrients } }) {
+  const missing = missingText(food.per100);
+  return (
+    <>
+      <span className="mt-1 block text-[11px] text-muted" data-testid="food-source" data-source={food.source}>{recordOrigin(food).badge}</span>
+      {missing && <span className="mt-0.5 block text-[11px] text-down" data-testid="food-missing">{missing}</span>}
+    </>
+  );
+}
+
 export function FoodSearch({ date, today, initialMeal, embedded }: {
   date: string;
   today: string;
   initialMeal: MealType;
   /** Inside another page, starting from a name a person confirmed. The amount must then be typed. */
-  embedded?: { initialQuery: string; onLogged: (meal: MealType) => void };
+  embedded?: { initialQuery: string; onLogged: (meal: MealType, food: FoodDto) => void };
 }) {
   const [q, setQ] = useState(embedded?.initialQuery ?? "");
   const [filter, setFilter] = useState<Filter>("ALL");
@@ -51,6 +63,9 @@ export function FoodSearch({ date, today, initialMeal, embedded }: {
   const [meal, setMeal] = useState<MealType>(initialMeal);
   const [added, setAdded] = useState<{ name: string; kcal: number | null; meal: MealType }[]>([]);
   const reqId = useRef(0);
+  const picking = useRef(false);
+  // A result is disabled while its record loads, which drops focus before the sheet opens, so it's remembered here.
+  const pickedRow = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     api<{ foods: FoodDto[] }>("GET", "/api/foods/recent").then((r) => setRecent(r.foods)).catch(() => setRecent([]));
@@ -82,23 +97,30 @@ export function FoodSearch({ date, today, initialMeal, embedded }: {
   }, [q, filter, search]);
 
   async function pick(item: SearchItem) {
+    if (picking.current) return; // a slower answer must not replace the record chosen later
+    picking.current = true;
+    pickedRow.current = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     setError(null);
-    if (item.foodId && item.source === "CUSTOM") {
-      const r = await api<{ food: FoodDto }>("GET", `/api/foods/${item.foodId}`).catch((e) => (setError(e.message), null));
-      if (r) setSelected(r.food);
-      return;
-    }
     setResolving(item.key);
     try {
-      const r = await api<{ food: FoodDto }>("POST", "/api/foods/resolve", { source: item.source, sourceId: item.sourceId });
-      if (Object.values(r.food.per100).every((v) => v == null)) setError(`${r.food.name} has no nutrition data to log.`);
+      const r = item.foodId && item.source === "CUSTOM"
+        ? await api<{ food: FoodDto }>("GET", `/api/foods/${item.foodId}`)
+        : await api<{ food: FoodDto }>("POST", "/api/foods/resolve", { source: item.source, sourceId: item.sourceId });
+      if (hasNoNutrition(r.food.per100)) setError(`${r.food.name} has no nutrition data to log.`);
       else setSelected(r.food);
     } catch (e) {
       setError((e as Error).message);
     } finally {
+      picking.current = false;
       setResolving(null);
     }
   }
+
+  useEffect(() => {
+    if (selected || resolving || !pickedRow.current?.isConnected) return;
+    pickedRow.current.focus({ preventScroll: true });
+    pickedRow.current = null;
+  }, [selected, resolving]);
 
   const sections = (["CUSTOM", "USDA", "OPEN_FOOD_FACTS"] as SearchSource[]).filter((s) => filter === "ALL" || filter === s);
   const total = data ? sections.reduce((n, s) => n + data.results[s].length, 0) : 0;
@@ -143,9 +165,10 @@ export function FoodSearch({ date, today, initialMeal, embedded }: {
           ) : (
             <Card className="divide-y divide-line">
               {recent.map((f) => (
-                <button key={f.id} type="button" onClick={() => setSelected(f)} className="block w-full px-4 py-3 text-left hover:bg-surface-2">
+                <button key={f.id} type="button" disabled={hasNoNutrition(f.per100)} onClick={() => setSelected(f)} className="block w-full px-4 py-3 text-left hover:bg-surface-2 disabled:opacity-50" data-testid="recent-food">
                   <span className="block font-medium">{f.name}{f.brand && <span className="text-muted"> · {f.brand}</span>}</span>
                   <span className="text-xs text-muted"><Per100 item={f} /></span>
+                  <RecordFacts food={f} />
                 </button>
               ))}
             </Card>
@@ -181,7 +204,7 @@ export function FoodSearch({ date, today, initialMeal, embedded }: {
                   const checkDetails = !item.hasNutrition && item.source === "OPEN_FOOD_FACTS";
                   return (
                     <button key={item.key} type="button" disabled={(!item.hasNutrition && !checkDetails) || resolving !== null} onClick={() => pick(item)}
-                      className="block w-full px-4 py-3 text-left hover:bg-surface-2 disabled:opacity-50">
+                      className="block w-full px-4 py-3 text-left hover:bg-surface-2 disabled:opacity-50" data-testid="food-result">
                       <span className="flex items-start justify-between gap-2">
                         <span className="min-w-0">
                           <span className="block font-medium leading-snug">{item.name}</span>
@@ -196,6 +219,7 @@ export function FoodSearch({ date, today, initialMeal, embedded }: {
                       {def && def.amount !== 100 && defN && (
                         <span className="num block text-xs text-muted">{def.label}: {fmtKcal(defN.kcal)} kcal</span>
                       )}
+                      {checkDetails ? <span className="mt-1 block text-[11px] text-muted" data-testid="food-source" data-source={item.source}>{recordOrigin(item).badge}</span> : <RecordFacts food={item} />}
                     </button>
                   );
                 })}
@@ -207,7 +231,7 @@ export function FoodSearch({ date, today, initialMeal, embedded }: {
 
       {selected && (
         <AddSheet food={selected} date={date} meal={meal} requireQuantity={Boolean(embedded)} onClose={() => setSelected(null)}
-          onAdded={(name, kcal, m) => { if (embedded) { embedded.onLogged(m); return; } setAdded((a) => [...a, { name, kcal, meal: m }]); setMeal(m); setSelected(null); setRecent((r) => (r && !r.some((x) => x.id === selected.id) ? [selected, ...r] : r)); }} />
+          onAdded={(name, kcal, m) => { if (embedded) { embedded.onLogged(m, selected); return; } setAdded((a) => [...a, { name, kcal, meal: m }]); setMeal(m); setSelected(null); setRecent((r) => (r && !r.some((x) => x.id === selected.id) ? [selected, ...r] : r)); }} />
       )}
       {creating && (
         <CustomFoodSheet initialName={q.trim()} onClose={() => setCreating(false)} onCreated={(f) => { setCreating(false); setSelected(f); }} />
@@ -226,31 +250,41 @@ function AddSheet({ food, date, meal, requireQuantity, onClose, onAdded }: {
   const [mealType, setMealType] = useState<MealType>(meal);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  // One per opening of this sheet: retrying can't log twice, and opening it again is a new, deliberate entry.
+  const [idempotencyKey] = useState(newIdempotencyKey);
+  const saving = useRef(false);
 
   async function add() {
+    if (saving.current) return; // two clicks can land before the button is disabled
     const q = parseNum(quantity);
     if (!(q > 0)) return setError("Quantity must be greater than 0.");
+    saving.current = true;
     setBusy(true);
     setError(null);
     try {
-      const r = await api<{ entry: { nutrients: { kcal: number | null } } }>("POST", "/api/nutrition/entries", { date, mealType, foodId: food.id, servingId, quantity: q });
+      const r = await api<{ entry: { nutrients: { kcal: number | null } } }>("POST", "/api/nutrition/entries", { date, mealType, foodId: food.id, servingId, quantity: q }, { idempotencyKey, timeoutMs: SAVE_TIMEOUT_MS });
       onAdded(food.name, r.entry.nutrients.kcal, mealType);
     } catch (e) {
-      setError((e as Error).message);
+      setError(saveFailureMessage(e));
+      saving.current = false;
       setBusy(false);
     }
   }
 
+  const missing = missingText(food.per100);
   const sourceNote = food.source === "USDA" ? `USDA FoodData Central #${food.sourceId}` : food.source === "OPEN_FOOD_FACTS" ? `Open Food Facts · ${food.sourceId}` : "Custom food";
   return (
-    <Sheet open title={food.name} onClose={onClose}>
-      <p className="-mt-2 mb-3 text-xs text-muted">{food.brand ? `${food.brand} · ` : ""}{sourceNote}{food.dataType && food.source === "USDA" ? ` · ${food.dataType}` : ""}</p>
-      <PortionEditor per100={food.per100} basisUnit={food.basisUnit} servings={food.servings} servingId={servingId} quantity={quantity} mealType={mealType}
-        onChange={(p) => {
-          if (p.servingId !== undefined) setServingId(p.servingId);
-          if (p.quantity !== undefined) setQuantity(p.quantity);
-          if (p.mealType) setMealType(p.mealType);
-        }} />
+    <Sheet open title={food.name} locked={busy} onClose={onClose}>
+      <p className="-mt-2 text-xs text-muted">{food.brand ? `${food.brand} · ` : ""}{sourceNote}{food.dataType && food.source === "USDA" ? ` · ${food.dataType}` : ""}</p>
+      <p className="mb-3 mt-1 text-xs text-muted" data-testid="food-provenance">{recordOrigin(food).detail}{missing ? ` ${missing}` : ""}</p>
+      <fieldset disabled={busy} className="min-w-0">
+        <PortionEditor per100={food.per100} basisUnit={food.basisUnit} servings={food.servings} servingId={servingId} quantity={quantity} mealType={mealType}
+          onChange={(p) => {
+            if (p.servingId !== undefined) setServingId(p.servingId);
+            if (p.quantity !== undefined) setQuantity(p.quantity);
+            if (p.mealType) setMealType(p.mealType);
+          }} />
+      </fieldset>
       <div className="mt-3"><ErrorText>{error}</ErrorText></div>
       <Button size="lg" className="mt-3 w-full" onClick={add} disabled={busy || (requireQuantity && !(parseNum(quantity) > 0))}>{busy ? "Adding…" : `Add to ${MEAL_LABELS[mealType]}`}</Button>
     </Sheet>
@@ -261,32 +295,37 @@ function CustomFoodSheet({ initialName, onClose, onCreated }: { initialName: str
   const [v, setV] = useState({ name: /^\d+$/.test(initialName) ? "" : initialName, brand: "", barcode: /^\d{6,14}$/.test(initialName) ? initialName : "", basisUnit: "G", servingLabel: "1 serving", servingAmount: "", kcal: "", protein: "", carbs: "", fat: "", fiber: "" });
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const [idempotencyKey] = useState(newIdempotencyKey);
+  const saving = useRef(false);
   const set = (k: keyof typeof v) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => setV((x) => ({ ...x, [k]: e.target.value }));
 
   async function create() {
+    if (saving.current) return; // two clicks can land before the button is disabled
     setError(null);
     const n = (s: string) => parseNum(s);
     const nums = { servingAmount: n(v.servingAmount), kcal: n(v.kcal), protein: n(v.protein), carbs: n(v.carbs), fat: n(v.fat) };
     if (!v.name.trim()) return setError("Name is required.");
     if (Object.values(nums).some((x) => !Number.isFinite(x) || x < 0) || !(nums.servingAmount > 0)) return setError("Enter serving size, calories, protein, carbs and fat (0 is allowed).");
+    saving.current = true;
     setBusy(true);
     try {
       const r = await api<{ food: FoodDto }>("POST", "/api/foods", {
         name: v.name.trim(), brand: v.brand.trim() || null, barcode: v.barcode.trim() || null, basisUnit: v.basisUnit,
         servingLabel: v.servingLabel.trim() || "1 serving", servingAmount: nums.servingAmount,
         perServing: { kcal: nums.kcal, protein: nums.protein, carbs: nums.carbs, fat: nums.fat, fiber: v.fiber.trim() ? n(v.fiber) : null },
-      });
+      }, { idempotencyKey, timeoutMs: SAVE_TIMEOUT_MS });
       onCreated(r.food);
     } catch (e) {
-      setError((e as Error).message);
+      setError(saveFailureMessage(e));
+      saving.current = false;
       setBusy(false);
     }
   }
   const u = v.basisUnit === "ML" ? "ml" : "g";
   return (
-    <Sheet open title="Custom food" onClose={onClose}>
+    <Sheet open title="Custom food" locked={busy} onClose={onClose}>
       <p className="-mt-2 mb-3 text-xs text-muted">Enter values per serving as printed on the label.</p>
-      <div className="space-y-3">
+      <fieldset disabled={busy} className="min-w-0 space-y-3">
         <Field label="Name"><Input value={v.name} onChange={set("name")} /></Field>
         <div className="grid grid-cols-2 gap-2">
           <Field label="Brand" hint="Optional"><Input value={v.brand} onChange={set("brand")} /></Field>
@@ -304,7 +343,7 @@ function CustomFoodSheet({ initialName, onClose, onCreated }: { initialName: str
           <Field label="Fat g"><Input inputMode="decimal" value={v.fat} onChange={set("fat")} /></Field>
           <Field label="Fiber g"><Input inputMode="decimal" value={v.fiber} placeholder="—" onChange={set("fiber")} /></Field>
         </div>
-      </div>
+      </fieldset>
       <div className="mt-3"><ErrorText>{error}</ErrorText></div>
       <Button size="lg" className="mt-3 w-full" onClick={create} disabled={busy}>{busy ? "Saving…" : "Save and continue"}</Button>
     </Sheet>

@@ -2,6 +2,7 @@ import "server-only";
 import { Prisma, type Food, type FoodServing, type FoodSource } from "@prisma/client";
 import { prisma } from "../db";
 import { HttpError } from "../api";
+import { logServerError } from "../safe-log";
 import { MAX_SERVING_AMOUNT, NUTRIENT_KEYS, sanitizePer100, type Nutrients } from "@/lib/nutrition";
 import { getUsdaFood, searchUsda, usdaOrigin } from "./usda";
 import { getOffProduct, offOrigin, searchOff } from "./openfoodfacts";
@@ -216,6 +217,10 @@ const fromDto = (d: FoodDto): SearchItem => ({
 
 export const isBarcode = (q: string) => /^\d{8,14}$/.test(q);
 
+/** Every word must match, in any order, so "greek yogurt" finds "Yogurt, Greek". Bounded, as each word adds to the query. */
+const customSearchWords = (q: string) => q.split(/\s+/).filter(Boolean).slice(0, 8);
+const wordInNameOrBrand = (word: string) => ({ OR: [{ name: { contains: word, mode: "insensitive" as const } }, { brand: { contains: word, mode: "insensitive" as const } }] });
+
 export async function searchFoods(userId: string, query: string, sources: SearchSource[]): Promise<SearchResponse> {
   const q = query.trim();
   const barcode = isBarcode(q);
@@ -226,7 +231,7 @@ export async function searchFoods(userId: string, query: string, sources: Search
     tasks.push(
       prisma.food
         .findMany({
-          where: { userId, source: "CUSTOM", ...(barcode ? { barcode: q } : { name: { contains: q, mode: "insensitive" } }) },
+          where: { userId, source: "CUSTOM", ...(barcode ? { barcode: q } : { AND: customSearchWords(q).map(wordInNameOrBrand) }) },
           include: { servings: true },
           orderBy: { name: "asc" },
           take: 20,
@@ -250,7 +255,7 @@ export async function searchFoods(userId: string, query: string, sources: Search
             if (barcode && e.kind === "not_found") return; // empty result, not an error
             res.errors.push({ source, ...publicError(e) });
           } else {
-            console.error(e);
+            logServerError(e);
             res.errors.push({ source, kind: "unknown", message: "Search failed." });
           }
         }),
