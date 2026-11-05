@@ -102,29 +102,46 @@ export function publicRoute(handler: (req: NextRequest) => Promise<Response | un
 export const AUTH_BODY_LIMIT_BYTES = 4096;
 const tooLarge = () => new HttpError(413, "Request body is too large");
 
-/** Read at most maxBytes and cancel the rest, so an unauthenticated caller can't fill memory. */
-async function readLimitedText(req: NextRequest, maxBytes: number): Promise<string> {
+/**
+ * Read at most maxBytes and cancel the rest, so a caller can't fill memory. With timeoutMs, a body
+ * that arrives too slowly is abandoned too, so a stalled upload can't hold its slot.
+ */
+export async function readLimitedBytes(req: NextRequest, { maxBytes, timeoutMs }: { maxBytes: number; timeoutMs?: number }): Promise<Uint8Array> {
   if (Number(req.headers.get("content-length")) > maxBytes) throw tooLarge();
   const reader = req.body?.getReader();
-  if (!reader) return "";
-  const decoder = new TextDecoder();
-  let text = "", received = 0;
-  for (;;) {
-    const { done, value } = await reader.read();
-    if (done) return text + decoder.decode();
-    received += value.length;
-    if (received > maxBytes) {
-      void reader.cancel().catch(() => {});
-      throw tooLarge();
+  if (!reader) return new Uint8Array(0);
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = timeoutMs
+    ? new Promise<never>((_, fail) => { timer = setTimeout(() => fail(new HttpError(408, "The upload took too long")), timeoutMs); })
+    : null;
+  const chunks: Uint8Array[] = [];
+  let received = 0;
+  try {
+    for (;;) {
+      const { done, value } = await (deadline ? Promise.race([reader.read(), deadline]) : reader.read());
+      if (done) break;
+      received += value.length;
+      if (received > maxBytes) throw tooLarge();
+      chunks.push(value);
     }
-    text += decoder.decode(value, { stream: true });
+  } catch (err) {
+    void reader.cancel().catch(() => {});
+    throw err instanceof HttpError ? err : new HttpError(400, "The request body couldn't be read");
+  } finally {
+    clearTimeout(timer);
   }
+  const bytes = new Uint8Array(received);
+  let at = 0;
+  for (const chunk of chunks) { bytes.set(chunk, at); at += chunk.length; }
+  return bytes;
 }
 
 export async function parseBody<T extends z.ZodType>(req: NextRequest, schema: T, options: { maxBytes?: number } = {}): Promise<z.infer<T>> {
   let body: unknown;
   try {
-    body = options.maxBytes ? JSON.parse(await readLimitedText(req, options.maxBytes)) : await req.json();
+    body = options.maxBytes
+      ? JSON.parse(new TextDecoder().decode(await readLimitedBytes(req, { maxBytes: options.maxBytes })))
+      : await req.json();
   } catch (err) {
     if (err instanceof HttpError) throw err;
     throw new HttpError(400, "Body must be valid JSON");

@@ -56,7 +56,7 @@ Key rules:
 | Generic foods | **USDA FoodData Central API** (free API key; search uses `POST /foods/search`) | 2 |
 | Packaged foods / barcodes | **Open Food Facts API** (no key; descriptive `User-Agent` required) | 2 |
 | Barcode decoding | Browser `BarcodeDetector` API where available, with `@zxing/browser` as fallback (on-device, free) | 2 |
-| Object storage (photos, uploads) | S3-compatible bucket (e.g. AWS S3, Cloudflare R2), private, accessed via signed URLs | 3–4 |
+| Object storage (photos, uploads) | Not used in Phase 3: images stay in memory for the request only (see `PHASE_3_DESIGN.md`). If Phase 4 needs storage, an S3-compatible private bucket accessed via signed URLs | 4 |
 | PDF text extraction | `pdfjs-dist` server-side for text PDFs. Scanned PDFs go to the vision model. | 3 |
 | Vision / document / assistant AI | A multimodal LLM API (e.g. Anthropic Claude) with structured (JSON-schema / tool-use) output | 3–4 |
 | Background jobs | DB-backed job table at first (Postgres `SKIP LOCKED`). A queue later if load requires it. | 3 |
@@ -67,13 +67,13 @@ Key rules:
 
 | Feature | Why AI is needed | Cost driver | Free fallback |
 |---|---|---|---|
-| Camera meal analysis (G) | Identifying foods and estimating portions from a photo requires a vision model | Per-image tokens | Manual search and entry. Barcode scan. |
+| Label scanning and meal photo identification (G) | Reading printed labels and suggesting possible foods requires a vision model. It never estimates calories or portions | Per-image tokens | Manual search and entry. Barcode scan. |
 | PDF / image plan import (J) | Unstructured layouts need to be mapped to structured workouts and targets | Per-page tokens | Manual plan entry. Tesseract OCR for raw text, but layout understanding is weak. |
 | AI fitness assistant (M) | Natural-language Q&A over the user's own data | Per-conversation tokens | The deterministic analytics already built (overload status, PRs, completion %) answer most of the example questions without AI. |
 
 Design constraints for the AI features:
 * AI output is always a **draft**, saved to an `import_drafts`-style table and shown for review. Nothing is written to user data without explicit confirmation (spec J.6).
-* Calorie and macro values from photo analysis are labelled as **estimates with uncertainty**. Image-based portion estimation has substantial error, so every value stays editable.
+* AI never generates calorie, macro or portion values. Only confirmed source data and user-provided quantities enter calculations (see `PHASE_3_DESIGN.md`).
 * The assistant answers through **tool calls into the same server functions the UI uses** (e.g. `getExerciseHistory`, `computeRecords`). It must cite the stored data it used and say "no data" rather than infer history it doesn't have.
 
 ---
