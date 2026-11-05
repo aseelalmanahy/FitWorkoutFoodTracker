@@ -36,7 +36,7 @@ function Evidence({ field }: { field: ReviewField }) {
   );
 }
 
-function LabelImage({ preparedUrl, originalUrl }: { preparedUrl: string; originalUrl: string | null }) {
+export function LabelImage({ preparedUrl, originalUrl }: { preparedUrl: string; originalUrl: string | null }) {
   const [showOriginal, setShowOriginal] = useState(false);
   const [fullSize, setFullSize] = useState(false);
   return (

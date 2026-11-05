@@ -11,8 +11,8 @@ This replaces the earlier plan in `ARCHITECTURE.md` for AI-estimated calories an
 | 3.1 | Secure image input and validation | Done |
 | 3.2 | Nutrition-label scanning and structured extraction | Done |
 | 3.3 | User review, correction and confirmation | Done |
-| 3.4 | PDF nutrition extraction | Implemented, awaiting review |
-| 3.5 | Meal photo identification, with no AI-generated calories | Not started |
+| 3.4 | PDF nutrition extraction | Done |
+| 3.5 | Meal photo identification, with no AI-generated calories | Implemented, awaiting review |
 | 3.6 | Food matching, provenance indicators, security and full regression testing | Not started |
 
 Each milestone needs review before the next one starts.
@@ -370,6 +370,63 @@ Each page shows what was found on it. Several headings on a page become separate
 - **JBIG2 and JPEG 2000 images:** the decoders are bundled and load, but no fixture exercised them, because neither can be produced with the test tools here.
 - **Tested on desktop browser builds,** not phones, where memory is much tighter.
 - **The parser knows English headings only.** Other labels fall back to scanning the page image.
+
+## 3.5: Meal photo identification
+
+**A photo can suggest what a food might be. It can never supply an amount or a nutrition value.** Those come only from a food record the person chooses and a quantity they type.
+
+```
+Choose or take a photo → browser prepares it → "Identify foods" → POST /api/nutrition/meal-identifications
+  → sign-in, Origin, budget, upload limits → full decode and clean copy (Phase 3.1) → one provider request
+  → strict validation → tentative suggestions, marked unverified
+  → the person accepts, corrects, removes, adds, or marks unknown
+  → "Find this food" → the person chooses a meal → existing food search → the person chooses a record
+  → the person types a quantity → existing POST /api/nutrition/entries
+```
+
+### How nutritional guessing is prevented
+
+| Layer | What it does |
+|---|---|
+| Prompt | Asks only for what foods are, and for no amounts, sizes or nutrition. Those aren't requested at all |
+| JSON schema | Has no number fields, so there's nowhere to put a value |
+| Unknown keys | `calories`, `grams` or anything else unexpected rejects the whole response, at any level |
+| Text check | Numbers in any script, units, serving and measure words, number words, nutrition claims and non-Latin letters in any text reject the whole response. Text is normalized first, so fullwidth forms and invisible characters can't hide a word. A short list of exact names, such as "7 Up" and "pound cake", is set aside, and the rest of the text is still checked |
+| Observations | What can be seen is never about nutrition, so these also reject words like "protein" and "high-carb" that a food's name might use |
+| Confidence | Only the words likely, possible and unknown. A numeric score would be invented |
+| Review state | A review item has no amount field, so nothing can be carried forward |
+| Search | Only a name the person accepted can become a query, and only when they ask |
+| Meal | No default. The person chooses a meal before the search appears, it's visible and changeable in the add sheet, and the review shows where each food went |
+| Food choice | Results are never selected automatically. No match means no food, and never a guessed profile |
+| Quantity | The add sheet starts empty in this flow, and can't be submitted until an amount is typed |
+| Calculation | The server's existing `POST /api/nutrition/entries` is the only thing that calculates, from the record and the typed amount |
+
+A response is rejected whole rather than cleaned, because a model that returns an amount has already gone outside its instructions. The cost is that a harmless phrase, such as "half an avocado" or "rice on one side of the plate", wastes a scan.
+
+### What's shared, and what isn't
+
+- **Shared with label scanning:** image validation, sanitizing, upload limits, the concurrency slot held until provider work settles, the provider request code, and the scan budget, so paid requests have one ceiling across both features.
+- **Its own:** `MEAL_IDENTIFICATION_MODEL`, with no default and no fallback to the label model, as accuracy on labels says nothing about accuracy on meals.
+
+**Not stored:** the photo stays in memory for the request, and in the person's browser for review. Identifying creates no food or diary entry. Choosing a USDA or Open Food Facts result caches that record, as the food search always has.
+
+### Estimated cost per photo
+
+Up to about 5,400 input tokens, and up to 1,500 output tokens, including thinking. The typical figure assumes about 400 output tokens. These are estimates, not measurements.
+
+| Model | Typical | Worst case |
+|---|---|---|
+| Opus 5.5 | About 2.8 cents | About 5.2 cents |
+| Sonnet 5.5 | About 1.4 cents | About 2.6 cents |
+| Haiku 5.5 | About 0.07 cents | About 0.13 cents |
+
+### Known limits
+
+- **Accuracy is unmeasured:** suggestions have never come from a real model. Mixed dishes and hidden ingredients can't be seen in a photo at all, which is why nothing relies on them.
+- **Real prompt injection is unmeasured:** a sign in a photo could still mislead a real model into a wrong name. It can't produce an action or an amount, and a person accepts every name.
+- **The text check is a word list, in English:** an amount in unusual phrasing, or in another language written in Latin letters such as "cien gramos", could pass. It would only ever be shown as text, as nothing reads numbers from it. Size words such as "large" are allowed, as they're part of names like "large egg".
+- **Numbered names outside the list are rejected:** a product such as "Pizza 73" fails closed and costs a scan, until it's added to the list.
+- **A false rejection costs a scan,** as described above.
 
 ## Provider recommendation
 

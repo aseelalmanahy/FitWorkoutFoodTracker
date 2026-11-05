@@ -52,14 +52,13 @@ export async function getLabelExtractor(): Promise<LabelExtractor | null> {
 }
 
 /**
- * Runs an extractor once, with a hard deadline. The caller gets an answer on time even if the
- * extractor ignores the abort signal, but that work can't be cancelled from here. `onSettled` runs
- * exactly once when the extractor has really finished, which can be after this returns. Whoever
- * limits concurrency must count the work until then.
+ * Runs one provider request, once, with a hard deadline. The caller gets an answer on time even if
+ * the request ignores the abort signal, but that work can't be cancelled from here. `onSettled` runs
+ * exactly once when the request has really finished, which can be after this returns. Whoever limits
+ * concurrency must count the work until then.
  */
-export async function runLabelExtraction(
-  extractor: LabelExtractor,
-  image: LabelImage,
+export async function runProviderRequest(
+  task: (signal: AbortSignal) => Promise<unknown>,
   { timeoutMs = LABEL_EXTRACTION_TIMEOUT_MS, onSettled }: { timeoutMs?: number; onSettled?: () => void } = {},
 ): Promise<unknown> {
   const controller = new AbortController();
@@ -70,7 +69,7 @@ export async function runLabelExtraction(
       controller.abort();
     }, timeoutMs);
   });
-  const work = (async () => extractor.extract(image, controller.signal))();
+  const work = (async () => task(controller.signal))();
   const settled = () => onSettled?.();
   void work.then(settled, settled); // also keeps a failure after the deadline from going unhandled
   try {
@@ -81,3 +80,6 @@ export async function runLabelExtraction(
     clearTimeout(timer);
   }
 }
+
+export const runLabelExtraction = (extractor: LabelExtractor, image: LabelImage, options: { timeoutMs?: number; onSettled?: () => void } = {}) =>
+  runProviderRequest((signal) => extractor.extract(image, signal), options);

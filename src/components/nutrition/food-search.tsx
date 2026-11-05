@@ -32,8 +32,14 @@ function Per100({ item }: { item: Pick<SearchItem, "per100" | "basisUnit"> }) {
   );
 }
 
-export function FoodSearch({ date, today, initialMeal }: { date: string; today: string; initialMeal: MealType }) {
-  const [q, setQ] = useState("");
+export function FoodSearch({ date, today, initialMeal, embedded }: {
+  date: string;
+  today: string;
+  initialMeal: MealType;
+  /** Inside another page, starting from a name a person confirmed. The amount must then be typed. */
+  embedded?: { initialQuery: string; onLogged: (meal: MealType) => void };
+}) {
+  const [q, setQ] = useState(embedded?.initialQuery ?? "");
   const [filter, setFilter] = useState<Filter>("ALL");
   const [data, setData] = useState<SearchResponse | null>(null);
   const [recent, setRecent] = useState<FoodDto[] | null>(null);
@@ -99,15 +105,17 @@ export function FoodSearch({ date, today, initialMeal }: { date: string; today: 
 
   return (
     <div>
-      <div className="sticky top-0 z-20 -mx-4 bg-bg/95 px-4 pt-4 pb-3 backdrop-blur-xl">
-        <div className="mb-3 flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-bold">Add food</h1>
-            <p className="text-xs text-muted">{relativeDayLabel(date, today)} · {MEAL_LABELS[meal]}</p>
+      <div className={embedded ? "pb-3" : "sticky top-0 z-20 -mx-4 bg-bg/95 px-4 pt-4 pb-3 backdrop-blur-xl"}>
+        {!embedded && (
+          <div className="mb-3 flex items-center justify-between">
+            <div>
+              <h1 className="text-xl font-bold">Add food</h1>
+              <p className="text-xs text-muted">{relativeDayLabel(date, today)} · {MEAL_LABELS[meal]}</p>
+            </div>
+            <Link href={date === today ? "/nutrition" : `/nutrition?date=${date}`} className="rounded-xl bg-fg px-4 py-2 text-sm font-semibold text-bg">Done</Link>
           </div>
-          <Link href={date === today ? "/nutrition" : `/nutrition?date=${date}`} className="rounded-xl bg-fg px-4 py-2 text-sm font-semibold text-bg">Done</Link>
-        </div>
-        <Input type="search" placeholder="Search foods or enter a barcode" value={q} onChange={(e) => setQ(e.target.value)} autoFocus aria-label="Search foods" />
+        )}
+        <Input type="search" placeholder="Search foods or enter a barcode" value={q} onChange={(e) => setQ(e.target.value)} autoFocus={!embedded} aria-label="Search foods" />
         <div className="mt-2 flex gap-1.5 overflow-x-auto">
           {FILTERS.map((f) => (
             <button key={f.v} type="button" onClick={() => setFilter(f.v)} aria-pressed={filter === f.v}
@@ -198,8 +206,8 @@ export function FoodSearch({ date, today, initialMeal }: { date: string; today: 
       )}
 
       {selected && (
-        <AddSheet food={selected} date={date} meal={meal} onClose={() => setSelected(null)}
-          onAdded={(name, kcal, m) => { setAdded((a) => [...a, { name, kcal, meal: m }]); setMeal(m); setSelected(null); setRecent((r) => (r && !r.some((x) => x.id === selected.id) ? [selected, ...r] : r)); }} />
+        <AddSheet food={selected} date={date} meal={meal} requireQuantity={Boolean(embedded)} onClose={() => setSelected(null)}
+          onAdded={(name, kcal, m) => { if (embedded) { embedded.onLogged(m); return; } setAdded((a) => [...a, { name, kcal, meal: m }]); setMeal(m); setSelected(null); setRecent((r) => (r && !r.some((x) => x.id === selected.id) ? [selected, ...r] : r)); }} />
       )}
       {creating && (
         <CustomFoodSheet initialName={q.trim()} onClose={() => setCreating(false)} onCreated={(f) => { setCreating(false); setSelected(f); }} />
@@ -208,12 +216,13 @@ export function FoodSearch({ date, today, initialMeal }: { date: string; today: 
   );
 }
 
-function AddSheet({ food, date, meal, onClose, onAdded }: {
-  food: FoodDto; date: string; meal: MealType; onClose: () => void; onAdded: (name: string, kcal: number | null, meal: MealType) => void;
+function AddSheet({ food, date, meal, requireQuantity, onClose, onAdded }: {
+  food: FoodDto; date: string; meal: MealType; requireQuantity: boolean; onClose: () => void; onAdded: (name: string, kcal: number | null, meal: MealType) => void;
 }) {
   const def = food.servings.find((s) => s.isDefault) ?? food.servings[0];
   const [servingId, setServingId] = useState<string | null>(def?.id ?? null);
-  const [quantity, setQuantity] = useState(def ? "1" : "100");
+  // With requireQuantity nothing is filled in, so an amount is always the person's own.
+  const [quantity, setQuantity] = useState(requireQuantity ? "" : def ? "1" : "100");
   const [mealType, setMealType] = useState<MealType>(meal);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -243,7 +252,7 @@ function AddSheet({ food, date, meal, onClose, onAdded }: {
           if (p.mealType) setMealType(p.mealType);
         }} />
       <div className="mt-3"><ErrorText>{error}</ErrorText></div>
-      <Button size="lg" className="mt-3 w-full" onClick={add} disabled={busy}>{busy ? "Adding…" : `Add to ${MEAL_LABELS[mealType]}`}</Button>
+      <Button size="lg" className="mt-3 w-full" onClick={add} disabled={busy || (requireQuantity && !(parseNum(quantity) > 0))}>{busy ? "Adding…" : `Add to ${MEAL_LABELS[mealType]}`}</Button>
     </Sheet>
   );
 }

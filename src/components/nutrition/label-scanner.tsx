@@ -12,22 +12,22 @@ import { Button, Card, ErrorText } from "@/components/ui";
 import { LabelReview } from "./label-review";
 import { PdfPagePicker, type PdfPagePreview } from "./pdf-page-picker";
 
-const HEIC_HELP = "This browser can't open HEIC photos. Export the photo as JPEG, or set your iPhone camera to Most Compatible, then try again.";
-const OPEN_FAILED = "This file couldn't be opened as an image. Use a JPEG, PNG or WebP photo.";
+export const HEIC_HELP = "This browser can't open HEIC photos. Export the photo as JPEG, or set your iPhone camera to Most Compatible, then try again.";
+export const OPEN_FAILED = "This file couldn't be opened as an image. Use a JPEG, PNG or WebP photo.";
 const TOO_SMALL = `The selected area is too small to read. It needs at least ${IMAGE_LIMITS.minDimension} pixels on each side.`;
 const TOO_LARGE = "This image can't be made small enough without losing quality. Crop closer to the label and try again.";
 const TEXT_NOTICE = "Unverified. These values were read from the PDF's text, and may be wrong or in the wrong column. Check every value against the page before using it.";
 const PDF_FAILED = "This PDF couldn't be read.";
-const PREPARE_FAILED = "This photo is too large for this device to prepare. Crop closer to the label, or use a smaller photo.";
+export const PREPARE_FAILED = "This photo is too large for this device to prepare. Crop closer to the label, or use a smaller photo.";
 
-interface Opened { file: File; url: string; kind: FileKind; image: HTMLImageElement; width: number; height: number }
-interface Prepared { blob: Blob; url: string; width: number; height: number; description: string; suggestCrop: boolean; changed: boolean }
+export interface Opened { file: File; url: string; kind: FileKind; image: HTMLImageElement; width: number; height: number }
+export interface Prepared { blob: Blob; url: string; width: number; height: number; description: string; suggestCrop: boolean; changed: boolean }
 interface ScanResult { notice: string; extraction: LabelExtraction }
 
 const canvasBlob = (canvas: HTMLCanvasElement, quality: number) => new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
 
 /** Draws only the selected pixels, at their final size. A canvas the size of a large photo can fail on phones. */
-async function prepare(opened: Opened, crop: CropShare): Promise<Prepared | { error: string }> {
+export async function prepare(opened: Opened, crop: CropShare): Promise<Prepared | { error: string }> {
   const plan = planPreparation({ kind: opened.kind, fileBytes: opened.file.size, imageWidth: opened.width, imageHeight: opened.height, crop });
   if (plan.action === "reject") return { error: TOO_SMALL };
   const description = describePreparation(plan, opened.width, opened.height);

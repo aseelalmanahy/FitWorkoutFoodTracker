@@ -1,6 +1,6 @@
 import "server-only";
 import Anthropic from "@anthropic-ai/sdk";
-import { LABEL_EXTRACTION_TIMEOUT_MS, LabelExtractionError, type LabelExtractor } from "./extractor";
+import { LABEL_EXTRACTION_TIMEOUT_MS, LabelExtractionError, type LabelExtractor, type LabelImage } from "./extractor";
 
 /** A full label fits easily. This caps what one scan can cost in output, including thinking. */
 const MAX_OUTPUT_TOKENS = 4096;
@@ -66,15 +66,23 @@ function failureFor(err: unknown): LabelExtractionError {
   return new LabelExtractionError("unavailable");
 }
 
-export function createAnthropicLabelExtractor(options: {
+/**
+ * One image and fixed text, sent once, with the JSON schema asked for, and the text of the answer
+ * returned unjudged. Shared by everything that reads an image, so all of it keeps these limits.
+ */
+export function createVisionJsonRequest(options: {
   apiKey: string;
   model: string;
   effort?: string;
   timeoutMs?: number;
   /** For tests, so the real SDK can run with no network. */
   fetch?: typeof fetch;
-}): LabelExtractor {
-  const { apiKey, model, timeoutMs = LABEL_EXTRACTION_TIMEOUT_MS } = options;
+  maxTokens: number;
+  system: string;
+  userPrompt: string;
+  schema: Record<string, unknown>;
+}) {
+  const { apiKey, model, maxTokens, system, userPrompt, schema, timeoutMs = LABEL_EXTRACTION_TIMEOUT_MS } = options;
   const effort = EFFORTS.includes(options.effort as Effort) ? (options.effort as Effort) : undefined;
   const client = new Anthropic({
     apiKey, // a key passed here is the client's only credential: the environment isn't read for another
@@ -86,35 +94,44 @@ export function createAnthropicLabelExtractor(options: {
     ...(options.fetch ? { fetch: options.fetch } : {}),
   });
 
-  return {
-    id: `anthropic:${model}`,
-    async extract(image, signal) {
-      if (!MEDIA_TYPES.has(image.mediaType)) throw new LabelExtractionError("invalid_response");
-      try {
-        const response = await client.messages.create({
-          model,
-          max_tokens: MAX_OUTPUT_TOKENS,
-          system: LABEL_SYSTEM_PROMPT,
-          output_config: {
-            format: { type: "json_schema", schema: LABEL_JSON_SCHEMA },
-            ...(effort ? { effort } : {}),
-          },
-          messages: [{
-            role: "user",
-            content: [
-              { type: "image", source: { type: "base64", media_type: image.mediaType as "image/jpeg" | "image/png" | "image/webp", data: Buffer.from(image.bytes).toString("base64") } },
-              { type: "text", text: LABEL_USER_PROMPT },
-            ],
-          }],
-        }, { signal });
-        if (response.stop_reason === "refusal") throw new LabelExtractionError("refused");
-        if (response.stop_reason === "max_tokens") throw new LabelExtractionError("truncated");
-        const text = response.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("");
-        if (!text) throw new LabelExtractionError("invalid_response");
-        return text;
-      } catch (err) {
-        throw failureFor(err);
-      }
-    },
+  return async (image: LabelImage, signal: AbortSignal): Promise<string> => {
+    if (!MEDIA_TYPES.has(image.mediaType)) throw new LabelExtractionError("invalid_response");
+    try {
+      const response = await client.messages.create({
+        model,
+        max_tokens: maxTokens,
+        system,
+        output_config: {
+          format: { type: "json_schema", schema },
+          ...(effort ? { effort } : {}),
+        },
+        messages: [{
+          role: "user",
+          content: [
+            { type: "image", source: { type: "base64", media_type: image.mediaType as "image/jpeg" | "image/png" | "image/webp", data: Buffer.from(image.bytes).toString("base64") } },
+            { type: "text", text: userPrompt },
+          ],
+        }],
+      }, { signal });
+      if (response.stop_reason === "refusal") throw new LabelExtractionError("refused");
+      if (response.stop_reason === "max_tokens") throw new LabelExtractionError("truncated");
+      const text = response.content.flatMap((block) => (block.type === "text" ? [block.text] : [])).join("");
+      if (!text) throw new LabelExtractionError("invalid_response");
+      return text;
+    } catch (err) {
+      throw failureFor(err);
+    }
   };
+}
+
+export function createAnthropicLabelExtractor(options: {
+  apiKey: string;
+  model: string;
+  effort?: string;
+  timeoutMs?: number;
+  /** For tests, so the real SDK can run with no network. */
+  fetch?: typeof fetch;
+}): LabelExtractor {
+  const request = createVisionJsonRequest({ ...options, maxTokens: MAX_OUTPUT_TOKENS, system: LABEL_SYSTEM_PROMPT, userPrompt: LABEL_USER_PROMPT, schema: LABEL_JSON_SCHEMA });
+  return { id: `anthropic:${options.model}`, extract: request };
 }
