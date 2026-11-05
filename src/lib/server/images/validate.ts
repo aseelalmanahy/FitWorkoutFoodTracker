@@ -13,28 +13,14 @@ import "server-only";
  * into a wrong-looking picture. No decoder can detect that. PNG data is covered by checksums.
  */
 import type sharpModule from "sharp";
+import { IMAGE_LIMITS, IMAGE_MEDIA_TYPES, type ImageFormat } from "@/lib/image-limits";
 
-export const IMAGE_LIMITS = {
-  /** Base64 adds a third, so this still fits within a 10 MB base64 request limit for vision APIs. */
-  maxBytes: 7 * 1024 * 1024,
-  /** Smaller images are unreadable for label text. */
-  minDimension: 200,
-  maxDimension: 8000,
-  /**
-   * Sets the memory used to decode: about 500 MB at worst, for an RGBA WebP. It's well above the
-   * 2,576 px long edge vision providers work at. It also keeps images in memory: libvips writes a
-   * decoded WebP to a temp file above 100 MiB, so raising this far enough would break that promise.
-   */
-  maxPixels: 16_000_000,
-  processingMs: 15_000,
-} as const;
+export { IMAGE_LIMITS, IMAGE_MEDIA_TYPES, type ImageFormat };
 
 /** Images accepted or being decoded. Each holds up to maxBytes of input, so this bounds that memory. */
 const MAX_PENDING_IMAGES = 4;
 const OUTPUT_QUALITY = 90;
 
-export const IMAGE_MEDIA_TYPES = { jpeg: "image/jpeg", png: "image/png", webp: "image/webp" } as const;
-export type ImageFormat = keyof typeof IMAGE_MEDIA_TYPES;
 export type ImageRejection = "unsupported_format" | "malformed" | "animated" | "too_small" | "too_large" | "timeout" | "busy";
 
 export interface ValidImage {
