@@ -16,6 +16,11 @@ describe("file kinds come from content", () => {
     expect(sniffFileKind(bytes([0, 0, 0, 24], "ftyp", brand))).toBe("heic");
   });
 
+  it("recognises a PDF, which is never treated as an image", () => {
+    expect(sniffFileKind(bytes("%PDF-1.7"))).toBe("pdf");
+    expect(plan({ kind: "pdf" }).action).toBe("reencode");
+  });
+
   it("doesn't mistake other files for images", () => {
     expect(sniffFileKind(bytes("<svg>"))).toBe("unknown");
     expect(sniffFileKind(bytes("GIF89a"))).toBe("unknown");

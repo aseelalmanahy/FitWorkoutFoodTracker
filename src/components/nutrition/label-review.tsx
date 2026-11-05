@@ -98,12 +98,13 @@ function SavedFood({ food, onScanAnother }: { food: FoodDto; onScanAnother: () =
   );
 }
 
-export function LabelReview({ extraction, notice, preparedUrl, originalUrl, onRescan, onScanAnother }: {
+export function LabelReview({ extraction, notice, preparedUrl, originalUrl, rescanLabel = "Scan this image again", onRescan, onScanAnother }: {
   extraction: LabelExtraction;
   notice: string;
   preparedUrl: string;
   /** The photo before it was cropped or scaled, when that differs. */
   originalUrl: string | null;
+  rescanLabel?: string;
   onRescan: () => void;
   onScanAnother: () => void;
 }) {
@@ -332,10 +333,10 @@ export function LabelReview({ extraction, notice, preparedUrl, originalUrl, onRe
 
         <div className="flex flex-wrap gap-2">
           <Button data-testid="save-food" onClick={() => void save()} disabled={!canSave}>{saving ? "Saving…" : "Save to My foods"}</Button>
-          <Button variant="secondary" disabled={saving} onClick={onRescan}>Scan this image again</Button>
+          <Button variant="secondary" disabled={saving} onClick={onRescan}>{rescanLabel}</Button>
           <Button variant="secondary" disabled={saving} onClick={onScanAnother}>Scan another label</Button>
         </div>
-        <p className="text-sm text-muted">Scanning again sends the image to the AI provider again, counts as another scan, and discards your corrections. Saving doesn&apos;t add anything to your diary.</p>
+        <p className="text-sm text-muted">Scanning sends the image to the AI provider, counts as a scan, and discards your corrections. Saving doesn&apos;t add anything to your diary.</p>
       </div>
     </div>
   );

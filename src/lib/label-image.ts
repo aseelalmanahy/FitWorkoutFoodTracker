@@ -12,7 +12,7 @@ export const JPEG_QUALITY_STEPS = [0.92, 0.85] as const;
 /** Uncropped photos scaled below this share of their size get advice to crop to the label. */
 const HEAVY_SCALE = 0.5;
 
-export type FileKind = ImageFormat | "heic" | "unknown";
+export type FileKind = ImageFormat | "heic" | "pdf" | "unknown";
 
 const HEIC_BRANDS = new Set(["heic", "heix", "hevc", "hevx", "heim", "heis", "hevm", "hevs", "mif1", "msf1"]);
 
@@ -23,6 +23,7 @@ export function sniffFileKind(head: Uint8Array): FileKind {
   if (text(0, 8) === "\x89PNG\r\n\x1a\n") return "png";
   if (text(0, 4) === "RIFF" && text(8, 4) === "WEBP") return "webp";
   if (text(4, 4) === "ftyp" && HEIC_BRANDS.has(text(8, 4))) return "heic";
+  if (text(0, 5) === "%PDF-") return "pdf";
   return "unknown";
 }
 

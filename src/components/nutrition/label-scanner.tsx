@@ -4,13 +4,20 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPoi
 import { IMAGE_LIMITS } from "@/lib/image-limits";
 import { describePreparation, FULL_CROP, isFullCrop, JPEG_QUALITY_STEPS, planPreparation, sniffFileKind, type CropShare, type FileKind } from "@/lib/label-image";
 import type { LabelExtraction } from "@/lib/label-extraction";
+import { browserPdfOptions, loadPdfLibrary } from "@/lib/client/pdf-browser";
+import { checkPdfBlob, openPdf, type PdfSession } from "@/lib/pdf/document";
+import type { LabelSection } from "@/lib/pdf/label-text";
+import { PDF_MESSAGES, PdfError } from "@/lib/pdf/limits";
 import { Button, Card, ErrorText } from "@/components/ui";
 import { LabelReview } from "./label-review";
+import { PdfPagePicker, type PdfPagePreview } from "./pdf-page-picker";
 
 const HEIC_HELP = "This browser can't open HEIC photos. Export the photo as JPEG, or set your iPhone camera to Most Compatible, then try again.";
 const OPEN_FAILED = "This file couldn't be opened as an image. Use a JPEG, PNG or WebP photo.";
 const TOO_SMALL = `The selected area is too small to read. It needs at least ${IMAGE_LIMITS.minDimension} pixels on each side.`;
 const TOO_LARGE = "This image can't be made small enough without losing quality. Crop closer to the label and try again.";
+const TEXT_NOTICE = "Unverified. These values were read from the PDF's text, and may be wrong or in the wrong column. Check every value against the page before using it.";
+const PDF_FAILED = "This PDF couldn't be read.";
 const PREPARE_FAILED = "This photo is too large for this device to prepare. Crop closer to the label, or use a smaller photo.";
 
 interface Opened { file: File; url: string; kind: FileKind; image: HTMLImageElement; width: number; height: number }
@@ -89,7 +96,8 @@ function Cropper({ opened, crop, onChange }: { opened: Opened; crop: CropShare; 
   );
 }
 
-type Stage = "pick" | "crop" | "review" | "scanning" | "result";
+type Stage = "pick" | "pdf" | "crop" | "review" | "scanning" | "result";
+const canvasPng = (canvas: HTMLCanvasElement) => new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
 
 export function LabelScanner() {
   const [stage, setStage] = useState<Stage>("pick");
@@ -101,11 +109,22 @@ export function LabelScanner() {
   const [working, setWorking] = useState(false);
   const urls = useRef(new Set<string>());
   const fileInput = useRef<HTMLInputElement>(null);
+  const [pdf, setPdf] = useState<{ session: PdfSession; fileName: string } | null>(null);
+  const [pdfPage, setPdfPage] = useState<number | null>(null);
+  const [pdfPreview, setPdfPreview] = useState<(PdfPagePreview & { file: File; image: HTMLImageElement; width: number; height: number }) | null>(null);
+  const pdfSession = useRef<PdfSession | null>(null);
+  const leftPage = useRef(false);
+  const [fromText, setFromText] = useState(false);
 
   const track = useCallback((url: string) => { urls.current.add(url); return url; }, []);
   useEffect(() => {
     const all = urls.current;
-    return () => { for (const url of all) URL.revokeObjectURL(url); };
+    leftPage.current = false;
+    return () => {
+      leftPage.current = true;
+      for (const url of all) URL.revokeObjectURL(url);
+      void pdfSession.current?.destroy(); // terminates its worker
+    };
   }, []);
 
   const reset = () => {
@@ -116,6 +135,124 @@ export function LabelScanner() {
     setResult(null);
     setCrop(FULL_CROP);
     setStage("pick");
+    void pdfSession.current?.destroy();
+    pdfSession.current = null;
+    setPdf(null);
+    setPdfPage(null);
+    setPdfPreview(null);
+    setFromText(false);
+  };
+
+  const openPdfFile = async (file: File) => {
+    setWorking(true);
+    try {
+      const rejection = await checkPdfBlob(file);
+      if (rejection) {
+        setError(PDF_MESSAGES[rejection]);
+        return;
+      }
+      const pdfjs = await loadPdfLibrary();
+      const session = await openPdf(pdfjs, new Uint8Array(await file.arrayBuffer()), browserPdfOptions());
+      if (leftPage.current) {
+        void session.destroy();
+        return;
+      }
+      pdfSession.current = session;
+      setPdf({ session, fileName: file.name });
+      setStage("pdf");
+    } catch (err) {
+      setError(err instanceof PdfError ? err.message : PDF_FAILED);
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  /** Draws only the chosen page, then frees its canvas once it's an image. */
+  const selectPdfPage = async (number: number) => {
+    if (!pdf) return;
+    setError(null);
+    setPdfPage(number);
+    setPdfPreview(null);
+    setWorking(true);
+    let canvas: HTMLCanvasElement | null = null;
+    try {
+      canvas = await pdf.session.renderPage(number, (width, height) => {
+        const c = document.createElement("canvas");
+        c.width = width;
+        c.height = height;
+        return c;
+      });
+      const blob = await canvasPng(canvas);
+      if (!blob) throw new PdfError("page_too_large");
+      const file = new File([blob], `page-${number}.png`, { type: "image/png" });
+      const url = track(URL.createObjectURL(file));
+      const image = new Image();
+      await new Promise<void>((resolve, reject) => {
+        image.onload = () => resolve();
+        image.onerror = () => reject(new PdfError("malformed"));
+        image.src = url;
+      });
+      setPdfPreview({ number, url, file, image, width: image.naturalWidth, height: image.naturalHeight });
+    } catch (err) {
+      setPdfPage(null);
+      setError(err instanceof PdfError ? err.message : PDF_FAILED);
+      // A timeout terminated the worker, so this document can't be used again.
+      if (err instanceof PdfError && err.code === "timeout") {
+        pdfSession.current = null;
+        setPdf(null);
+        setStage("pick");
+      }
+    } finally {
+      if (canvas) { canvas.width = 0; canvas.height = 0; }
+      setWorking(false);
+    }
+  };
+
+  const openedFromPreview = () => (pdfPreview ? { file: pdfPreview.file, url: pdfPreview.url, kind: "png" as const, image: pdfPreview.image, width: pdfPreview.width, height: pdfPreview.height } : null);
+
+  /** From here a PDF page is an image like any other photo, with the same crop, checks and upload. */
+  const usePdfPageImage = () => {
+    const page = openedFromPreview();
+    if (!page) return;
+    setError(null);
+    setFromText(false);
+    setOpened(page);
+    setCrop(FULL_CROP);
+    setStage("crop");
+  };
+
+  const usePdfSection = async (section: LabelSection) => {
+    const page = openedFromPreview();
+    if (!page || !section.result.reliable) return;
+    setError(null);
+    setWorking(true);
+    try {
+      const next = await prepare(page, FULL_CROP);
+      if ("error" in next) {
+        setError(next.error);
+        return;
+      }
+      track(next.url);
+      setOpened(page);
+      setCrop(FULL_CROP);
+      setPrepared(next);
+      setFromText(true);
+      setResult({ notice: TEXT_NOTICE, extraction: section.result.extraction });
+      setStage("result");
+    } catch {
+      setError(PREPARE_FAILED);
+    } finally {
+      setWorking(false);
+    }
+  };
+
+  const backToPages = () => {
+    setError(null);
+    setResult(null);
+    setPrepared(null);
+    setOpened(null);
+    setFromText(false);
+    setStage("pdf");
   };
 
   const pick = async (file: File | undefined) => {
@@ -123,6 +260,10 @@ export function LabelScanner() {
     reset();
     setError(null);
     const kind = sniffFileKind(new Uint8Array(await file.slice(0, 32).arrayBuffer()));
+    if (kind === "pdf") {
+      void openPdfFile(file);
+      return;
+    }
     if (kind === "unknown") {
       setError(OPEN_FAILED);
       return;
@@ -192,10 +333,33 @@ export function LabelScanner() {
     <div className="space-y-4">
       {stage === "pick" && (
         <Card className="p-4">
-          <label className="block text-sm font-medium" htmlFor="label-photo">Photo of a nutrition label</label>
-          <p className="mb-3 mt-1 text-sm text-muted">JPEG, PNG or WebP. Fill the frame with the label, in good light.</p>
-          <input ref={fileInput} id="label-photo" type="file" accept="image/jpeg,image/png,image/webp" onChange={(e) => { void pick(e.target.files?.[0]); e.target.value = ""; }} />
+          <label className="block text-sm font-medium" htmlFor="label-photo">Photo or PDF of a nutrition label</label>
+          <p className="mb-3 mt-1 text-sm text-muted">JPEG, PNG, WebP or PDF. For a photo, fill the frame with the label, in good light.</p>
+          <input ref={fileInput} id="label-photo" type="file" disabled={working} accept="image/jpeg,image/png,image/webp,application/pdf" onChange={(e) => { void pick(e.target.files?.[0]); e.target.value = ""; }} />
         </Card>
+      )}
+
+      {working && stage === "pick" && <p className="text-sm text-muted" role="status" data-testid="pdf-reading">Reading the PDF on this device…</p>}
+
+      {stage === "pdf" && pdf && (
+        <PdfPagePicker
+          fileName={pdf.fileName}
+          session={pdf.session}
+          selected={pdfPage}
+          preview={pdfPreview}
+          working={working}
+          onSelect={(number) => void selectPdfPage(number)}
+          onUseSection={(section) => void usePdfSection(section)}
+          onUseImage={usePdfPageImage}
+          onChooseAnother={reset}
+        />
+      )}
+
+      {pdf && pdfPage !== null && stage !== "pdf" && (
+        <div className="flex flex-wrap items-center justify-between gap-2 text-sm" data-testid="pdf-source">
+          <span>From page {pdfPage} of {pdf.session.pageCount} of <span className="font-medium">{pdf.fileName}</span></span>
+          <Button size="sm" variant="secondary" onClick={backToPages}>Choose another page</Button>
+        </div>
       )}
 
       {stage === "crop" && opened && (
@@ -205,7 +369,7 @@ export function LabelScanner() {
           <div className="flex flex-wrap gap-2">
             <Button onClick={() => void onPrepare()} disabled={working}>{working ? "Preparing…" : "Continue"}</Button>
             {!isFullCrop(crop) && <Button variant="secondary" onClick={() => setCrop(FULL_CROP)}>Reset crop</Button>}
-            <Button variant="secondary" onClick={reset}>Choose another photo</Button>
+            <Button variant="secondary" onClick={reset}>{pdf ? "Choose another file" : "Choose another photo"}</Button>
           </div>
         </>
       )}
@@ -234,8 +398,9 @@ export function LabelScanner() {
           notice={result.notice}
           preparedUrl={prepared.url}
           originalUrl={prepared.changed ? opened.url : null}
+          rescanLabel={fromText ? "Scan this page image instead" : undefined}
           // Corrections live in this component, so going back discards them, as the button says.
-          onRescan={() => { setResult(null); setError(null); setStage("review"); }}
+          onRescan={() => { setResult(null); setError(null); setFromText(false); setStage("review"); }}
           onScanAnother={reset}
         />
       )}
