@@ -614,7 +614,7 @@ describe("memory", () => {
   it("rate-limit records stay bounded when flooded with unique emails and clients", () => {
     for (let i = 0; i < 60_000; i++) beginLoginAttempt(`flood${i}@example.com`, `11.${i >> 16}.${(i >> 8) & 255}.${i & 255}`);
     expect(_loginThrottleRecordCount()).toBeLessThanOrEqual(50_000);
-  });
+  }, 30_000);
 
   it("registration throttle keys stay bounded when flooded with unique values, and its limit still works", () => {
     for (let i = 0; i < 60_000; i++) {

@@ -9,20 +9,28 @@ import { _resetLabelScanLimits, _trackedScanUsers } from "@/lib/server/labels/li
 import { LabelExtractionError, type LabelExtractionFailure, type LabelExtractor, type LabelImage } from "@/lib/server/labels/extractor";
 import { bytesOf, contains, cornerColours, exifSegment, jpegComment, quadrants, solid, withJpegSegments } from "@/test/image-fixtures";
 import { absentNutrient, goodLabel, notALabel, nutrient, perServing, serving, text, unreadableNutrient } from "@/test/label-fixtures";
+import { route } from "@/lib/server/api";
+import { withValidatedImage } from "@/lib/server/images/upload";
+import { POST as validateImageRoute } from "@/app/api/images/validate/route";
 import { POST } from "./route";
 import * as routeModule from "./route";
 
-const fakes = vi.hoisted(() => ({ sessionFind: vi.fn(), cookies: new Map<string, string>(), write: vi.fn(), extractor: null as unknown }));
+const fakes = vi.hoisted(() => ({ sessionFind: vi.fn(), cookies: new Map<string, string>(), write: vi.fn(), extractor: null as unknown, timeoutMs: undefined as number | undefined }));
 vi.mock("@/lib/server/db", () => ({
   prisma: new Proxy({}, { get: (_t, model: string) => (model === "session" ? { findUnique: fakes.sessionFind, delete: async () => ({}) } : new Proxy({}, { get: () => fakes.write })) }),
 }));
 vi.mock("next/headers", () => ({
   cookies: async () => ({ get: (name: string) => (fakes.cookies.has(name) ? { value: fakes.cookies.get(name) } : undefined), set: () => {}, delete: () => {} }),
 }));
-vi.mock("@/lib/server/labels/extractor", async (original) => ({
-  ...(await original<typeof import("@/lib/server/labels/extractor")>()),
-  getLabelExtractor: async () => fakes.extractor,
-}));
+vi.mock("@/lib/server/labels/extractor", async (original) => {
+  const actual = await original<typeof import("@/lib/server/labels/extractor")>();
+  return {
+    ...actual,
+    getLabelExtractor: async () => fakes.extractor,
+    // The real function, with a shorter deadline when a test asks for one.
+    runLabelExtraction: (extractor: LabelExtractor, image: LabelImage, options: { onSettled?: () => void }) => actual.runLabelExtraction(extractor, image, { ...options, ...(fakes.timeoutMs ? { timeoutMs: fakes.timeoutMs } : {}) }),
+  };
+});
 
 const ctx = { params: Promise.resolve({}) } as never;
 const asUser = (id: string) => {
@@ -65,6 +73,7 @@ beforeEach(() => {
   fakes.cookies.clear();
   fakes.sessionFind.mockReset();
   fakes.write.mockReset();
+  fakes.timeoutMs = undefined;
   asUser("user-a");
   extractorReturning(goodLabel());
 });
@@ -399,6 +408,190 @@ describe("concurrent requests", () => {
     expect(beginImageUpload("now-there-is-room").allowed).toBe(true);
     for (const s of held) if (s.allowed) s.release();
   }, 30_000);
+});
+
+describe("a provider that ignores cancellation after the deadline", () => {
+  function stubbornExtractor() {
+    const state = { calls: 0, inFlight: 0, peak: 0, signals: [] as AbortSignal[], finish: [] as ((outcome?: Error) => void)[] };
+    fakes.extractor = {
+      id: "fake:model",
+      extract: (_image, signal) => new Promise((resolve, reject) => {
+        state.calls++;
+        state.inFlight++;
+        state.peak = Math.max(state.peak, state.inFlight);
+        state.signals.push(signal); // deliberately never listens to it
+        state.finish.push((failure) => {
+          state.inFlight--;
+          if (failure) reject(failure);
+          else resolve(goodLabel());
+        });
+      }),
+    } satisfies LabelExtractor;
+    fakes.timeoutMs = 10;
+    return state;
+  }
+  const settled = () => new Promise((resolve) => setTimeout(resolve, 10));
+  const quietLogs = () => vi.spyOn(console, "error").mockImplementation(() => {});
+
+  it("the user gets the timeout response on time, and cancellation is requested", async () => {
+    const state = stubbornExtractor();
+    const err = quietLogs();
+    const r = await scan(JPEG);
+    expect(r.status).toBe(504);
+    expect(r.headers.get("retry-after")).toBe("30");
+    expect(await r.json()).toEqual({ error: "The label took too long to read. Try again later." });
+    expect(state.signals[0].aborted).toBe(true);
+    expect(state.inFlight).toBe(1); // still running: this is the case being tested
+    expect(err.mock.calls).toEqual([["Label extraction failed: timeout"]]);
+  });
+
+  it("the work stays counted after the response: the same user can't start another", async () => {
+    const state = stubbornExtractor();
+    quietLogs();
+    expect((await scan(JPEG)).status).toBe(504);
+    const { state: read, stream } = unreadStream();
+    expect((await scan(stream)).status).toBe(429);
+    expect(read.pulled).toBe(0);
+    expect(state.calls).toBe(1);
+    state.finish[0]();
+    await settled();
+    expect((await scan(JPEG)).status).toBe(504); // released, so a new request runs again
+    expect(state.calls).toBe(2);
+  });
+
+  it("timed-out work uses the 4 slots, so no user can exceed the limit", async () => {
+    const state = stubbornExtractor();
+    quietLogs();
+    for (const id of ["a", "b", "c", "d"]) {
+      asUser(`stuck-${id}`);
+      expect((await scan(JPEG)).status).toBe(504);
+    }
+    expect(state.inFlight).toBe(4);
+    for (const id of ["e", "f", "g"]) {
+      asUser(`stuck-${id}`);
+      const { state: read, stream } = unreadStream();
+      expect((await scan(stream)).status).toBe(429);
+      expect(read.pulled).toBe(0);
+    }
+    expect(state.calls).toBe(4);
+    expect(state.peak).toBe(4);
+    expect(beginImageUpload("someone-else").allowed).toBe(false);
+  });
+
+  it("slots come back exactly once as work settles: never early, and never too many", async () => {
+    const state = stubbornExtractor();
+    quietLogs();
+    for (const id of ["a", "b", "c", "d"]) {
+      asUser(`release-${id}`);
+      expect((await scan(JPEG)).status).toBe(504);
+    }
+    state.finish[0]();
+    await settled();
+    const one = beginImageUpload("after-one");
+    expect(one.allowed).toBe(true);
+    expect(beginImageUpload("no-room-yet").allowed).toBe(false);
+    state.finish[1]();
+    state.finish[2](new Error("late failure"));
+    state.finish[3]();
+    await settled();
+    const three = ["x", "y", "z"].map((id) => beginImageUpload(id));
+    expect(three.every((s) => s.allowed)).toBe(true);
+    expect(beginImageUpload("over-the-limit").allowed).toBe(false); // exactly 4: a double release would allow 5
+    for (const s of [one, ...three]) if (s.allowed) s.release();
+  });
+
+  it("a hung provider fails closed: uploads are refused, and other routes keep working", async () => {
+    const state = stubbornExtractor();
+    quietLogs();
+    for (const id of ["a", "b", "c", "d"]) {
+      asUser(`hung-${id}`);
+      expect((await scan(JPEG)).status).toBe(504);
+    }
+    asUser("hung-e");
+    expect((await scan(JPEG)).status).toBe(429);
+    const validate = await validateImageRoute(new NextRequest("http://localhost:3000/api/images/validate", { method: "POST", headers: { Origin: "http://localhost:3000", Host: "localhost:3000", "Content-Type": "image/jpeg" }, body: JPEG }), ctx);
+    expect(validate.status).toBe(429);
+    const unrelated = route(async () => ({ ok: true }));
+    const response = await unrelated(new NextRequest("http://localhost:3000/api/foods"), ctx);
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual({ ok: true });
+    expect(state.calls).toBe(4);
+  });
+
+  it("holdSlot: releasing one hold twice can't free a slot another hold still needs", async () => {
+    const request = new NextRequest("http://localhost:3000/api/nutrition/label-scans", { method: "POST", headers: { "Content-Type": "image/jpeg" }, body: JPEG });
+    let releaseSecond = () => {};
+    await withValidatedImage(request, "holding-user", async ({ holdSlot }) => {
+      const releaseFirst = holdSlot();
+      releaseSecond = holdSlot();
+      releaseFirst();
+      releaseFirst();
+    });
+    expect(beginImageUpload("holding-user").allowed).toBe(false); // the second hold is still running
+    releaseSecond();
+    const after = beginImageUpload("holding-user");
+    expect(after.allowed).toBe(true);
+    if (after.allowed) after.release();
+  });
+
+  it("a successful scan is unaffected, and still works after timed-out work settles", async () => {
+    const state = stubbornExtractor();
+    quietLogs();
+    expect((await scan(JPEG)).status).toBe(504);
+    state.finish[0]();
+    await settled();
+    fakes.timeoutMs = undefined;
+    fakes.extractor = { id: "ok", extract: async () => goodLabel() };
+    const r = await scan(JPEG);
+    expect(r.status).toBe(200);
+    expect((await r.json()).extraction).toEqual(goodLabel());
+  });
+
+  it("a successful scan releases its slot once", async () => {
+    fakes.extractor = { id: "ok", extract: async () => goodLabel() };
+    for (const id of ["a", "b", "c", "d", "e", "f"]) {
+      asUser(`ok-${id}`);
+      expect((await scan(JPEG)).status).toBe(200);
+    }
+    const held = Array.from({ length: 4 }, (_, i) => beginImageUpload(`holder-${i}`));
+    expect(held.every((s) => s.allowed)).toBe(true);
+    expect(beginImageUpload("over-the-limit").allowed).toBe(false);
+    for (const s of held) if (s.allowed) s.release();
+  });
+
+  it("the provider is called once, with no retry, and the timeout counts against the scan budget", async () => {
+    vi.stubEnv("LABEL_SCAN_USER_DAILY_LIMIT", "1");
+    const state = stubbornExtractor();
+    quietLogs();
+    expect((await scan(JPEG)).status).toBe(504);
+    await settled();
+    expect(state.calls).toBe(1);
+    state.finish[0]();
+    await settled();
+    const over = await scan(JPEG);
+    expect(over.status).toBe(429);
+    expect(Number(over.headers.get("Retry-After"))).toBeGreaterThan(3600); // the daily budget, not a busy slot
+    expect(state.calls).toBe(1);
+  });
+
+  it("nothing sensitive reaches the timeout response or logs, including a late provider error", async () => {
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+    const state = stubbornExtractor();
+    const spies = [quietLogs(), vi.spyOn(console, "warn").mockImplementation(() => {}), vi.spyOn(console, "log").mockImplementation(() => {})];
+    const upload = Buffer.from(withJpegSegments(JPEG, jpegComment("SECRET-UPLOAD")));
+    const r = await scan(upload, "image/jpeg", { Cookie: "fit_session=token-user-a" });
+    const body = await r.text();
+    state.finish[0](new Error("401 invalid x-api-key sk-ant-SECRET at /secret/path"));
+    await settled();
+    const logged = JSON.stringify(spies.flatMap((spy) => spy.mock.calls));
+    for (const text of [body, logged]) {
+      for (const secret of ["SECRET", "secret", "x-api-key", "token-user-a", "user-a", "fit_session", "anthropic"]) expect(text, secret).not.toContain(secret);
+    }
+    expect(logged).toBe('[["Label extraction failed: timeout"]]');
+    expect(unhandled).not.toHaveBeenCalled();
+    process.off("unhandledRejection", unhandled);
+  });
 });
 
 describe("cost controls", () => {

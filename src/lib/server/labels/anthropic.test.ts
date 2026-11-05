@@ -241,20 +241,78 @@ describe("the deadline around any extractor", () => {
       s.addEventListener("abort", () => { aborted = true; });
       return new Promise(() => {});
     });
-    await expect(runLabelExtraction(stubborn, IMAGE, 10)).rejects.toMatchObject({ code: "timeout" });
+    await expect(runLabelExtraction(stubborn, IMAGE, { timeoutMs: 10 })).rejects.toMatchObject({ code: "timeout" });
     expect(aborted).toBe(true);
+  });
+
+  it("onSettled waits for the extractor itself, not the deadline, and runs exactly once", async () => {
+    let finish: (value: unknown) => void = () => {};
+    const stubborn = extractorThat(() => new Promise((resolve) => { finish = resolve; }));
+    const onSettled = vi.fn();
+    await expect(runLabelExtraction(stubborn, IMAGE, { timeoutMs: 5, onSettled })).rejects.toMatchObject({ code: "timeout" });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(onSettled).not.toHaveBeenCalled();
+    finish("too late");
+    await vi.waitFor(() => expect(onSettled).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(onSettled).toHaveBeenCalledTimes(1);
+  });
+
+  it("a failure after the deadline runs onSettled once, and isn't left unhandled", async () => {
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+    let fail: (err: Error) => void = () => {};
+    const stubborn = extractorThat(() => new Promise((_, reject) => { fail = reject; }));
+    const onSettled = vi.fn();
+    await expect(runLabelExtraction(stubborn, IMAGE, { timeoutMs: 5, onSettled })).rejects.toMatchObject({ code: "timeout" });
+    fail(new Error("secret detail"));
+    await vi.waitFor(() => expect(onSettled).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(unhandled).not.toHaveBeenCalled();
+    process.off("unhandledRejection", unhandled);
+  });
+
+  it.each([
+    ["success", async (): Promise<unknown> => "ok"],
+    ["a failure", async (): Promise<unknown> => { throw new LabelExtractionError("refused"); }],
+    ["a synchronous throw", (): Promise<unknown> => { throw new Error("secret detail"); }],
+  ] as const)("onSettled runs exactly once after %s", async (_name, extract) => {
+    const onSettled = vi.fn();
+    await runLabelExtraction(extractorThat(extract), IMAGE, { onSettled }).catch(() => {});
+    await vi.waitFor(() => expect(onSettled).toHaveBeenCalledTimes(1));
+    await new Promise((resolve) => setTimeout(resolve, 5));
+    expect(onSettled).toHaveBeenCalledTimes(1);
+  });
+
+  it("a late failure isn't left unhandled when no onSettled is given either", async () => {
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+    let fail: (err: Error) => void = () => {};
+    const stubborn = extractorThat(() => new Promise((_, reject) => { fail = reject; }));
+    await expect(runLabelExtraction(stubborn, IMAGE, { timeoutMs: 5 })).rejects.toMatchObject({ code: "timeout" });
+    fail(new Error("secret detail"));
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(unhandled).not.toHaveBeenCalled();
+    process.off("unhandledRejection", unhandled);
+  });
+
+  it("makes exactly one call, with no retry", async () => {
+    const extract = vi.fn(() => new Promise<never>(() => {}));
+    await runLabelExtraction(extractorThat(extract), IMAGE, { timeoutMs: 5 }).catch(() => {});
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(extract).toHaveBeenCalledTimes(1);
   });
 
   it("turns any other extractor error into a code, dropping its message", async () => {
     const broken = extractorThat(async () => { throw new Error("secret detail"); });
-    const err: LabelExtractionError = await runLabelExtraction(broken, IMAGE, 1000).then(() => { throw new Error("expected a failure"); }, (e) => e);
+    const err: LabelExtractionError = await runLabelExtraction(broken, IMAGE).then(() => { throw new Error("expected a failure"); }, (e) => e);
     expect(err).toBeInstanceOf(LabelExtractionError);
     expect(err.code).toBe("unavailable");
     expect(err.message).not.toContain("secret");
   });
 
   it("passes through a result and an extractor's own failure code", async () => {
-    expect(await runLabelExtraction(extractorThat(async () => "ok"), IMAGE, 1000)).toBe("ok");
-    await expect(runLabelExtraction(extractorThat(async () => { throw new LabelExtractionError("refused"); }), IMAGE, 1000)).rejects.toMatchObject({ code: "refused" });
+    expect(await runLabelExtraction(extractorThat(async () => "ok"), IMAGE)).toBe("ok");
+    await expect(runLabelExtraction(extractorThat(async () => { throw new LabelExtractionError("refused"); }), IMAGE)).rejects.toMatchObject({ code: "refused" });
   });
 });

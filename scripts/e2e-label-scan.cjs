@@ -84,7 +84,11 @@ async function runBrowser(name, files) {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
   const page = await ctx.newPage();
   const errors = [];
-  page.on("pageerror", (e) => errors.push(e.message));
+  page.on("pageerror", (e) => {
+    // WebKit reports Next's background page prefetches this way when navigating away interrupts them.
+    if (name === "webkit" && /\?_rsc=\S* due to access control checks/.test(e.message)) return;
+    errors.push(e.message);
+  });
   page.on("dialog", (d) => { errors.push(`dialog: ${d.message()}`); d.dismiss(); });
   await signUp(page);
   await stub.reset();

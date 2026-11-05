@@ -31,12 +31,12 @@ export const POST = route(async (req, { user }) => {
   if (!extractor) throw new HttpError(503, "Label scanning isn't set up on this server.");
   assertBudget(checkLabelScanBudget(user.id));
 
-  return withValidatedImage(req, user.id, async ({ image, sha256 }) => {
+  return withValidatedImage(req, user.id, async ({ image, sha256, holdSlot }) => {
     assertBudget(reserveLabelScan(user.id));
 
     let raw: unknown;
     try {
-      raw = await runLabelExtraction(extractor, { bytes: image.sanitized, mediaType: image.mediaType });
+      raw = await runLabelExtraction(extractor, { bytes: image.sanitized, mediaType: image.mediaType }, { onSettled: holdSlot() });
     } catch (err) {
       const code: LabelExtractionFailure = err instanceof LabelExtractionError ? err.code : "unavailable";
       // The code only: provider messages can hold request details, so they're never logged or returned.

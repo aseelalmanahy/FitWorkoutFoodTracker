@@ -199,6 +199,8 @@ Nothing is stored and no food or log entry is created. Errors and logs hold only
 
 **What bounds the cost of a scan:** one request, as SDK retries are off and refusal fallbacks aren't used. Output is capped at 4,096 tokens, and the image at the size above. Failed requests still count against the limits, because they may be billed. Provider requests also hold an upload slot, so at most 4 run at once.
 
+**After a timeout:** the user gets the 504 on time and cancellation is requested, but a provider request that ignores cancellation stays counted. It keeps its upload slot until it really ends, and is never retried. If requests truly hang, each holds its slot until the server restarts: that user's uploads, and everyone's once all 4 are held, get 429, while routes that don't take uploads keep working.
+
 **These limits live in memory, per server process, and reset on restart.** Set a spending limit with the provider too, as the only hard ceiling.
 
 ### Safety

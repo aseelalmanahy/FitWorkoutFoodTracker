@@ -24,6 +24,11 @@ export interface ValidatedUpload {
   bytes: number;
   /** SHA-256 of the file as uploaded. */
   sha256: string;
+  /**
+   * For work that can outlast the handler, such as a provider request after its deadline. The slot
+   * stays held until the returned function is called. Calling it again has no effect.
+   */
+  holdSlot: () => () => void;
 }
 
 /**
@@ -31,8 +36,10 @@ export interface ValidatedUpload {
  * file name is accepted, and nothing is stored: the bytes exist in memory only while the request
  * is processed, and are never logged. Call this after authentication.
  *
- * The upload's slot is held until both the handler and any decoding have really ended, which can
- * be after a timeout response was sent, so slow work always counts against the limits.
+ * The upload's slot is held until the handler, any decoding and any work under `holdSlot` have
+ * really ended, which can be after a timeout response was sent, so slow work always counts against
+ * the limits. Work that never ends keeps its slot: new uploads are refused once all slots are held,
+ * and routes that don't take uploads are unaffected.
  */
 export async function withValidatedImage<T>(req: NextRequest, userId: string, handler: (upload: ValidatedUpload) => Promise<T>): Promise<T> {
   const declared = req.headers.get("content-type")?.split(";")[0].trim().toLowerCase() ?? "";
@@ -43,6 +50,15 @@ export async function withValidatedImage<T>(req: NextRequest, userId: string, ha
 
   let holders = 1;
   const releaseOne = () => { if (--holders === 0) slot.release(); };
+  const holdSlot = () => {
+    holders++;
+    let released = false;
+    return () => {
+      if (released) return;
+      released = true;
+      releaseOne();
+    };
+  };
   try {
     const bytes = await readLimitedBytes(req, { maxBytes: IMAGE_LIMITS.maxBytes, timeoutMs: READ_TIMEOUT_MS });
     holders++;
@@ -52,7 +68,7 @@ export async function withValidatedImage<T>(req: NextRequest, userId: string, ha
       throw new HttpError(status, message, undefined, headers);
     }
     if (image.mediaType !== declared) throw new HttpError(415, "The file's content doesn't match its type");
-    return await handler({ image, bytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex") });
+    return await handler({ image, bytes: bytes.length, sha256: createHash("sha256").update(bytes).digest("hex"), holdSlot });
   } finally {
     releaseOne();
   }

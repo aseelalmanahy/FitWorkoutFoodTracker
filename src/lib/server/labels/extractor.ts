@@ -49,8 +49,17 @@ export async function getLabelExtractor(): Promise<LabelExtractor | null> {
   return createAnthropicLabelExtractor({ apiKey, model, effort: process.env.LABEL_EXTRACTION_EFFORT?.trim() || undefined });
 }
 
-/** Runs an extractor with a hard deadline, even if it ignores the abort signal. */
-export async function runLabelExtraction(extractor: LabelExtractor, image: LabelImage, timeoutMs = LABEL_EXTRACTION_TIMEOUT_MS): Promise<unknown> {
+/**
+ * Runs an extractor once, with a hard deadline. The caller gets an answer on time even if the
+ * extractor ignores the abort signal, but that work can't be cancelled from here. `onSettled` runs
+ * exactly once when the extractor has really finished, which can be after this returns. Whoever
+ * limits concurrency must count the work until then.
+ */
+export async function runLabelExtraction(
+  extractor: LabelExtractor,
+  image: LabelImage,
+  { timeoutMs = LABEL_EXTRACTION_TIMEOUT_MS, onSettled }: { timeoutMs?: number; onSettled?: () => void } = {},
+): Promise<unknown> {
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const deadline = new Promise<never>((_, fail) => {
@@ -59,8 +68,11 @@ export async function runLabelExtraction(extractor: LabelExtractor, image: Label
       controller.abort();
     }, timeoutMs);
   });
+  const work = (async () => extractor.extract(image, controller.signal))();
+  const settled = () => onSettled?.();
+  void work.then(settled, settled); // also keeps a failure after the deadline from going unhandled
   try {
-    return await Promise.race([extractor.extract(image, controller.signal), deadline]);
+    return await Promise.race([work, deadline]);
   } catch (err) {
     throw err instanceof LabelExtractionError ? err : new LabelExtractionError("unavailable");
   } finally {
