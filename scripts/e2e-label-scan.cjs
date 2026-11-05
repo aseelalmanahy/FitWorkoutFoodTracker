@@ -41,6 +41,9 @@ async function unconfigured() {
   await page.getByRole("button", { name: "Continue" }).click();
   await page.getByRole("button", { name: "Use this" }).click();
   await page.getByText("Label scanning isn't set up on this server.").waitFor();
+  await page.goto(`${BASE}/nutrition/add`);
+  await page.getByLabel("Search foods").waitFor();
+  assert.equal(await page.getByRole("link", { name: "Scan a nutrition label" }).count(), 0, "no link to a feature that's off");
   await browser.close();
   console.log("ALL UNCONFIGURED CHECKS PASSED");
 }
@@ -268,10 +271,238 @@ async function runBrowser(name, files) {
   }
   step("non-label, invalid output, refusal, outage and bad key: clear generic messages, no provider details");
 
+  // A fresh account, as the steps above use up most of one user's upload allowance.
+  await ctx.clearCookies();
+  await signUp(page);
+  await reviewFlows({ name, page, scanPage, pick, toReview, useThis, files });
+
   assert.deepEqual(errors, [], "no page errors");
-  const finalFoods = await page.evaluate(() => fetch("/api/foods").then((r) => r.json()));
-  assert.deepEqual(finalFoods.foods, []);
   await browser.close();
+}
+
+/** Review, correction and confirmation, after a scan. */
+async function reviewFlows({ name, page, scanPage, pick, toReview, useThis, files }) {
+  // Any attempt to log counts, whatever date it's for. Checking one day's diary alone could miss it.
+  const entryWrites = [];
+  page.on("request", (request) => {
+    if (request.method() !== "GET" && new URL(request.url()).pathname.startsWith("/api/nutrition/entries")) entryWrites.push(request.url());
+  });
+  const foods = () => page.evaluate(() => fetch("/api/foods").then((r) => r.json()).then((b) => b.foods));
+  const input = (id) => page.getByTestId(`input-${id}`);
+  const origin = (id) => page.getByTestId(`origin-${id}`).getAttribute("data-origin");
+  const blockers = () => page.getByTestId("save-blockers").innerText();
+  const saveButton = () => page.getByTestId("save-food");
+  const scanWith = async (scenario, file = files.smallUpright) => {
+    await stub.scenario(scenario);
+    await scanPage();
+    await pick(file);
+    await toReview();
+    await useThis();
+    await page.getByTestId("scan-result").waitFor();
+  };
+  const confirmAndSave = async () => {
+    await page.getByTestId("confirm-values").check();
+    if (await page.getByTestId("confirm-warnings").count()) await page.getByTestId("confirm-warnings").check();
+    await saveButton().click();
+    await page.getByTestId("saved-food").waitFor();
+  };
+  const savedPer100 = (key) => page.getByTestId(`saved-per100-${key}`).innerText();
+  let expectedFoods = (await foods()).length;
+  assert.equal(expectedFoods, 0, "scanning created no foods");
+
+  // 12. Values are distinguished, and nothing is saved without confirming. Nothing is uploaded again.
+  await scanWith("good", files.large);
+  assert.equal(await input("name").inputValue(), "Rolled Oats");
+  assert.equal(await input("kcal").inputValue(), "120");
+  assert.equal(await origin("kcal"), "ai");
+  assert.equal(await origin("fiber"), "missing");
+  assert.equal(await input("fiber").inputValue(), "", "a missing nutrient stays empty");
+  assert.equal(await input("servings-per-container").inputValue(), "16");
+  await input("servings-per-container").fill("18");
+  assert.equal(await origin("servings-per-container"), "corrected");
+  assert.equal(await origin("serving"), "ai");
+  await input("serving-unit").selectOption("ML");
+  assert.equal(await origin("serving"), "corrected", "changing only the unit is a correction");
+  await input("serving-unit").selectOption("G");
+  assert.equal(await origin("serving"), "ai");
+  const image = await page.getByTestId("review-image").evaluate(async (img) => { await img.decode(); return img.naturalWidth; });
+  assert.ok(image > 0, "the image stays available");
+  await page.getByRole("button", { name: "Show original photo" }).click();
+  assert.equal(await page.getByTestId("review-image").evaluate(async (img) => { await img.decode(); return img.naturalWidth; }), 6000, "the original photo is available");
+  await page.getByRole("button", { name: "Show scanned image" }).click();
+  const uploads = (await stub.requests()).length;
+  assert.equal(await saveButton().isDisabled(), true, "nothing is confirmed automatically");
+  await input("protein").fill("4.5");
+  assert.equal(await origin("protein"), "corrected");
+  assert.equal(await page.getByTestId("preview-per100-protein").innerText(), "15 g");
+  await page.getByTestId("confirm-values").check();
+  assert.equal(await saveButton().isEnabled(), true);
+  await input("protein").fill("4.6");
+  assert.equal(await page.getByTestId("confirm-values").isChecked(), false, "changing a value needs confirming again");
+  assert.equal(await saveButton().isDisabled(), true);
+  await input("protein").fill("4.5");
+  await page.getByTestId("confirm-values").check();
+  await saveButton().dblclick();
+  await page.getByTestId("saved-food").waitFor();
+  expectedFoods++;
+  assert.equal((await foods()).length, expectedFoods, "a double click creates one food");
+  assert.equal(await savedPer100("protein"), "15 g");
+  assert.equal(await savedPer100("kcal"), "400 kcal");
+  assert.equal(await savedPer100("fiber"), "Not reported", "missing fiber isn't saved as 0");
+  assert.match(await page.getByTestId("saved-food").innerText(), /hasn't been added to your diary/);
+  assert.equal((await stub.requests()).length, uploads, "reviewing and saving didn't upload the image again");
+  await page.screenshot({ path: `${SHOTS}label-${name}-saved.png`, fullPage: true });
+  step("values are marked by origin, need confirming, save once, and don't upload again");
+
+  // 13. Nothing was logged, and the food is in the normal workflow.
+  const diaryCount = () => page.evaluate(() => fetch("/api/nutrition/day").then((r) => r.json()).then((d) => d.meals.flatMap((m) => m.entries).length));
+  assert.equal(await diaryCount(), 0, "saving a food logs nothing");
+  assert.deepEqual(entryWrites, [], "saving a food never tries to log it");
+  await page.getByRole("link", { name: "Add to diary" }).click();
+  await page.waitForURL("**/nutrition/add**");
+  await page.getByLabel("Search foods").fill("Rolled");
+  await page.getByRole("button", { name: /Rolled Oats/ }).first().waitFor();
+  await page.getByRole("link", { name: "Scan a nutrition label" }).waitFor();
+  step("food appears in the food workflow, with no diary entry");
+
+  // 14. Required values can't be skipped, and an explicit 0 is allowed.
+  await scanWith("missingFat");
+  assert.equal(await origin("fat"), "missing");
+  assert.equal(await input("fat").inputValue(), "");
+  assert.match(await blockers(), /Fat isn't on the label/);
+  assert.equal(await page.getByTestId("save-preview").count(), 0);
+  assert.equal(await saveButton().isDisabled(), true);
+  await input("fat").fill("abc");
+  assert.match(await blockers(), /Enter a number/);
+  await input("fat").fill("0");
+  assert.equal(await origin("fat"), "entered");
+  await confirmAndSave();
+  expectedFoods++;
+  assert.equal(await savedPer100("fat"), "0 g");
+  step("a missing nutrient blocks saving and says why; a typed 0 is kept as the person's own");
+
+  // 15. Unreadable values.
+  await scanWith("unreadable");
+  assert.equal(await origin("protein"), "unreadable");
+  assert.match(await page.getByTestId("scan-result").innerText(), /Glare over this row/);
+  assert.match(await blockers(), /Protein couldn't be read/);
+  await input("protein").fill("4");
+  assert.equal(await origin("protein"), "entered");
+  step("an unreadable value stays empty, with its reason, until the person supplies it");
+
+  // 16. A household serving needs a confirmed amount.
+  await scanWith("household");
+  assert.equal(await input("serving-label").inputValue(), "1 cup");
+  assert.equal(await input("serving-amount").inputValue(), "");
+  assert.match(await blockers(), /"1 cup"/);
+  await input("serving-amount").fill("240");
+  assert.match(await blockers(), /grams or millilitres/);
+  await input("serving-unit").selectOption("ML");
+  await confirmAndSave();
+  expectedFoods++;
+  assert.equal(await savedPer100("kcal"), "50 kcal");
+  assert.match(await page.getByTestId("saved-food").innerText(), /Per 100 ml/);
+  step("a 1 cup serving can't be saved until its volume is confirmed");
+
+  // 17. Per-100 labels, and an explicit 100 g serving.
+  await scanWith("per100Only");
+  assert.match(await blockers(), /isn't on the label, so it won't be guessed/);
+  await page.getByRole("button", { name: "Use 100 g as the serving" }).click();
+  assert.equal(await input("serving-amount").inputValue(), "100");
+  await confirmAndSave();
+  expectedFoods++;
+  assert.equal(await savedPer100("protein"), "13.3 g");
+  step("a per-100 g label is preserved, with the serving chosen explicitly");
+
+  // 18. Grams and millilitres are never mixed.
+  await scanWith("mlServingGramColumn");
+  await page.getByRole("radio", { name: /Per 100 g/ }).check();
+  assert.match(await blockers(), /per 100 g, but the serving is in ml/);
+  assert.equal(await saveButton().isDisabled(), true);
+  assert.equal(await page.getByTestId("save-preview").count(), 0);
+  step("a per-100 g column can't be applied to a serving in ml");
+
+  // 19. Kilojoules aren't treated as calories.
+  await scanWith("kilojoules");
+  assert.equal(await input("kcal").inputValue(), "");
+  assert.match(await page.getByTestId("scan-result").innerText(), /502 kJ/);
+  assert.match(await blockers(), /Calories needs a value in kcal/);
+  await input("kcal").fill("120");
+  assert.equal(await origin("kcal"), "entered");
+  step("kJ isn't converted: calories stay empty until entered");
+
+  // 20. Conflicting columns need acknowledging, and a correction clears them.
+  await scanWith("contradictory");
+  assert.ok((await page.getByTestId("flag-protein").count()) > 0, "the flagged field is marked");
+  assert.match(await page.getByTestId("scan-flags").innerText(), /per-100 column suggests/);
+  await page.getByTestId("confirm-values").check();
+  assert.equal(await saveButton().isDisabled(), true, "conflicts aren't accepted automatically");
+  await page.getByTestId("confirm-warnings").check();
+  assert.equal(await saveButton().isEnabled(), true);
+  await input("protein").fill("4");
+  await input("kcal").fill("120");
+  assert.equal(await page.getByTestId("scan-flags").count(), 0, "correcting the values clears the conflict");
+  assert.equal(await page.getByTestId("confirm-warnings").count(), 0);
+  step("conflicting columns need acknowledging, and a correction clears them");
+
+  // 21. Scanning again is explicit.
+  const beforeRescan = (await stub.requests()).length;
+  await input("protein").fill("7");
+  await page.getByRole("button", { name: "Scan this image again" }).click();
+  assert.equal((await stub.requests()).length, beforeRescan, "going back uploads nothing");
+  await stub.scenario("good");
+  await useThis();
+  await page.getByTestId("scan-result").waitFor();
+  assert.equal((await stub.requests()).length, beforeRescan + 1, "the upload happens only on request");
+  assert.equal(await input("protein").inputValue(), "4", "a new scan starts from the new reading");
+  step("the image is sent again only when the person asks");
+
+  // 22. Text printed on a label stays inert, through to the saved food.
+  await scanWith("injection");
+  const attack = await input("name").inputValue();
+  assert.match(attack, /Ignore previous instructions/);
+  await confirmAndSave();
+  expectedFoods++;
+  assert.equal(await page.getByTestId("saved-name").innerText(), attack);
+  assert.equal(await page.getByTestId("saved-food").locator("img, script").count(), 0);
+  await page.waitForTimeout(200);
+  assert.equal(await page.evaluate(() => window.__injected), undefined);
+  step("instructions and markup from a label are saved and shown as plain text");
+
+  // 23. The server still enforces the contract if the page is bypassed.
+  const bypass = await page.evaluate(async () => {
+    const send = (perServing, extra = {}) => fetch("/api/foods", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ name: "Bypass", basisUnit: "G", servingLabel: "1 serving", servingAmount: 30, perServing, ...extra }) }).then((r) => r.status);
+    return {
+      nullKcal: await send({ kcal: null, protein: 1, carbs: 1, fat: 1 }),
+      noFat: await send({ kcal: 10, protein: 1, carbs: 1 }),
+      impossible: await send({ kcal: 9000, protein: 1, carbs: 1, fat: 1 }),
+      noServing: await send({ kcal: 10, protein: 1, carbs: 1, fat: 1 }, { servingAmount: null }),
+    };
+  });
+  assert.deepEqual(bypass, { nullKcal: 400, noFat: 400, impossible: 400, noServing: 400 });
+  step("the server refuses missing or impossible values even if the page is bypassed");
+
+  // 24. The image stays beside the values on a wide screen, and in view on a phone.
+  await scanWith("good");
+  const narrow = await page.getByTestId("review-image").boundingBox();
+  assert.ok(narrow.height > 0);
+  await page.getByTestId("input-fiber").scrollIntoViewIfNeeded();
+  const scrolled = await page.getByTestId("review-image").boundingBox();
+  assert.ok(scrolled.y + scrolled.height > 0, "still in view while correcting on a phone");
+  await page.screenshot({ path: `${SHOTS}label-${name}-review-phone.png` });
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.evaluate(() => window.scrollTo(0, 0));
+  const imageBox = await page.getByTestId("review-image").boundingBox();
+  const formBox = await page.getByTestId("input-name").boundingBox();
+  assert.ok(imageBox.x + imageBox.width <= formBox.x + 1, "the image is beside the values");
+  await page.screenshot({ path: `${SHOTS}label-${name}-review-wide.png` });
+  await page.setViewportSize({ width: 390, height: 844 });
+  step("the image stays beside the values on a wide screen, and in view on a phone");
+
+  assert.equal((await foods()).length, expectedFoods, "only confirmed saves created foods");
+  assert.equal(await diaryCount(), 0, "no diary entries were created");
+  assert.deepEqual(entryWrites, [], "nothing tried to log a food");
+  step(`${expectedFoods} confirmed foods, and 0 diary entries`);
 }
 
 (async () => {

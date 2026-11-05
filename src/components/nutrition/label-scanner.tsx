@@ -3,8 +3,9 @@
 import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { IMAGE_LIMITS } from "@/lib/image-limits";
 import { describePreparation, FULL_CROP, isFullCrop, JPEG_QUALITY_STEPS, planPreparation, sniffFileKind, type CropShare, type FileKind } from "@/lib/label-image";
-import type { LabelExtraction, LabelFlag, NutrientField } from "@/lib/label-extraction";
+import type { LabelExtraction } from "@/lib/label-extraction";
 import { Button, Card, ErrorText } from "@/components/ui";
+import { LabelReview } from "./label-review";
 
 const HEIC_HELP = "This browser can't open HEIC photos. Export the photo as JPEG, or set your iPhone camera to Most Compatible, then try again.";
 const OPEN_FAILED = "This file couldn't be opened as an image. Use a JPEG, PNG or WebP photo.";
@@ -13,8 +14,8 @@ const TOO_LARGE = "This image can't be made small enough without losing quality.
 const PREPARE_FAILED = "This photo is too large for this device to prepare. Crop closer to the label, or use a smaller photo.";
 
 interface Opened { file: File; url: string; kind: FileKind; image: HTMLImageElement; width: number; height: number }
-interface Prepared { blob: Blob; url: string; width: number; height: number; description: string; suggestCrop: boolean }
-interface ScanResult { notice: string; extraction: LabelExtraction; flags: LabelFlag[] }
+interface Prepared { blob: Blob; url: string; width: number; height: number; description: string; suggestCrop: boolean; changed: boolean }
+interface ScanResult { notice: string; extraction: LabelExtraction }
 
 const canvasBlob = (canvas: HTMLCanvasElement, quality: number) => new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
 
@@ -23,7 +24,7 @@ async function prepare(opened: Opened, crop: CropShare): Promise<Prepared | { er
   const plan = planPreparation({ kind: opened.kind, fileBytes: opened.file.size, imageWidth: opened.width, imageHeight: opened.height, crop });
   if (plan.action === "reject") return { error: TOO_SMALL };
   const description = describePreparation(plan, opened.width, opened.height);
-  if (plan.action === "original") return { blob: opened.file.slice(0, opened.file.size, plan.mediaType), url: URL.createObjectURL(opened.file), width: plan.width, height: plan.height, description, suggestCrop: false };
+  if (plan.action === "original") return { blob: opened.file.slice(0, opened.file.size, plan.mediaType), url: URL.createObjectURL(opened.file), width: plan.width, height: plan.height, description, suggestCrop: false, changed: false };
 
   const canvas = document.createElement("canvas");
   canvas.width = plan.width;
@@ -47,7 +48,7 @@ async function prepare(opened: Opened, crop: CropShare): Promise<Prepared | { er
     const blob = await canvasBlob(canvas, quality);
     if (!blob) return { error: PREPARE_FAILED };
     if (blob.size <= IMAGE_LIMITS.maxBytes) {
-      return { blob, url: URL.createObjectURL(blob), width: plan.width, height: plan.height, description, suggestCrop: plan.suggestCrop };
+      return { blob, url: URL.createObjectURL(blob), width: plan.width, height: plan.height, description, suggestCrop: plan.suggestCrop, changed: true };
     }
   }
   return { error: TOO_LARGE };
@@ -84,63 +85,6 @@ function Cropper({ opened, crop, onChange }: { opened: Opened; crop: CropShare; 
           style={{ left: `${crop.x * 100}%`, top: `${crop.y * 100}%`, width: `${crop.width * 100}%`, height: `${crop.height * 100}%` }}
         />
       )}
-    </div>
-  );
-}
-
-function NutrientValue({ field }: { field: NutrientField }) {
-  if (field.status === "absent") return <span className="text-muted">Not on label</span>;
-  if (field.status === "unreadable") return <span className="text-amber-700 dark:text-amber-400">Couldn&apos;t read</span>;
-  return <span>{field.printed}</span>;
-}
-
-const NUTRIENT_ROWS = [["kcal", "Calories"], ["protein", "Protein"], ["carbs", "Carbohydrate"], ["fat", "Fat"], ["fiber", "Fiber"]] as const;
-const BASIS_LABELS = { per_serving: "Per serving", per_100g: "Per 100 g", per_100ml: "Per 100 ml", other: "Other" } as const;
-
-function FieldText({ label, value, unreadable, absent }: { label: string; value: string | null; unreadable: boolean; absent: boolean }) {
-  return (
-    <div className="flex justify-between gap-4 py-1 text-sm">
-      <span className="text-muted">{label}</span>
-      <span className="text-right">{absent ? <span className="text-muted">Not on label</span> : unreadable ? <span className="text-amber-700 dark:text-amber-400">Couldn&apos;t read</span> : value}</span>
-    </div>
-  );
-}
-
-function Result({ result }: { result: ScanResult }) {
-  const { extraction: e, flags, notice } = result;
-  return (
-    <div className="space-y-4" data-testid="scan-result">
-      <Card className="border-amber-500/60 p-4">
-        <p className="font-medium text-amber-700 dark:text-amber-400" role="status">{notice}</p>
-      </Card>
-      <Card className="p-4">
-        <FieldText label="Product" value={e.productName.value} absent={e.productName.status === "absent"} unreadable={e.productName.status === "unreadable"} />
-        <FieldText label="Brand" value={e.brand.value} absent={e.brand.status === "absent"} unreadable={e.brand.status === "unreadable"} />
-        <FieldText label="Serving size" value={e.servingSize.printed} absent={e.servingSize.status === "absent"} unreadable={e.servingSize.status === "unreadable"} />
-        <FieldText label="Servings per container" value={e.servingsPerContainer.printed} absent={e.servingsPerContainer.status === "absent"} unreadable={e.servingsPerContainer.status === "unreadable"} />
-      </Card>
-      {e.columns.map((column, i) => (
-        <Card key={i} className="p-4">
-          <h3 className="mb-2 font-medium">{BASIS_LABELS[column.basis]}{column.printedHeading ? ` (printed: ${column.printedHeading})` : ""}</h3>
-          <dl>
-            {NUTRIENT_ROWS.map(([key, label]) => (
-              <div key={key} className="flex justify-between gap-4 py-1 text-sm">
-                <dt className="text-muted">{label}</dt>
-                <dd className="text-right"><NutrientValue field={column[key]} /></dd>
-              </div>
-            ))}
-          </dl>
-        </Card>
-      ))}
-      {flags.length > 0 && (
-        <Card className="p-4" data-testid="scan-flags">
-          <h3 className="mb-2 font-medium">Check these</h3>
-          <ul className="list-disc space-y-1 pl-5 text-sm">
-            {flags.map((flag, i) => <li key={i}>{flag.message}</li>)}
-          </ul>
-        </Card>
-      )}
-      <p className="text-sm text-muted">Nothing has been saved. Correcting and saving these values isn&apos;t available yet.</p>
     </div>
   );
 }
@@ -284,11 +228,16 @@ export function LabelScanner() {
         </>
       )}
 
-      {stage === "result" && result && (
-        <>
-          <Result result={result} />
-          <Button variant="secondary" onClick={reset}>Scan another label</Button>
-        </>
+      {stage === "result" && result && prepared && opened && (
+        <LabelReview
+          extraction={result.extraction}
+          notice={result.notice}
+          preparedUrl={prepared.url}
+          originalUrl={prepared.changed ? opened.url : null}
+          // Corrections live in this component, so going back discards them, as the button says.
+          onRescan={() => { setResult(null); setError(null); setStage("review"); }}
+          onScanAnother={reset}
+        />
       )}
 
       {error && <ErrorText>{error}</ErrorText>}

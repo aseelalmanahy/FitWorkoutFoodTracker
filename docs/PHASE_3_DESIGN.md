@@ -9,8 +9,8 @@ This replaces the earlier plan in `ARCHITECTURE.md` for AI-estimated calories an
 | Milestone | Scope | Status |
 |---|---|---|
 | 3.1 | Secure image input and validation | Done |
-| 3.2 | Nutrition-label scanning and structured extraction | Implemented, awaiting review |
-| 3.3 | User review, correction and confirmation | Designed below |
+| 3.2 | Nutrition-label scanning and structured extraction | Done |
+| 3.3 | User review, correction and confirmation | Implemented, awaiting review |
 | 3.4 | PDF nutrition extraction | Not started |
 | 3.5 | Meal photo identification, with no AI-generated calories | Not started |
 | 3.6 | Food matching, provenance indicators, security and full regression testing | Not started |
@@ -237,9 +237,57 @@ These describe where information came from, not a guarantee that it's accurate. 
 
 With mocked extractor responses: missing fields stay null, invalid serving units require user input, wrong values are flagged, per-serving and per-100 stay distinct, contradictory columns are flagged, non-label images are rejected, a prompt injection printed on a label has no effect beyond its own field, corrections are recorded, and nothing is saved or logged without confirmation.
 
-## 3.3: Review and confirmation (design)
+## 3.3: Review and confirmation
 
-The original photo (the user's own local file) appears beside the extracted values. Every field is editable, unreadable and flagged fields stand out, and nothing is pre-confirmed. Absent nutrients show as "not reported", never 0. Save stays disabled until required fields are filled and the user confirms. After saving, the user picks a quantity through the existing add-food sheet.
+After a scan, the person's own image stays beside the extracted values, and every value can be edited. Nothing is confirmed automatically, and the image is held only in the browser. It's sent again only if the person chooses **Scan this image again**, which counts as another scan and discards corrections. The rules live in `src/lib/label-review.ts`, as pure functions.
+
+### Where each value came from
+
+| Shown as | Meaning |
+|---|---|
+| Read by AI | As the scan read it, and not yet confirmed |
+| Corrected by you | The person changed what the scan read |
+| Entered by you | The scan had no value, and the person supplied one |
+| Removed by you | The person cleared what the scan read |
+| Not on label | The label doesn't report it. The field stays empty, never 0 |
+| Couldn't read | It's there but unreadable. The field stays empty, with the reason |
+| Needs a value | It's printed, but not usably, such as "<1 g", kJ or mg. It isn't converted |
+
+The exact printed text appears under each field. Each column is kept separate: one is chosen for saving, and the others stay visible for comparison.
+
+### Correction rules
+
+- **Numbers:** an empty field is empty, not 0, and a person may type 0 where the label supports it. "1,200" is refused rather than read as 1.2 or 1200, while a decimal comma such as "12,5" is accepted.
+- **Wrong readings:** a value that doesn't match its printed text is shown as read and flagged, never corrected silently.
+- **Warnings follow the values:** the scan's checks run again on the values as they stand, so a correction can clear a warning or create one.
+- **Conflicts:** any remaining warning needs its own acknowledgement before saving.
+- **Changing anything clears the confirmations,** as the person agreed to the values they saw.
+
+### Serving and basis
+
+| Label reports | What's needed | What's sent to `POST /api/foods` |
+|---|---|---|
+| Per serving | Serving amount and unit | The values as they stand |
+| Per 100 g | Serving amount in g | `scaleNutrients(values, amount, 6)` |
+| Per 100 ml | Serving amount in ml | `scaleNutrients(values, amount, 6)` |
+
+- **Household servings:** "1 cup" can't be saved until a gram or millilitre amount is confirmed. It's never guessed.
+- **No serving on the label:** the person enters one, or chooses **Use 100 g as the serving**.
+- **Grams and millilitres:** a per-100 g column can't be saved with a serving in ml, or the reverse, because density isn't known.
+- **Precision:** the API takes per-serving values and stores per-100, so 6 decimals are kept on the way. With the usual 2, a 1 g serving at 8.3 g per 100 g would be stored as 8.
+
+### Saving
+
+The form uses the same `customFoodSchema` the server enforces, so both give the same answer, and the API contract is unchanged. Everything still needed is listed in plain words. Once it's resolved, the page shows exactly what will be saved, per serving and per 100, and needs an explicit confirmation. A double click sends one request.
+
+After saving, the page shows the saved nutrition as the server returned it, and missing fiber reads "Not reported". **Saving a food never logs it:** adding it to the diary stays a separate step, through the normal food workflow. The scan link on the Add food page appears only when scanning is configured.
+
+### Known limits
+
+- **Servings per container isn't saved:** it can be corrected, which settles any warning about it, but the food API has nowhere to store it.
+- **Where values came from isn't stored:** saved foods look like any other custom food. Field-level provenance needs the migration proposed above, which hasn't been approved.
+- **Duplicates:** a double click can't create two foods, but scanning and saving the same label twice will, and if the connection drops after the server saved, retrying can too.
+- **The person is the final check:** the confirmation records that someone looked, not that the values are right.
 
 ## Provider recommendation
 

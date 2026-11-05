@@ -145,9 +145,9 @@ const close = (a: number, b: number) => Math.abs(a - b) < 1e-6;
 const printedHasValue = (printed: string, value: number) => printedNumbers(printed).some((n) => close(n, value));
 
 const norm = (s: string | null) => (s ?? "").trim().toLowerCase().replace(/\.$/, "");
-const isKcal = (unit: string | null) => unit === null || /^(k?cal|kcals|calories?|cals?)$/i.test(unit.trim().replace(/\.$/, ""));
+export const isKcalUnit = (unit: string | null) => unit === null || /^(k?cal|kcals|calories?|cals?)$/i.test(unit.trim().replace(/\.$/, ""));
 const isKj = (unit: string | null) => /^kj$/.test(norm(unit));
-const isGrams = (unit: string | null) => unit === null || /^(g|gr|grams?)$/.test(norm(unit));
+export const isGramUnit = (unit: string | null) => unit === null || /^(g|gr|grams?)$/.test(norm(unit));
 
 const METRIC_SERVING: Record<string, { basis: "G" | "ML"; factor: number }> = {
   g: { basis: "G", factor: 1 }, gr: { basis: "G", factor: 1 }, gram: { basis: "G", factor: 1 }, grams: { basis: "G", factor: 1 },
@@ -170,7 +170,7 @@ function usableNutrients(col: LabelColumn): Nutrients {
   const out = {} as Nutrients;
   for (const k of NUTRIENT_KEYS) {
     const f = col[k];
-    const unitOk = k === "kcal" ? isKcal(f.unit) : isGrams(f.unit);
+    const unitOk = k === "kcal" ? isKcalUnit(f.unit) : isGramUnit(f.unit);
     out[k] = f.status === "read" && f.value !== null && f.value >= 0 && unitOk ? f.value : null;
   }
   return out;
@@ -224,7 +224,7 @@ export function checkLabelExtraction(e: LabelExtraction): LabelFlag[] {
       checkNumber(path(k), FIELD_NAMES[k], f.value, f.printed, f.status);
       if (f.status !== "read") continue;
       if (k === "kcal" && isKj(f.unit)) flag("energy_in_kilojoules", path(k), `Energy is printed in kJ (${f.printed}). It wasn't converted to kcal.`);
-      else if (k === "kcal" ? !isKcal(f.unit) : !isGrams(f.unit)) flag("unexpected_unit", path(k), `${FIELD_NAMES[k]} has the unit "${f.unit}", which was not expected. It wasn't converted.`);
+      else if (k === "kcal" ? !isKcalUnit(f.unit) : !isGramUnit(f.unit)) flag("unexpected_unit", path(k), `${FIELD_NAMES[k]} has the unit "${f.unit}", which was not expected. It wasn't converted.`);
     }
 
     const values = usableNutrients(col);

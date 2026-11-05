@@ -36,6 +36,8 @@ export class LabelExtractionError extends Error {
 
 export const LABEL_EXTRACTION_TIMEOUT_MS = 60_000;
 
+export const isLabelScanningConfigured = () => Boolean(process.env.ANTHROPIC_API_KEY?.trim() && process.env.LABEL_EXTRACTION_MODEL?.trim());
+
 /**
  * The configured extractor, or null when scanning isn't set up. Both a key and a model are needed.
  * There's deliberately no default model: which one is accurate enough at what cost must be

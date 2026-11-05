@@ -31,11 +31,11 @@ export function consumedAmount(servingAmount: number, quantity: number): number 
 }
 
 /** Scale per-100 values to an absolute amount. Missing values stay missing. */
-export function scaleNutrients(per100: Nutrients, amount: number): Nutrients {
+export function scaleNutrients(per100: Nutrients, amount: number, decimals = 2): Nutrients {
   const out = {} as Nutrients;
   for (const k of NUTRIENT_KEYS) {
     const v = per100[k];
-    out[k] = v == null ? null : round((v * amount) / 100, 2);
+    out[k] = v == null ? null : round((v * amount) / 100, decimals);
   }
   return out;
 }
