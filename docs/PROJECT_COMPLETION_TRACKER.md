@@ -27,7 +27,7 @@
 | M-12 | 4.0.4 | Email-proven access | COMPLETE for development | Merged at `eaeff34`, and verified on `fitdb_test`, section 2d. **That covers the locally verified implementation only. The production milestone isn't complete:** no real email can be sent (G-03), and nothing is deployed |
 | M-13 | 4.0.5 | Notice, acceptance, retention | NOT STARTED | Needs legal review. Shares 4.0.4's migration |
 | M-14 | 4.0.6 | Device testing and beta go/no-go | NOT STARTED | Needs everything above |
-| M-15 | 4.1 | Core progress: weight log, goal card | NOT STARTED | Needs 4.0.2's coverage check |
+| M-15 | 4.1 | Core progress: weight log, goal card | **IN PROGRESS** | Code on `feature/phase-4.1-progress`, unmerged, section 2f. **Not COMPLETE:** MIG-04 is applied nowhere, so no database or browser test has run |
 | M-16 | 4.2 | Real-user beta | NOT STARTED | Needs 4.0 and 4.1 complete |
 
 **Roadmap after the beta, deliberately not started:** Phases 4.3 and 4.4, Track A (paid AI) and Initiative T (trainers) in `PRODUCT_STRATEGY.md`. The beta's findings revise them.
@@ -181,6 +181,27 @@
 - **Chromium, `production-security-e2e`:** `ERR_PROXY_CONNECTION_FAILED` on `/account`, on the test guard's local proxy. **Cause not established.** Memory was low around that run, which is circumstantial. It passed 5 other times, and if it recurs the proxy should be investigated.
 
 **Database cleanup, 2026-11-06.** 44 rows were removed from `AccountToken` on `fitdb_test`, after a query showed 22 `PASSWORD_RESET` and 22 `SIGNUP`, all at `test.dev`. **The table was verified empty straight after MIG-03.** The three `account-data` runs that seeded links before the cleanup was added left 7, 8 and 7 seeded users (19:39, 19:45 and 19:59 UTC), so 22 users with 2 links each is exactly 44. The rows were gone before this accounting, so it's reasoned from those counts, and no row-by-row record exists. No other table was touched. The suite now removes its own links, and the table has held 0 rows after each later run. Pre-migration backup: section 4.
+
+## 2f. Phase 4.1 detail
+
+**Migration: `20261106150000_body_metrics`, prepared and applied nowhere.** Choices and limits: `PHASE_4_1_PROGRESS.md`.
+
+| State | Phase 4.1 |
+|---|---|
+| **IMPLEMENTED** | Yes, unmerged: dated weight entries, a smoothed trend, change over time, a chart, entries with paging, a goal card, and the goal selectable on the profile |
+| **TESTED** | **Partly.** Vitest on in-memory fakes, deliberate defects, type check and build. **No database or browser test has run** |
+| **REVIEWED** | **Partly.** A read-only security agent. **Independent source review is pending** |
+| **MERGED** | No |
+| **OPERATIONALLY VERIFIED** | No |
+
+| ID | Phase | Description | Status | Priority | Dependency | Acceptance Criteria |
+|---|---|---|---|---|---|---|
+| J-01 | 4.1 | Weight log and goal card | IN PROGRESS | P1 | J-02, T-24, review, merge approval | All suites pass on the final code, then the owner's approval |
+| J-02 | 4.1 | Back up `fitdb_test`, and apply MIG-04 to it. **This code can't run on any database without it** | BLOCKED | P1 | Owner, separate authorization | Applied with a backup, `migrate status` clean |
+| J-03 | 4.1 | Merging after 4.0.5: classify `BodyMetric` in the data inventory, and add the weight log to the draft notice | NOT STARTED | P1 | H-01 | 4.0.5's inventory tests pass on the merged code |
+| J-04 | 4.1 | Whether a goal must be chosen (Decision 21). Built as optional | NOT STARTED | P2 | Owner | Recorded |
+| J-05 | 4.1 | Confirm the 10-day smoothing constant, 28-day change window and 7-day minimum, which are judgements | NOT STARTED | P2 | Owner | Confirmed or changed |
+| J-06 | 4.1 | Open decision 8: how the log relates to `currentWeightKg`. Built as separate, as the execution plan recommends. The strategy recommends the latest entry becoming current weight | NOT STARTED | P1 | Owner | Recorded |
 
 ## 3. Tests: run, failed, blocked
 
@@ -394,6 +415,7 @@ So code from before this migration **fails for those people, and never reads a n
 | T-19 | 4.0.4 | `account-tokens`, for real races, lock order, backdated expiry, revocation and logs on a real database | COMPLETE | P0 | None | 32 of 32 on `e82cbd9`, on `fitdb_test`, section 2d |
 | T-20 | 4.0.4 | Every suite that registers, moved to the real flow, and all three browsers | COMPLETE | P0 | None | All pass on `e82cbd9`, section 2d. The first real run found two script defects, both fixed. **Excludes T-14's two suites** |
 | T-21 | 4.0.4 | **Not covered by those results:** `live-provider-check.safety`'s tests, moved to the new flow and never run, including its marker refusals. Its SIGTERM test is also skipped on Windows | BLOCKED | P1 | T-14 | Runs when T-14 is authorized |
+| T-24 | 4.1 | **NEVER RUN:** `weight-progress`, `weight-e2e`, and every suite that opens the dashboard or deletes or exports an account, as those now read the new table | BLOCKED | P1 | J-02 | All pass |
 | T-09 | 4.0.1b | **Not run:** dropping a CHECK on a live database, to show T38 then fails. The owner's authorization allowed only the approved migration to change the schema | DEFERRED | P2 | Owner, if wanted | **Partly covered:** NC31a and NC31b catch a removed constraint in the migration's text, T38 shows the live constraints refuse every invalid shape, and D5 and D6 show they stop the app's own bad writes |
 | T-10 | 4.0.1b, 4.0.1c | **Not run:** restoring either `fitdb_test` backup, from before 4.0.1b and 4.0.1c. Only their archive listings were read | NOT STARTED | P2 | Owner, for a restore target | Restored into a separately approved database, with row counts compared to the snapshots |
 
@@ -404,6 +426,7 @@ So code from before this migration **fails for those people, and never reads a n
 | MIG-01 | 4.0.1b | `20261106120000_nullable_nutrition_targets`, Git blob `62b7459`. **Applied to `fitdb_test` only,** on 2026-11-06, with owner authorization | COMPLETE for `fitdb_test` | P0 | None | `migration-verify` passed. **Not applied to `fitdb`, `fitdb_test_other` or any production database,** which each need separate approval |
 | MIG-02 | 4.0.1c | `20261106130000_nullable_profile_fields`: `sex`, `heightCm`, `currentWeightKg`, `goal`, `activityLevel`, `experience`, `workoutDaysPerWeek`. **Applied to `fitdb_test` only,** on 2026-11-06, with owner authorization | COMPLETE for `fitdb_test` | P1 | None | `profile-migration-verify` passed. **Not applied to `fitdb`, `fitdb_test_other` or any production database,** which each need separate approval. **Rollback is forward-only,** as `fitdb_test` now holds null rows, Annex H6 |
 | MIG-03 | 4.0.4 | `20261106140000_account_tokens`, blob `8c1e6ca`: `AccountToken` and its enum, and nullable `User.termsVersion` and `termsAcceptedAt`. Additive. **Applied to `fitdb_test` only,** on 2026-11-06, with owner authorization | COMPLETE for `fitdb_test` | P0 | None | Preflight, backup and verification passed, section 2d. **Not applied to `fitdb` or anywhere else. `fitdb` needs its own decision and backup, after B-07 and C-08** |
+| MIG-04 | 4.1 | `20261106150000_body_metrics`: `BodyMetric` and its enum. Additive. **File only, applied nowhere** | IN PROGRESS | P1 | J-02 | Applied to `fitdb_test` with separate approval |
 
 **Backup taken before applying:** `C:\Users\Aseel\FitWorkoutFoodTracker-backups\fitdb_test-pre-4.0.1b-20261106T060140Z.dump`, custom format, 859,762 bytes. `pg_dump` exited 0, and `pg_restore --list` read it. **It hasn't been restored,** so the restore itself is untested (T-10).
 

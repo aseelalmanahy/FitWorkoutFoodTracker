@@ -122,6 +122,9 @@ export const updateSetSchema = setSchema.partial();
 // ─── Nutrition (Phase 2) ────────────────────────────────────────────────────
 
 export const isoDateSchema = z.iso.date();
+
+/** The same range as the profile's weight, which is about data entry, and isn't a health limit. */
+export const weightEntrySchema = z.object({ date: isoDateSchema, weightKg: z.number().min(30).max(300) });
 export const mealTypeSchema = z.enum(["BREAKFAST", "LUNCH", "DINNER", "SNACK"]);
 export const externalSourceSchema = z.enum(["USDA", "OPEN_FOOD_FACTS"]);
 

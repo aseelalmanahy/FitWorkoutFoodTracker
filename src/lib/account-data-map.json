@@ -73,5 +73,10 @@
     "deletion": "Own rows deleted, including stopped ones",
     "export": ["id", "effectiveFrom", "kcal", "proteinG", "carbsG", "fatG", "source", "createdAt", "updatedAt"],
     "excluded": { "userId": "the owner" }
+  },
+  "BodyMetric": {
+    "deletion": "Own rows deleted",
+    "export": ["id", "kind", "date", "value", "createdAt", "updatedAt"],
+    "excluded": { "userId": "the owner" }
   }
 }

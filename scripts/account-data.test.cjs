@@ -95,6 +95,7 @@ async function seed({ user, tag }) {
   await target("2026-01-03", { proteinG: null, carbsG: null, fatG: null });
   await target("2026-01-04", { kcal: null, proteinG: null, carbsG: null, fatG: null });
   await addSession(prisma, id);
+  await prisma.bodyMetric.create({ data: { userId: id, date: dbDate("2026-01-01"), value: 70.5 } });
   // A pending reset link, and a sign-up link for the same address, which only the address ties to this person.
   const later = new Date(Date.now() + 3_600_000);
   const tokenId = () => require("node:crypto").randomBytes(32).toString("hex");
@@ -123,6 +124,7 @@ async function ownedIds(id) {
     FoodServing: await ids(prisma.foodServing, { food: { userId: id } }),
     FoodEntry: await ids(prisma.foodEntry, { userId: id }),
     NutritionTarget: await ids(prisma.nutritionTarget, { userId: id }),
+    BodyMetric: await ids(prisma.bodyMetric, { userId: id }),
   };
 }
 const ID_FIELD = { Profile: "userId" };

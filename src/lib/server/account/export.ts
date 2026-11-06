@@ -98,6 +98,7 @@ export async function buildExport(userId: string, verifiedHash: string, now = ne
       tx.foodServing.count({ where: { food: { userId } } }),
       tx.foodEntry.count({ where: { userId } }),
       tx.nutritionTarget.count({ where: { userId } }),
+      tx.bodyMetric.count({ where: { userId } }),
     ]);
     if (counts.reduce((a, b) => a + b, 0) > MAX_EXPORT_ROWS) throw new HttpError(413, TOO_LARGE);
 
@@ -132,6 +133,8 @@ export async function buildExport(userId: string, verifiedHash: string, now = ne
     }) as unknown as Row[];
     const targets = await tx.nutritionTarget.findMany({ where: { userId }, select: fields("NutritionTarget"), orderBy: { effectiveFrom: "asc" } }) as Row[];
 
+    const weightLog = await tx.bodyMetric.findMany({ where: { userId }, select: fields("BodyMetric"), orderBy: { date: "asc" } }) as Row[];
+
     const exportedSessions = sessions.map((s) => ({
       ...exportRow("WorkoutSession", s),
       exercises: (s.exercises as Row[]).map((e) => ({
@@ -151,7 +154,7 @@ export async function buildExport(userId: string, verifiedHash: string, now = ne
         dates: "Timestamps are UTC. birthDate, date and effectiveFrom are calendar dates.",
         progress: "Calculated for this file from completed sessions, excluding warm-ups. Nothing else in this file is calculated by the export.",
       },
-      units: { mass: "kg", length: "cm", restSeconds: "seconds", energy: "kcal", macronutrients: "g", per100: "per 100 of basisUnit (g or ml)", targetCalories: "kcal/day", targetMacronutrients: "g/day" },
+      units: { weightLogValue: "kg", mass: "kg", length: "cm", restSeconds: "seconds", energy: "kcal", macronutrients: "g", per100: "per 100 of basisUnit (g or ml)", targetCalories: "kcal/day", targetMacronutrients: "g/day" },
       account: exportRow("User", user),
       profile: profile ? exportRow("Profile", profile) : null,
       customExercises: exercises.map((e) => exportRow("Exercise", e)),
@@ -175,6 +178,7 @@ export async function buildExport(userId: string, verifiedHash: string, now = ne
         };
       }),
       nutritionTargets: targets.map((t) => exportRow("NutritionTarget", t)),
+      weightLog: weightLog.map((w) => exportRow("BodyMetric", w)),
     };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, maxWait: 10_000, timeout: 120_000 });
 

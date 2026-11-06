@@ -19,7 +19,7 @@ const yearsAgo = (n) => { const d = new Date(); d.setUTCFullYear(d.getUTCFullYea
 const LEGACY = { name: "Row", birthDate: dbDate("1990-01-01"), sex: "FEMALE", heightCm: 170.33, currentWeightKg: 60.125, goalWeightKg: 55.5, goal: "MAINTENANCE", activityLevel: "LIGHT", experience: "BEGINNER", workoutDaysPerWeek: 0, unitSystem: "METRIC", timezone: "UTC" };
 const REQUIRED_KEYS = ["birthDate", "name", "timezone", "unitSystem"];
 const UNREAD_LABELS = ["Sex", "Height (cm)", "Height (ft)", "Height (in)", /^Current weight/, /^Goal weight/, "Goal", "Activity level", "Training experience", "Workout days / week"];
-const CLEARS = ["sex", "height", "current weight", "goal", "activity level", "training experience", "workout days / week"];
+const CLEARS = ["sex", "height", "current weight", "activity level", "training experience", "workout days / week"];
 
 async function signedIn(ctx, row) {
   const { user, token } = await createSignedInUser(prisma, `pmui${++counter}x${Date.now()}@test.dev`);

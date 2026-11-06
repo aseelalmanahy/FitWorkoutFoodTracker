@@ -33,7 +33,7 @@ const GOALS: { v: FitnessGoal; label: string }[] = [
 ];
 
 // Details nothing in the product reads. Nobody is asked for them: a stored one can be edited or cleared.
-type StoredKey = "sex" | "height" | "weight" | "goal" | "activity" | "experience" | "days";
+type StoredKey = "sex" | "height" | "weight" | "activity" | "experience" | "days";
 const STORED_HINT = "Stored with your profile. Not used for any calculation at the moment. Clearing one removes it when you save.";
 const BIRTH_DATE_REFUSED = "This date of birth can't be used.";
 
@@ -161,7 +161,7 @@ export function ProfileForm({ initial, submitLabel, redirectTo }: { initial: Pro
   }
 
   const isStored: Record<StoredKey, boolean> = {
-    sex: initial?.sex != null, height: initCm != null, weight: initial?.currentWeightKg != null, goal: initial?.goal != null,
+    sex: initial?.sex != null, height: initCm != null, weight: initial?.currentWeightKg != null,
     activity: initial?.activityLevel != null, experience: initial?.experience != null, days: initial?.workoutDaysPerWeek != null,
   };
 
@@ -196,7 +196,7 @@ export function ProfileForm({ initial, submitLabel, redirectTo }: { initial: Pro
     add("sex", "sex", sex !== initial?.sex, () => sex);
     add("height", "heightCm", !!edited.height, () => round(computedHeightCm, 2));
     add("weight", "currentWeightKg", !!edited.weight, () => round(toKg(weight), 3));
-    add("goal", "goal", goal !== initial?.goal, () => goal);
+    if (initial && goal !== (initial.goal ?? null)) body.goal = goal;
     add("activity", "activityLevel", activity !== initial?.activityLevel, () => activity);
     add("experience", "experience", experience !== initial?.experience, () => experience);
     add("days", "workoutDaysPerWeek", days !== String(initial?.workoutDaysPerWeek), () => Number(days));
@@ -298,6 +298,18 @@ export function ProfileForm({ initial, submitLabel, redirectTo }: { initial: Pro
           <Input inputMode="decimal" value={goalWeight} onChange={(e) => { setGoalWeight(e.target.value); setEdited((x) => ({ ...x, goalWeight: true })); }} {...inputProps("goalWeight")} />
         </Field>
       )}
+      {initial && (
+        <Field label="Goal" hint="Optional. It decides what the goal card on your dashboard shows." group>
+          <div className="grid grid-cols-2 gap-2">
+            {GOALS.map((g) => (
+              <button key={g.v} type="button" onClick={() => setGoal(goal === g.v ? null : g.v)} aria-pressed={goal === g.v}
+                className={cx("h-11 rounded-xl border text-sm font-medium transition", goal === g.v ? "border-fg bg-fg text-bg" : "border-line bg-surface-2 text-fg")}>
+                {g.label}
+              </button>
+            ))}
+          </div>
+        </Field>
+      )}
       {(Object.keys(isStored) as StoredKey[]).some((k) => isStored[k]) && (
         <section aria-labelledby="profile-stored" className="space-y-4 rounded-xl border border-line p-4">
           <div>
@@ -326,20 +338,6 @@ export function ProfileForm({ initial, submitLabel, redirectTo }: { initial: Pro
           {isStored.weight && (
             <StoredRow id="weight" label="Current weight" cleared={!!cleared.weight} onToggle={() => toggle("weight")}>
               <Field label={`Current weight (${mu})`} {...fieldProps("weight")}><Input inputMode="decimal" value={weight} onChange={(e) => { setWeight(e.target.value); setEdited((x) => ({ ...x, weight: true })); }} {...inputProps("weight")} /></Field>
-            </StoredRow>
-          )}
-          {isStored.goal && (
-            <StoredRow id="goal" label="Goal" cleared={!!cleared.goal} onToggle={() => toggle("goal")}>
-              <Field label="Goal" group>
-                <div className="grid grid-cols-2 gap-2">
-                  {GOALS.map((g) => (
-                    <button key={g.v} type="button" onClick={() => setGoal(g.v)} aria-pressed={goal === g.v}
-                      className={cx("h-11 rounded-xl border text-sm font-medium transition", goal === g.v ? "border-fg bg-fg text-bg" : "border-line bg-surface-2 text-fg")}>
-                      {g.label}
-                    </button>
-                  ))}
-                </div>
-              </Field>
             </StoredRow>
           )}
           {isStored.activity && (
