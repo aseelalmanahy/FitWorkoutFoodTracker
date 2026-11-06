@@ -2,9 +2,10 @@ import "server-only";
 
 /**
  * Account email work happens after the response, so its timing can't reveal whether an address has an account.
- * One job at a time, which also means two requests for one address can't both pass its cooldown. This assumes one
- * long-lived server process, like the throttles. A second instance could send extra email, and couldn't weaken a
- * token. Waiting jobs are lost on a restart, and the person just asks again.
+ * One job at a time, which also means two requests for one address can't normally both pass its cooldown. A job past
+ * its deadline is left running, and stops at its next check of the signal, so one stuck in the database for that long
+ * could overlap the next. This assumes one long-lived server process, like the throttles. Overlap or a second instance
+ * could send extra email, and couldn't weaken a token. Waiting jobs are lost on a restart, and the person just asks again.
  */
 const MAX_WAITING = 500;
 export const JOB_DEADLINE_MS = 30_000;

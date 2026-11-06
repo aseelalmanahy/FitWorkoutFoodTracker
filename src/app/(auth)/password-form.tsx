@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
-import { AUTH_TIMEOUT_MS, ApiError, api } from "@/lib/client/api";
+import { AUTH_TIMEOUT_MS, ApiError, api, isUncertainFailure } from "@/lib/client/api";
 import { Button, ErrorText, Field, Input } from "@/components/ui";
 
 const LINK = "font-semibold text-fg underline-offset-4 hover:underline";
@@ -48,8 +48,11 @@ export function PasswordForm({ endpoint, doneUrl, heading, button, note, retryHr
       setToken(null);
       router.replace(doneUrl);
     } catch (err) {
-      setError((err as Error).message);
-      if (err instanceof ApiError && err.status === 400) setRejected(true);
+      // With no answer, the password may already be set, and asking again would just report a used link.
+      setError(isUncertainFailure(err) ? "We can't tell whether this worked. Try logging in with this password before asking for a new link." : (err as Error).message);
+      // A password that's too short says nothing about the link, which still works.
+      const passwordProblem = err instanceof ApiError && !!(err.details as { fieldErrors?: { password?: unknown } } | undefined)?.fieldErrors?.password;
+      if (err instanceof ApiError && err.status === 400 && !passwordProblem) setRejected(true);
       setBusy(false);
     }
   }

@@ -21,6 +21,8 @@ const f = vi.hoisted(() => ({
   send: null as null | ((m: MailMessage, s: AbortSignal) => Promise<void>),
   /** Runs just before a transaction, to stand in for something committing during the slow password hash. */
   beforeTransaction: null as null | (() => void),
+  /** Holds a job partway through, to stand in for a slow database. */
+  stall: null as null | Promise<void>,
   cookies: new Map<string, string>(),
   cookieSets: [] as string[],
   cookieDeletes: [] as string[],
@@ -76,7 +78,7 @@ vi.mock("@/lib/server/db", () => {
     },
     accountToken: {
       findFirst: async ({ where }: { where: Row }) => { log("accountToken.findFirst"); return f.tokens.find((t) => matches(t, where)) ?? null; },
-      findMany: async ({ where }: { where: Row }) => { log("accountToken.findMany"); return f.tokens.filter((t) => matches(t, where)); },
+      findMany: async ({ where }: { where: Row }) => { log("accountToken.findMany"); if (f.stall) await f.stall; return f.tokens.filter((t) => matches(t, where)); },
       count: async ({ where }: { where: Row }) => { log("accountToken.count"); return f.tokens.filter((t) => matches(t, where)).length; },
       create: async ({ data }: { data: Row }) => { log("accountToken.create"); f.tokens.push({ createdAt: new Date(), ...data }); return data; },
       deleteMany: async ({ where }: { where: Row }) => { log("accountToken.deleteMany"); return removeWhere(f.tokens, where); },
@@ -182,6 +184,7 @@ beforeEach(() => {
   f.cookies.clear();
   f.send = null;
   f.beforeTransaction = null;
+  f.stall = null;
   origin = ORIGIN;
   _resetLoginThrottle();
   forgetAttempts("reauth:user-1");
@@ -305,7 +308,7 @@ describe("sign-up", () => {
     expect(f.users).toHaveLength(1);
   });
 
-  it("two different live links for one address make one account, and the loser's token isn't spent", async () => {
+  it("two different live links for one address make one account", async () => {
     const first = await askSignup("new@example.com");
     advance(60_001);
     const second = await askSignup("new@example.com");
@@ -314,6 +317,16 @@ describe("sign-up", () => {
     expect(results.map((r) => r.status).sort()).toEqual([200, 400]);
     expect(f.users).toHaveLength(1);
     expect(f.tokens).toEqual([]);
+  });
+
+  it("an account appearing just before the transaction refuses cleanly, and the token isn't spent", async () => {
+    const token = await askSignup("new@example.com");
+    f.beforeTransaction = () => { f.users.push({ id: "rival", email: "new@example.com", passwordHash: "x" }); };
+    const res = await post("complete", { token, password: PASSWORD });
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toMatch(/isn't valid/);
+    expect(f.users.map((u) => u.id)).toEqual(["rival"]);
+    expect(f.tokens).toHaveLength(1);
   });
 
   it("using one link removes the others for that address", async () => {
@@ -502,6 +515,24 @@ describe("a failed send", () => {
     expect(later).toBe(true);
     expect(aborted).toBe(true);
     expect(warn.mock.calls.flat().join(" ")).toContain("deadline-passed");
+  });
+
+  it("a job past its deadline creates and sends nothing when it wakes", async () => {
+    vi.useRealTimers();
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] });
+    vi.spyOn(console, "warn").mockImplementation(() => {});
+    let wake = () => {};
+    f.stall = new Promise<void>((resolve) => { wake = resolve; });
+    await post("register", { email: "slow@example.com" });
+    await new Promise((resolve) => setImmediate(resolve));
+    await new Promise((resolve) => setImmediate(resolve));
+    await vi.advanceTimersByTimeAsync(JOB_DEADLINE_MS + 1);
+    await _accountJobsIdle();
+    f.stall = null;
+    wake();
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(f.tokens).toEqual([]);
+    expect(f.sent).toEqual([]);
   });
 
   it("a failing job doesn't stop the next one", async () => {
@@ -761,7 +792,18 @@ describe("deletion and export", () => {
     await askReset(user.email);
     f.tokens.push({ id: "signup", purpose: "SIGNUP", email: user.email, userId: null, expiresAt: new Date(Date.now() + 60_000), createdAt: new Date() });
     f.tokens.push({ id: "other", purpose: "SIGNUP", email: "someone.else@example.com", userId: null, expiresAt: new Date(Date.now() + 60_000), createdAt: new Date() });
-    expect(await deleteAccount(user.id)).toBe(true);
+    expect(await deleteAccount(user.id, user.passwordHash)).toBe(true);
     expect(f.tokens.map((t) => t.id)).toEqual(["other"]);
+  });
+
+  it("a reset committing after the password check stops the deletion, and removes nothing", async () => {
+    const { deleteAccount } = await import("./delete");
+    const user = await makeUser();
+    const verified = user.passwordHash;
+    await askReset(user.email);
+    user.passwordHash = "the owner's new password";
+    await expect(deleteAccount(user.id, verified)).rejects.toMatchObject({ status: 409 });
+    expect(f.users).toHaveLength(1);
+    expect(f.tokens).toHaveLength(1);
   });
 });

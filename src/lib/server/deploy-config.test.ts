@@ -32,6 +32,7 @@ describe("the image", () => {
   });
   it("keeps secrets out", () => {
     const ignore = read(".dockerignore");
+    expect(ignore).toMatch(/^\.mail-outbox\r?$/m); // development email holds live links
     for (const entry of [".env", ".env.*", ".git"]) expect(ignore.split("\n")).toContain(entry);
   });
   it("includes what next.config.ts imports", () => {

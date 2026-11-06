@@ -9,4 +9,5 @@ node_modules
 .claude
 .idea
 docs
+.mail-outbox
 live-provider-report.json

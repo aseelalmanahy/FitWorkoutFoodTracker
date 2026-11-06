@@ -45,7 +45,7 @@ describe("every model and field is classified", () => {
   it("deletion removes sign-up tokens by address, as they have no user for a cascade to follow", () => {
     const code = readFileSync(path.join(SRC, "lib/server/account/delete.ts"), "utf8");
     expect(code).toMatch(/tx\.accountToken\.deleteMany\(\{ where: \{ email: locked\[0\]\.email \} \}\)/);
-    expect(code).toMatch(/SELECT id, email FROM "User"/);
+    expect(code).toMatch(/SELECT id, email, "passwordHash" FROM "User"/);
   });
   it("deletion goes through sessions and templates before exercises", () => {
     const code = readFileSync(path.join(SRC, "lib/server/account/delete.ts"), "utf8");

@@ -13,14 +13,16 @@ const isReferenceConflict = (err: unknown) =>
  * scoped to this user, and each model's rule is in account-data-map.json. Sessions and templates go before
  * exercises, because their rows restrict deleting an exercise. Shared rows have no owner, so no step
  * reaches them, and other people's food entries keep their own copy of what they logged.
- * Returns false if the account had already gone, which is the same outcome for a repeated request.
+ * Returns false if the account had already gone, which is the same outcome for a repeated request. `verifiedHash`
+ * is what the password was checked against: a reset committing meanwhile means that check no longer counts.
  */
-export async function deleteAccount(userId: string): Promise<boolean> {
+export async function deleteAccount(userId: string, verifiedHash: string): Promise<boolean> {
   try {
     return await prisma.$transaction(async (tx) => {
       // Waits for a concurrent deletion, and blocks any new row that refers to this user until this ends.
-      const locked = await tx.$queryRaw<{ id: string; email: string }[]>`SELECT id, email FROM "User" WHERE id = ${userId} FOR UPDATE`;
+      const locked = await tx.$queryRaw<{ id: string; email: string; passwordHash: string }[]>`SELECT id, email, "passwordHash" FROM "User" WHERE id = ${userId} FOR UPDATE`;
       if (!locked.length) return false;
+      if (locked[0].passwordHash !== verifiedHash) throw new HttpError(409, "Your password was changed elsewhere just now, and nothing was deleted. Log in again and retry.");
       await tx.workoutSession.deleteMany({ where: { userId } });
       await tx.scheduleSlot.deleteMany({ where: { userId } });
       await tx.workoutTemplate.deleteMany({ where: { userId } });

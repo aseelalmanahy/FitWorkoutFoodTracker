@@ -58,10 +58,13 @@ async function issueToken(purpose: AccountTokenPurpose, email: string, userId: s
   if (existing.length >= MAX_LIVE_PER_ADDRESS) return logAccountMail(name, "address-cap");
   if ((await prisma.accountToken.count({ where: { createdAt: { gt: new Date(now - HOUR_MS) } } })) >= MAX_CREATED_PER_HOUR) return logAccountMail(name, "global-cap");
 
+  // Past its deadline the queue has moved on, so the checks above may no longer be the only ones running.
+  signal.throwIfAborted();
   const token = randomBytes(32).toString("base64url");
   const id = hashToken(token);
   await prisma.accountToken.create({ data: { id, purpose, email, userId, expiresAt: new Date(now + LIFETIME_MS[purpose]) } });
   try {
+    signal.throwIfAborted();
     await send(linkMessage(purpose, email, origin, token), signal);
   } catch (err) {
     // Otherwise it may have arrived, so its row stays, and the limits keep counting it.

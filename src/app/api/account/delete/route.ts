@@ -9,8 +9,8 @@ import { deleteAccountSchema } from "@/lib/validation";
 // The confirmation is checked first, so a request without it can't spend a password attempt.
 export const POST = accountRoute(async (req, { user }) => {
   const { password } = await parseBody(req, deleteAccountSchema, { maxBytes: AUTH_BODY_LIMIT_BYTES });
-  await requireAccountPassword(user.id, password);
-  await deleteAccount(user.id);
+  const verified = await requireAccountPassword(user.id, password);
+  await deleteAccount(user.id, verified);
   await clearAuthCookies();
   // Short-lived limiter state that names this person. Anything else in memory holds only an id, and expires.
   forgetLoginAccount(user.email);
