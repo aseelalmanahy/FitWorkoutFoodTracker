@@ -1,6 +1,6 @@
 # Project Completion Tracker
 
-**The single source of truth for what's done and what isn't.** Last updated 2026-11-06, on branch `feature/phase-4.0.1c-profile-minimization`, from `main` at `5239fb6`.
+**The single source of truth for what's done and what isn't.** Last updated 2026-11-06, on `main`, after Phase 4.0.1c merged at `899e54c`.
 
 **Rules:**
 
@@ -21,7 +21,7 @@
 | M-06 | 4.0.0a | Test-target guard | COMPLETE | Merged at `56606ee`. `guard` 51 of 51, `guard-browser` 21 of 21 |
 | M-07 | 4.0.1 | Stage A: eligibility, access gate, automatic targets removed | COMPLETE | Merged at `429d961`. All guarded suites and 26 of 26 negative controls, with independent review. Not for real users on its own |
 | M-08 | 4.0.1b | Nullable targets, calories-only, stopping a target | COMPLETE for development | Merged at `38c4a37`, and verified on `fitdb_test`, section 3. **The migration is on `fitdb_test` only, so `fitdb` can't run this yet (B-07).** Not for real users on its own |
-| M-09 | 4.0.1c | Profile data minimization | **IN PROGRESS** | Implemented on this branch, and verified on `fitdb_test`, section 3. **Not COMPLETE until independent review and merge.** `fitdb` doesn't have the migration, C-08 |
+| M-09 | 4.0.1c | Profile data minimization | COMPLETE for development | Merged at `899e54c`, and verified on `fitdb_test`, section 3. **The migration is on `fitdb_test` only, so `fitdb` can't run this yet (C-08, B-07).** `safety-no-marker` and `db-guard-scoped` weren't run on the final code (T-14). Not for real users on its own |
 | M-10 | 4.0.2 | Account deletion and export | NOT STARTED | Export follows 4.0.1b |
 | M-11 | 4.0.3 | Production foundation | NOT STARTED | Needs decisions 4, 5 and 14 |
 | M-12 | 4.0.4 | Email-proven access | NOT STARTED | Needs 4.0.3 and decisions 8, 10, 11. Has a migration |
@@ -48,13 +48,13 @@
 
 | ID | Phase | Description | Status | Priority | Dependency | Acceptance Criteria |
 |---|---|---|---|---|---|---|
-| C-01 | 4.0.1c | Migration `20261106130000_nullable_profile_fields`: 7 nullable columns, no default, no row rewritten | IN PROGRESS | P0 | C-07 | **Verified on `fitdb_test`:** `profile-migration-verify` passed. **Left:** review and merge. Other databases are open, C-08 |
-| C-02 | 4.0.1c | Onboarding asks for name, date of birth and units, and takes the time zone from the browser | IN PROGRESS | P0 | C-07 | **Verified:** T45, real saves in 3 browsers. **Left:** review and merge |
-| C-03 | 4.0.1c | `PUT`: omitted leaves unchanged, null clears, a value sets. Date of birth, name, units and time zone stay required | IN PROGRESS | P0 | C-07 | **Verified:** `profile-nulls`, `profile-minimization`, and controls D1, D2 and D5. **Left:** review and merge |
-| C-04 | 4.0.1c | Profile page: stored details show with a clear action, and nothing asks for unset ones. Only what was changed is sent | IN PROGRESS | P0 | C-07 | **Verified:** Parts A and B in 3 browsers, and controls D3, D4 and D9. **Left:** review and merge |
-| C-05 | 4.0.1c | Eligibility unchanged: refusal, restriction and correction | IN PROGRESS | P0 | C-07 | **Verified:** `profile-nulls`, `profile-minimization`, `eligibility`, Part B, and control D7. **Left:** review and merge |
+| C-01 | 4.0.1c | Migration `20261106130000_nullable_profile_fields`: 7 nullable columns, no default, no row rewritten | COMPLETE for `fitdb_test` | P0 | None | Merged at `899e54c`. `profile-migration-verify` passed on `fitdb_test`. **Other databases are open:** C-08 and MIG-02 |
+| C-02 | 4.0.1c | Onboarding asks for name, date of birth and units, and takes the time zone from the browser | COMPLETE for development | P0 | None | Merged at `899e54c`. T45, real saves in 3 browsers, on `fitdb_test` |
+| C-03 | 4.0.1c | `PUT`: omitted leaves unchanged, null clears, a value sets. Date of birth, name, units and time zone stay required | COMPLETE for development | P0 | None | Merged at `899e54c`. `profile-nulls`, `profile-minimization`, and controls D1, D2 and D5, on `fitdb_test` |
+| C-04 | 4.0.1c | Profile page: stored details show with a clear action, and nothing asks for unset ones. Only what was changed is sent | COMPLETE for development | P0 | None | Merged at `899e54c`. Parts A and B in 3 browsers, and controls D3, D4 and D9, on `fitdb_test` |
+| C-05 | 4.0.1c | Eligibility unchanged: refusal, restriction and correction | COMPLETE for development | P0 | None | Merged at `899e54c`. `profile-nulls`, `profile-minimization`, `eligibility`, Part B, and control D7, on `fitdb_test` |
 | C-06 | 4.0.1c | Owner's decision to apply the migration to `fitdb_test` | COMPLETE | P0 | None | Authorized by the owner and applied on 2026-11-06, to `fitdb_test` only. No other database is covered |
-| C-07 | 4.0.1c | Independent review, then the owner's merge approval | IN PROGRESS | P0 | C-06, owner | Source review of `dec7b2d` reported passed by the owner. Database verification is pending, and **merge isn't authorized** |
+| C-07 | 4.0.1c | Independent review, then the owner's merge approval | COMPLETE | P0 | None | The owner approved `899e54c` for merge on 2026-11-06, recording independent review approval at that commit, and it was fast-forwarded to `main`. The review's own findings aren't recorded here |
 | C-08 | 4.0.1c | **This code needs the migration on any database it runs against.** Without it, every save from the new form returns 500, including for people who already have a profile | BLOCKED | P0 | B-07, separate owner approval | Applied on `fitdb_test` only. **`fitdb` needs both the 4.0.1b and 4.0.1c migrations, each with its own backup, before this code is usable on it** |
 | C-09 | 4.0.1c | Legal advice on not collecting these fields, and on the interim "Stored with your profile" wording (Decision 25) | BLOCKED | P1 | R-01 | Advice recorded, and the wording finalized |
 | C-10 | 4.0.1c | Line endings changed a migration's recorded checksum. `core.autocrlf` is on, and `20261106120000_nullable_nutrition_targets` was applied as LF, then rewritten as CRLF by Git | COMPLETE for `fitdb_test` | P1 | None | **Fixed without touching migration history or running `migrate resolve`:** the file's LF bytes are restored, and `.gitattributes` now fixes each migration's line endings on every machine: CRLF for the four applied that way, LF for the rest. All 6 recorded checksums equal the files, and no Git blob changed. **`fitdb`'s checksums weren't read, so are unconfirmed.** `migrate dev` wasn't run, and remains unsafe to assume |
@@ -281,7 +281,7 @@ The merged documents hold **recommendations.** Stage A's authorization covered i
 |---|---|---|---|---|---|---|
 | TD-01 | 4.0.1 | `calorieTargetOverride` column unused. Its stale comment is corrected on this branch | DEFERRED | P3 | MIG-02 | Column dropped with approval |
 | TD-02 | 4.0.1 | `Segmented` keeps button-based radios, and section 11's native radios weren't built, as Annex D allowed | DEFERRED | P3 | None | Separate accessibility change, with a keyboard test |
-| TD-03 | 4.0.1 | Sex, activity, goal, experience and days were asked for with nothing reading them | IN PROGRESS | P1 | C-07 | Stopped on this branch, and T45 passes. **Left:** review and merge |
+| TD-03 | 4.0.1 | Sex, activity, goal, experience and days were asked for with nothing reading them | COMPLETE for development | P1 | None | Stopped at `899e54c`, and T45 passes. The stored columns remain, TD-10 |
 | TD-04 | 4.0.1b | Raw CHECK constraints are invisible in `schema.prisma`, and only commented there | DEFERRED | P3 | T-03 | Drift behaviour recorded |
 | TD-05 | 4.0.1b | The stop's date can overwrite a future row, only after a move to an earlier time zone. Accepted, as the alternative undoes the stop | DEFERRED | P3 | None | Revisit if real use shows a problem |
 | TD-06 | Docs | `README.md`, `ARCHITECTURE.md` and the Phase 3.6 status line carry stale statements | NOT STARTED | P2 | None | Design section 15's list done |
