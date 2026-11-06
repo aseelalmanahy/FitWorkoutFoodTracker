@@ -726,6 +726,8 @@ const path = require("node:path");
 const { createSignedInUser } = require("./lib/test-users.cjs");
 
 let stageUser = 0;
+const addDaysIso = (iso, n) => new Date(Date.parse(`${iso}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
+
 async function newUser(label, { withProfile = true } = {}) {
   const c = client();
   const email = `${label}${++stageUser}x${run}@test.dev`;
@@ -1006,6 +1008,26 @@ test("T17: a day with no target works, with correct totals", async () => {
   assert.equal(h.status, 200);
   assert.deepEqual([h.body.summary.avgTargetKcal, h.body.summary.proteinDaysWithTarget], [null, 0]);
   assert.equal(h.body.summary.daysLogged, 1);
+});
+
+test("a day whose foods report nothing totals unknown, and never 0", async () => {
+  const { c, user } = await newUser("nulls");
+  const food = await prisma.food.create({ data: { source: "CUSTOM", sourceId: `nulls-${user.id}`, userId: user.id, name: "Reports nothing" } });
+  const added = await c.post("/api/nutrition/entries", { date: today(), mealType: "LUNCH", foodId: food.id, servingId: null, quantity: 100 });
+  assert.equal(added.status, 200);
+  const d = await c.get(`/api/nutrition/day?date=${today()}`);
+  assert.deepEqual([d.body.totals.kcal, d.body.totals.protein, d.body.totals.carbs, d.body.totals.fat, d.body.totals.fiber], [null, null, null, null, null]);
+  assert.deepEqual(d.body.totals.incomplete, ["kcal", "protein", "carbs", "fat", "fiber"]);
+  const h = await c.get(`/api/nutrition/history?end=${today()}&days=7`);
+  const day = h.body.days.find((x) => x.date === today());
+  assert.deepEqual([day.entries, day.totals.kcal, day.totals.protein], [1, null, null]);
+  assert.deepEqual(h.body.summary.avg, { kcal: null, protein: null, carbs: null, fat: null });
+  const empty = await c.get(`/api/nutrition/day?date=${addDaysIso(today(), -1)}`);
+  assert.equal(empty.body.totals.kcal, 0, "a day with nothing logged is 0");
+  await c.post("/api/nutrition/entries", { date: today(), mealType: "DINNER", foodId: banana.id, servingId: null, quantity: 100 });
+  const mixed = await c.get(`/api/nutrition/day?date=${today()}`);
+  assert.equal(mixed.body.totals.kcal, 89, "reported values still add up");
+  assert.ok(mixed.body.totals.incomplete.includes("kcal"));
 });
 
 test("T29: earlier rows survive reads, a profile edit and a save, and past days keep their own target", async () => {

@@ -1,8 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
-import { api, parseNum } from "@/lib/client/api";
+import { useEffect, useMemo, useState, useRef } from "react";
+import { api, parseNum, ApiError, newIdempotencyKey, SAVE_TIMEOUT_MS, saveFailureMessage } from "@/lib/client/api";
 import { compareToPrevious, summarizeSets } from "@/lib/overload";
 import { formatDuration, fromDisplayMass, massUnit, round, toDisplayMass, type UnitSystem } from "@/lib/units";
 import { Button, Card, ErrorText, Input, Textarea, cx } from "@/components/ui";
@@ -70,12 +70,25 @@ export function WorkoutLogger({ sessionId, name, startedAt, units, initial }: Pr
     }
   }
 
+  // One key per exercise until its set is saved, so trying again after a lost response can't log it twice.
+  const setKeys = useRef(new Map<string, string>());
+
   async function logSet(ex: LoggerExercise, weightKg: number, reps: number, isWarmup: boolean) {
-    const res = await run(() => api<{ set: LoggedSet }>("POST", `${base}/${ex.id}/sets`, { weightKg, reps, isWarmup }));
-    if (!res) return false;
-    patchEx(ex.id, (e) => ({ ...e, sets: [...e.sets, res.set] }));
-    if (!isWarmup) setRestEnd(Date.now() + (ex.restSeconds ?? DEFAULT_REST) * 1000);
-    return true;
+    setError(null);
+    const idempotencyKey = setKeys.current.get(ex.id) ?? newIdempotencyKey();
+    setKeys.current.set(ex.id, idempotencyKey);
+    try {
+      const res = await api<{ set: LoggedSet }>("POST", `${base}/${ex.id}/sets`, { weightKg, reps, isWarmup }, { idempotencyKey, timeoutMs: SAVE_TIMEOUT_MS });
+      setKeys.current.delete(ex.id);
+      patchEx(ex.id, (e) => ({ ...e, sets: [...e.sets, res.set] }));
+      if (!isWarmup) setRestEnd(Date.now() + (ex.restSeconds ?? DEFAULT_REST) * 1000);
+      return true;
+    } catch (e) {
+      // An earlier attempt saved different values, and the server says so. The next save is then a new set.
+      if (e instanceof ApiError && e.status === 409) setKeys.current.delete(ex.id);
+      setError(saveFailureMessage(e));
+      return false;
+    }
   }
 
   async function updateSet(ex: LoggerExercise, set: LoggedSet, patch: Partial<LoggedSet>) {

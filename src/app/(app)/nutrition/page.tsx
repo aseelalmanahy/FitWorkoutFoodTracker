@@ -70,9 +70,9 @@ export default async function NutritionPage({ searchParams }: { searchParams: Pr
           <MacroBar label="Carbs" consumed={day.totals.carbs} target={t?.carbsG ?? null} incomplete={day.totals.incomplete.includes("carbs")} color="bg-info" />
           <MacroBar label="Fat" consumed={day.totals.fat} target={t?.fatG ?? null} incomplete={day.totals.incomplete.includes("fat")} color="bg-up" />
         </div>
-        {day.totals.fiber > 0 && <p className="num mt-3 text-xs text-muted">Fiber {fmtG(day.totals.fiber)} g{day.totals.incomplete.includes("fiber") && " (not reported by all foods)"}</p>}
+        {day.totals.fiber != null && day.totals.fiber > 0 && <p className="num mt-3 text-xs text-muted">Fiber {fmtG(day.totals.fiber)} g{day.totals.incomplete.includes("fiber") && " (not reported by all foods)"}</p>}
         {day.totals.incomplete.some((k) => k !== "fiber") && (
-          <p className="mt-2 text-xs text-muted">* Some logged foods don&apos;t report this value, so the total includes only reported values.</p>
+          <p className="mt-2 text-xs text-muted">* Some logged foods don&apos;t report this value, so the total includes only reported values. A dash means none of them do.</p>
         )}
       </Card>
 

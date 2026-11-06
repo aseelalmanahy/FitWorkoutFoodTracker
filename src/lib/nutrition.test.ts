@@ -26,6 +26,8 @@ describe("serving-size scaling", () => {
   });
 });
 
+type NutrientKeyForTest = "kcal" | "protein" | "carbs" | "fat" | "fiber";
+
 describe("totals", () => {
   it("sums known values and flags incomplete nutrients", () => {
     const t = sumNutrients([
@@ -39,6 +41,36 @@ describe("totals", () => {
   });
   it("empty day totals zero", () => {
     expect(sumNutrients([]).kcal).toBe(0);
+  });
+  it("a nutrient no entry reports is null, and never 0", () => {
+    const t = sumNutrients([{ kcal: null, protein: null, carbs: 10, fat: null, fiber: null }, { kcal: null, protein: null, carbs: 5, fat: null, fiber: null }]);
+    expect([t.kcal, t.protein, t.fat, t.fiber]).toEqual([null, null, null, null]);
+    expect(t.carbs).toBe(15);
+    expect(t.incomplete).toEqual(["kcal", "protein", "fat", "fiber"]);
+  });
+  it("a reported 0 stays 0, and isn't read as missing", () => {
+    const t = sumNutrients([{ kcal: 0, protein: 0, carbs: 0, fat: 0, fiber: 0 }]);
+    expect([t.kcal, t.protein, t.incomplete]).toEqual([0, 0, []]);
+  });
+  it("nothing can be worked out from an unknown amount", () => {
+    expect(remaining(2000, null)).toEqual({ remaining: null, over: 0 });
+    expect(progress(null, 2000)).toEqual({ fraction: 0, ratio: 0 });
+    expect(macroAgainstTarget(150, null)).toEqual({ target: 150, remaining: null, over: 0, fraction: 0, ratio: 0 });
+  });
+  it("a period's averages leave out days that report nothing, rather than counting them as 0", () => {
+    const target = { effectiveFrom: "2026-01-01", kcal: 2000, proteinG: 100, carbsG: null, fatG: null, source: "MANUAL" as const };
+    const known = { kcal: 1000, protein: 100, carbs: 100, fat: 50, fiber: 5, incomplete: [] };
+    const unknown = { kcal: null, protein: null, carbs: null, fat: null, fiber: null, incomplete: ["kcal", "protein", "carbs", "fat", "fiber"] as NutrientKeyForTest[] };
+    const s = summarizePeriod([
+      { date: "2026-01-01", entries: 1, totals: known, target },
+      { date: "2026-01-02", entries: 1, totals: unknown, target },
+    ]);
+    expect(s.avg).toEqual({ kcal: 1000, protein: 100, carbs: 100, fat: 50 });
+    expect(s.daysLogged).toBe(2);
+    expect([s.proteinOnTargetDays, s.proteinDaysWithTarget]).toEqual([1, 1]);
+    const none = summarizePeriod([{ date: "2026-01-02", entries: 1, totals: unknown, target }]);
+    expect(none.avg).toEqual({ kcal: null, protein: null, carbs: null, fat: null });
+    expect(none.proteinDaysWithTarget).toBe(0);
   });
 });
 

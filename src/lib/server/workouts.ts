@@ -1,6 +1,7 @@
 import "server-only";
 import { prisma } from "./db";
 import { HttpError, notFound } from "./api";
+import { idempotencyConflict, idempotentId, isUniqueViolation } from "./idempotency";
 import type { SetEntry } from "@prisma/client";
 import type { SessionPerformance } from "@/lib/overload";
 
@@ -32,6 +33,47 @@ export async function getOwnedSessionExercise(userId: string, sessionId: string,
   });
   if (!se) throw notFound("Exercise entry");
   return se;
+}
+
+interface NewSet { reps: number; weightKg: number; isWarmup?: boolean; rpe?: number | null }
+
+async function earlierSet(id: string, sessionExerciseId: string, input: NewSet) {
+  const set = await prisma.setEntry.findUnique({ where: { id } });
+  if (!set) return null;
+  const same = set.sessionExerciseId === sessionExerciseId && set.reps === input.reps && set.weightKg === input.weightKg
+    && set.isWarmup === (input.isWarmup ?? false) && set.rpe === (input.rpe ?? null);
+  if (!same) throw idempotencyConflict();
+  return set;
+}
+
+/** With a key, a retry after a lost response returns the set that was saved, and doesn't log it twice. */
+export async function logSet(userId: string, sessionExerciseId: string, input: NewSet, idempotencyKey: string | null = null) {
+  const id = idempotencyKey ? idempotentId("set", userId, idempotencyKey) : undefined;
+  if (id) {
+    const earlier = await earlierSet(id, sessionExerciseId, input);
+    if (earlier) return earlier;
+  }
+  const agg = await prisma.setEntry.aggregate({ where: { sessionExerciseId }, _max: { setNumber: true } });
+  try {
+    return await prisma.setEntry.create({
+      data: {
+        ...(id ? { id } : {}),
+        sessionExerciseId,
+        setNumber: (agg._max.setNumber ?? 0) + 1,
+        reps: input.reps,
+        weightKg: input.weightKg,
+        isWarmup: input.isWarmup ?? false,
+        rpe: input.rpe ?? null,
+      },
+    });
+  } catch (err) {
+    // Two attempts raced, and the database let one through. This is the other.
+    if (id && isUniqueViolation(err)) {
+      const earlier = await earlierSet(id, sessionExerciseId, input);
+      if (earlier) return earlier;
+    }
+    throw err;
+  }
 }
 
 export const templateInclude = {
