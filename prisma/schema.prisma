@@ -83,18 +83,18 @@ model Profile {
   name               String
   /// Date of birth rather than age so the value stays correct over time.
   birthDate          DateTime           @db.Date
-  sex                Sex
-  heightCm           Float
-  currentWeightKg    Float
+  sex                Sex?
+  heightCm           Float?
+  currentWeightKg    Float?
   goalWeightKg       Float?
-  goal               FitnessGoal
-  activityLevel      ActivityLevel
-  experience         TrainingExperience
-  workoutDaysPerWeek Int
+  goal               FitnessGoal?
+  activityLevel      ActivityLevel?
+  experience         TrainingExperience?
+  workoutDaysPerWeek Int?
   unitSystem         UnitSystem         @default(IMPERIAL)
   /// IANA time zone, used for day/week boundaries (e.g. "America/New_York").
   timezone           String             @default("UTC")
-  /// User override of the suggested calorie target (kcal/day). Null = use suggestion.
+  /// Unused: nothing reads or writes it. Kept until dropping it is separately approved.
   calorieTargetOverride Int?
   updatedAt          DateTime           @updatedAt
 

@@ -21,18 +21,22 @@ const isValidTimeZone = (tz: string) => {
   }
 };
 
+// Omitted leaves a stored value alone, and null clears it. Neither supplies a default, as a value here
+// has to be one the person chose. These fields are stored only: nothing in the product reads them.
+const clearable = <T extends z.ZodType>(field: T) => field.nullable().optional();
+
 export const profileSchema = z.object({
   name: z.string().trim().min(1, "Required").max(80),
   // Format only. Eligibility is decided in the route, by eligibilityOf, so no age rule lives here.
   birthDate: z.iso.date(),
-  sex: z.enum(["MALE", "FEMALE"]),
-  heightCm: z.number().min(100).max(250),
-  currentWeightKg: z.number().min(30).max(300),
-  goalWeightKg: z.number().min(30).max(300).nullable(),
-  goal: z.enum(["FAT_LOSS", "MUSCLE_GAIN", "MAINTENANCE", "STRENGTH"]),
-  activityLevel: z.enum(["SEDENTARY", "LIGHT", "MODERATE", "ACTIVE", "VERY_ACTIVE"]),
-  experience: z.enum(["BEGINNER", "INTERMEDIATE", "ADVANCED"]),
-  workoutDaysPerWeek: z.number().int().min(0).max(7),
+  sex: clearable(z.enum(["MALE", "FEMALE"])),
+  heightCm: clearable(z.number().min(100).max(250)),
+  currentWeightKg: clearable(z.number().min(30).max(300)),
+  goalWeightKg: clearable(z.number().min(30).max(300)),
+  goal: clearable(z.enum(["FAT_LOSS", "MUSCLE_GAIN", "MAINTENANCE", "STRENGTH"])),
+  activityLevel: clearable(z.enum(["SEDENTARY", "LIGHT", "MODERATE", "ACTIVE", "VERY_ACTIVE"])),
+  experience: clearable(z.enum(["BEGINNER", "INTERMEDIATE", "ADVANCED"])),
+  workoutDaysPerWeek: clearable(z.number().int().min(0).max(7)),
   unitSystem: z.enum(["METRIC", "IMPERIAL"]),
   timezone: z.string().max(64).refine(isValidTimeZone, "Unknown time zone"),
 });

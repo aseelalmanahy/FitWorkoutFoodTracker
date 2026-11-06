@@ -29,9 +29,4 @@ describe("the NutritionTarget migration", () => {
     for (const column of ["kcal", "proteinG", "carbsG", "fatG"]) expect(model).toMatch(new RegExp(`^\\s+${column}\\s+Int\\?$`, "m"));
     for (const name of ["NutritionTarget_stop_shape", "NutritionTarget_carbs_derived"]) expect(schema).toContain(name);
   });
-  it("leaves Profile alone, which is 4.0.1c", () => {
-    expect(schema).toMatch(/^\s+sex\s+Sex$/m);
-    expect(schema).toMatch(/^\s+goal\s+FitnessGoal$/m);
-    expect(schema).toMatch(/^\s+heightCm\s+Float$/m);
-  });
 });

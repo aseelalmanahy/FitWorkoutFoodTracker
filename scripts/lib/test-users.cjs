@@ -22,4 +22,12 @@ async function targetMigrationApplied(prisma) {
   return rows.length === 4 && rows.every((r) => r.is_nullable === "YES");
 }
 
-module.exports = { createSignedInUser, targetMigrationApplied };
+const PROFILE_NULLABLE_COLUMNS = ["sex", "heightCm", "currentWeightKg", "goal", "activityLevel", "experience", "workoutDaysPerWeek"];
+
+/** Read-only. False until the Phase 4.0.1c migration is applied to this database. */
+async function profileMigrationApplied(prisma) {
+  const rows = await prisma.$queryRawUnsafe(`SELECT column_name, is_nullable FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'Profile' AND column_name IN (${PROFILE_NULLABLE_COLUMNS.map((c) => `'${c}'`).join(", ")})`);
+  return rows.length === PROFILE_NULLABLE_COLUMNS.length && rows.every((r) => r.is_nullable === "YES");
+}
+
+module.exports = { createSignedInUser, targetMigrationApplied, profileMigrationApplied, PROFILE_NULLABLE_COLUMNS };

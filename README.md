@@ -8,7 +8,7 @@ plan for Phases 2–4 are in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 ## Phase 1 features
 
 - **Accounts:** email and password sign-up and log-in. Argon2id hashing, server-side sessions, CSRF origin checks, login throttling.
-- **Profile:** date of birth, sex, height, weight, goal weight, goal, activity level, experience, days per week, lb/kg units.
+- **Profile:** name, date of birth and lb/kg units. Details stored by earlier versions can be edited or cleared, and new accounts aren't asked for them.
   For adults 18 and over, by declared date of birth, which isn't age verification. Choices aren't preselected. No estimate or suggested target is shown.
 - **Workout plans:** pick exercises (47 built-in, or create custom ones). Set target sets, rep range, weight, rest and notes. Reorder, edit, delete.
 - **Weekly schedule:** assign plans to weekdays and move them between days. Days with no plan are rest days.

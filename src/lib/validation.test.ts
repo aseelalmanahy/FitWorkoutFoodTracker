@@ -17,10 +17,31 @@ describe("profileSchema", () => {
     const parsed = profileSchema.parse({ ...profile, calorieTargetOverride: 800 });
     expect("calorieTargetOverride" in parsed).toBe(false);
   });
-  it.each(["sex", "goal", "activityLevel", "experience", "workoutDaysPerWeek", "unitSystem"])("requires %s, with no default", (field) => {
-    const body: Record<string, unknown> = { ...profile };
-    delete body[field];
-    expect(profileSchema.safeParse(body).success).toBe(false);
+  const REQUIRED = { name: "Sam", birthDate: "1990-01-01", unitSystem: "METRIC", timezone: "UTC" };
+  const OPTIONAL = ["sex", "heightCm", "currentWeightKg", "goalWeightKg", "goal", "activityLevel", "experience", "workoutDaysPerWeek"];
+  it("T45: needs only the four used fields, and adds no value of its own", () => {
+    expect(profileSchema.parse(REQUIRED)).toEqual(REQUIRED);
+  });
+  it.each(Object.keys(REQUIRED))("still requires %s: omitted and null are both refused", (field) => {
+    const omitted: Record<string, unknown> = { ...REQUIRED };
+    delete omitted[field];
+    expect(profileSchema.safeParse(omitted).success).toBe(false);
+    expect(profileSchema.safeParse({ ...REQUIRED, [field]: null }).success).toBe(false);
+  });
+  it.each(OPTIONAL)("keeps %s omitted, null and a value distinct", (field) => {
+    const omitted = profileSchema.parse(REQUIRED);
+    expect(field in omitted).toBe(false);
+    const cleared = profileSchema.parse({ ...REQUIRED, [field]: null }) as Record<string, unknown>;
+    expect(field in cleared).toBe(true);
+    expect(cleared[field]).toBeNull();
+    const value = (profile as Record<string, unknown>)[field] ?? 75;
+    expect((profileSchema.parse({ ...REQUIRED, [field]: value }) as Record<string, unknown>)[field]).toBe(value);
+  });
+  it("keeps a zero as a zero", () => {
+    expect(profileSchema.parse({ ...REQUIRED, workoutDaysPerWeek: 0 }).workoutDaysPerWeek).toBe(0);
+  });
+  it.each([["sex", ""], ["heightCm", 99], ["heightCm", ""], ["currentWeightKg", 301], ["goalWeightKg", 29], ["goal", "NONE"], ["activityLevel", 0], ["experience", ""], ["workoutDaysPerWeek", 8], ["workoutDaysPerWeek", 2.5]])("refuses %s = %j, so a blank never clears", (field, value) => {
+    expect(profileSchema.safeParse({ ...REQUIRED, [field]: value }).success).toBe(false);
   });
 });
 

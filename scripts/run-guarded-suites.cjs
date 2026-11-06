@@ -84,7 +84,7 @@ async function withoutMarkerWrite(run) {
 }
 
 // Only when asked for by name: these bracket applying a migration, which needs the owner's approval.
-const ON_DEMAND = new Set(["migration-snapshot", "migration-verify"]);
+const ON_DEMAND = new Set(["migration-snapshot", "migration-verify", "profile-migration-snapshot", "profile-migration-verify"]);
 const SUITES = {
   guard: () => runNode(nodeTest("test-target-guard.test.cjs"), { DATABASE_URL: "" }, 300_000),
   "guard-browser": () => runNode(nodeTest("test-target-guard.browser.test.cjs"), { DATABASE_URL: "" }, 300_000),
@@ -102,6 +102,11 @@ const SUITES = {
   "nutrition-targets-e2e": () => withApp("nutrition-targets-e2e", { appEnv: MANY }, ({ url }) => runNode([script("e2e-nutrition-targets.cjs")], { BASE_URL: url }, 590_000)),
   "migration-snapshot": () => withApp("migration-snapshot", {}, ({ url }) => runNode([script("nutrition-target-migration-check.cjs"), "snapshot"], { BASE_URL: url }, 60_000)),
   "migration-verify": () => withApp("migration-verify", {}, ({ url }) => runNode([script("nutrition-target-migration-check.cjs"), "verify"], { BASE_URL: url }, 60_000)),
+  "profile-minimization": () => withApp("profile-minimization", { appEnv: MANY }, ({ url }) => runNode(nodeTest("profile-minimization.test.cjs"), { BASE_URL: url }, 300_000)),
+  "profile-nulls": () => withApp("profile-nulls", { appEnv: MANY }, ({ url }) => runNode(nodeTest("profile-nulls.test.cjs"), { BASE_URL: url }, 300_000)),
+  "profile-minimization-e2e": () => withApp("profile-minimization-e2e", { appEnv: MANY }, ({ url }) => runNode([script("e2e-profile-minimization.cjs")], { BASE_URL: url }, 590_000)),
+  "profile-migration-snapshot": () => withApp("profile-migration-snapshot", {}, ({ url }) => runNode([script("profile-migration-check.cjs"), "snapshot"], { BASE_URL: url }, 60_000)),
+  "profile-migration-verify": () => withApp("profile-migration-verify", {}, ({ url }) => runNode([script("profile-migration-check.cjs"), "verify"], { BASE_URL: url }, 60_000)),
   "label-scan": e2e("label-scan", "e2e-label-scan.cjs", LABEL),
   "label-pdf": e2e("label-pdf", "e2e-label-pdf.cjs", LABEL),
   meal: e2e("meal", "e2e-meal.cjs", MEAL),

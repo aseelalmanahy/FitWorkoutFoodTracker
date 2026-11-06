@@ -1,6 +1,7 @@
 import type { Profile } from "@prisma/client";
 import type { ProfileValues } from "@/components/profile/profile-form";
 
+/** Passes nulls through. A default here would show a value the person never gave, and could save it. */
 export function profileToValues(p: Profile): ProfileValues {
   return {
     name: p.name,

@@ -1,6 +1,6 @@
 # Project Completion Tracker
 
-**The single source of truth for what's done and what isn't.** Last updated 2026-11-06, on `main`, after Phase 4.0.1b merged at `38c4a37`.
+**The single source of truth for what's done and what isn't.** Last updated 2026-11-06, on branch `feature/phase-4.0.1c-profile-minimization`, from `main` at `5239fb6`.
 
 **Rules:**
 
@@ -21,7 +21,7 @@
 | M-06 | 4.0.0a | Test-target guard | COMPLETE | Merged at `56606ee`. `guard` 51 of 51, `guard-browser` 21 of 21 |
 | M-07 | 4.0.1 | Stage A: eligibility, access gate, automatic targets removed | COMPLETE | Merged at `429d961`. All guarded suites and 26 of 26 negative controls, with independent review. Not for real users on its own |
 | M-08 | 4.0.1b | Nullable targets, calories-only, stopping a target | COMPLETE for development | Merged at `38c4a37`, and verified on `fitdb_test`, section 3. **The migration is on `fitdb_test` only, so `fitdb` can't run this yet (B-07).** Not for real users on its own |
-| M-09 | 4.0.1c | Profile data minimization | NOT STARTED | Needs its own migration approval |
+| M-09 | 4.0.1c | Profile data minimization | **IN PROGRESS** | Implemented on this branch. **The migration isn't applied, so its real saves are BLOCKED,** section 2a. Not COMPLETE until migration verification, independent review and merge |
 | M-10 | 4.0.2 | Account deletion and export | NOT STARTED | Export follows 4.0.1b |
 | M-11 | 4.0.3 | Production foundation | NOT STARTED | Needs decisions 4, 5 and 14 |
 | M-12 | 4.0.4 | Email-proven access | NOT STARTED | Needs 4.0.3 and decisions 8, 10, 11. Has a migration |
@@ -44,7 +44,62 @@
 | B-06 | 4.0.1b | Independent review, then the owner's merge approval | COMPLETE | P0 | None | The owner approved `38c4a37` for merge on 2026-11-06, and it was fast-forwarded to `main`. The review's own findings aren't recorded here |
 | B-07 | 4.0.1b | `fitdb`, the development database, doesn't have this migration | BLOCKED | P1 | Separate owner approval | **Calories-only saves and stopping will fail there until it's applied.** Applying it needs its own decision and backup |
 
+## 2a. Phase 4.0.1c detail
+
+| ID | Phase | Description | Status | Priority | Dependency | Acceptance Criteria |
+|---|---|---|---|---|---|---|
+| C-01 | 4.0.1c | Migration `20261106130000_nullable_profile_fields`: 7 nullable columns, no default, no row rewritten | IN PROGRESS | P0 | C-06 | **Written, not applied.** Text checks pass, and Prisma's own diff of the two schemas produces the same 7 statements. **Left:** apply, `profile-migration-verify` |
+| C-02 | 4.0.1c | Onboarding asks for name, date of birth and units, and takes the time zone from the browser | IN PROGRESS | P0 | C-06 | **Verified:** what's asked and sent, intercepted, in 3 browsers. **Left:** a real save, T45 |
+| C-03 | 4.0.1c | `PUT`: omitted leaves unchanged, null clears, a value sets. Date of birth, name, units and time zone stay required | IN PROGRESS | P0 | C-06 | **Verified:** schema tests, and required fields refused on real rows. **Left:** real saves, `profile-nulls` |
+| C-04 | 4.0.1c | Profile page: stored details show with a clear action, and nothing asks for unset ones. Only what was changed is sent | IN PROGRESS | P0 | C-06 | **Verified:** what's sent, intercepted, in 3 browsers. **Left:** real clearing, and a null row's page |
+| C-05 | 4.0.1c | Eligibility unchanged: refusal, restriction and correction | IN PROGRESS | P0 | C-06 | **Verified:** refusals and restriction on real rows. **Left:** a real correction with only the required fields |
+| C-06 | 4.0.1c | **Owner's decision to apply the migration to `fitdb_test`** | BLOCKED | P0 | Owner | Authorization names the migration and database. Backup and snapshot first |
+| C-07 | 4.0.1c | Independent review, then the owner's merge approval | NOT STARTED | P0 | ChatGPT review, C-06, owner | A specific reviewed commit is approved |
+| C-08 | 4.0.1c | **This code needs the migration on any database it runs against.** Without it, every save from the new form returns 500, including for people who already have a profile | BLOCKED | P0 | C-06, B-07 | Migration applied before this code runs there. **So `fitdb` needs both migrations before this branch is usable on it** |
+| C-09 | 4.0.1c | Legal advice on not collecting these fields, and on the interim "Stored with your profile" wording (Decision 25) | BLOCKED | P1 | R-01 | Advice recorded, and the wording finalized |
+
 ## 3. Tests: run, failed, blocked
+
+### Phase 4.0.1c, on the branch's final commit, with the migration **not applied**
+
+| Test | Result | Limit |
+|---|---|---|
+| Unit tests (`vitest`), type check, production build | PASSED, 1,372 | `npm run lint` is the type check. There's no ESLint, R-15. Built against the test database |
+| `profile-minimization` | PASSED, 7 of 7 | Refusals only: required fields, invalid values and dates, under-minimum, restriction, anonymous, cross-origin. None reaches a write |
+| `profile-minimization-e2e`, Part A | PASSED, 3 browsers | Saves are intercepted, so it shows what the form asks and sends, and not that a save works. No real phone |
+| Other guarded suites that don't go through the form | PASSED | `guard` 51, `guard-browser` 21, `units` 19, `live-identity` 9, `db-guard-scoped` 6, `safety-no-marker` 7 with 1 skipped by design, `nutrition-api` 77, `release-workflow` 8, `nutrition-targets` 8, `nutrition-targets-e2e`, `provider-protection` 7, `provider-malformed` 4, `provider-config` 1, `usda-missing-nutrients` 4. These send full profile bodies, or create rows directly |
+| **`profile-nulls`** | **BLOCKED,** 16 of 16 refused | Stops with the BLOCKED message until the migration is applied |
+| **`profile-minimization-e2e`, Part B** | **BLOCKED,** exits 3 | Real onboarding, re-saving a null row, clearing, correcting a restricted date |
+| **`profile-migration-verify`, T44** | **BLOCKED** | Reports that the migration isn't applied. The snapshot step was run once, and its file deleted. **Its 5 rows remain in `fitdb_test`** |
+| **`e2e-smoke`, `e2e-nutrition`, `eligibility`, `label-scan`, `label-pdf`, `meal`, `hardening`, and the 3 unconfigured suites** | **BLOCKED** | They onboard through the new form. See the trial below |
+
+**Trial, not a pass.** To check the changed fixtures before any migration decision, one temporary build wrote the omitted fields itself, then was restored and hash-checked. On it, all the BLOCKED browser suites above passed, and the 6 `profile-nulls` tests that write no null passed. The null-writing tests failed, as the columns refuse them. The final `profile-nulls` differs slightly: three checks were then strengthened to require their writes to succeed.
+
+**Found by running it:** Prisma's `upsert` is one `INSERT ... ON CONFLICT`, and PostgreSQL checks NOT NULL on the row it would insert. So a body that omits a field fails before the migration even for an existing row. That's item C-08, and it's why those tests moved to `profile-nulls`. **Limit:** the `upsert` behaviour after the migration hasn't been observed.
+
+**Negative controls: 16 of 16 caught, with every file restored and hash-checked.** One defect at a time. Three control definitions were first wrong and were corrected and rerun: B5 didn't change behaviour in metric, T1 didn't compile, and T2 read a consumed request body.
+
+| Control | Defect | Fails on |
+|---|---|---|
+| U1 | Date of birth becomes optional | Still requires `birthDate` |
+| U2 | A blank height clears | Refuses `heightCm = ""` |
+| U3 | Schema supplies a default | T45: adds no value of its own |
+| U4 | Serializer invents a value | Passes every null through |
+| U5, U6 | Migration adds a default, or backfills | T44: rewrites no row, adds no default |
+| U7 | Migration frees the date of birth | T44: exactly the seven approved columns |
+| A1 | Under-minimum date no longer refused | `profile-minimization`, on real rows |
+| A2 | Omitted date of birth no longer refused | `profile-minimization`, on real rows |
+| B1, NC33 | Form sends a default | T45: only the four required fields are sent |
+| B2 | Form always sends a stored number | Saving unchanged rewrites nothing |
+| B3 | A clear sends nothing | A clear is an explicit null |
+| B4 | Onboarding asks for a stored detail | Onboarding: Sex isn't asked for |
+| B5 | A blanked number saves silently | A blanked number is an error |
+| T1 | Omitted field overwritten | **On the temporary build:** omitted leaves a legacy value |
+| T2 | Request body names the row | **On the temporary build:** B unchanged |
+
+T1 and T2 show those tests can fail. **They aren't a pass of the tests.** Controls that need a null column, such as the route inventing a value on create, wait for the migration (T-12).
+
+### Phase 4.0.1b
 
 **Results at `38c4a37`, on `fitdb_test` after the migration. Nothing ran on `fitdb`, and `fitdb_test_other` wasn't migrated.**
 
@@ -98,6 +153,9 @@ So code from before this migration **fails for those people, and never reads a n
 | T-06 | 3 | Real models, labels, meals, hostile inputs | BLOCKED | P1, if AI is wanted | Paid-test approval | Readiness items 2 to 4 |
 | T-07 | 3 | Real phones and real PDFs | NOT STARTED | P0 | M-14 | Readiness items 6 and 7 |
 | T-08 | 4.0.1 | `T3` exercises only the branch for the UTC hour it runs in, or both between 10:00 and 11:00 | DEFERRED | P3 | None | Accepted limit for now. NC3 was seen to catch one branch (`422 !== 200`), and the other hasn't been seen to fail. A control run at the right UTC hour would close this |
+| T-11 | 4.0.1c | `profile-nulls`, Part B, `profile-migration-verify`, and the browser suites listed as BLOCKED | BLOCKED | P0 | C-06 | All pass on `fitdb_test` after the migration, at a stated commit |
+| T-12 | 4.0.1c | Controls needing a null column: the route inventing a value on create, a clear ignored, and a page showing a null as a value | BLOCKED | P1 | C-06 | Each caught by a named assertion |
+| T-13 | 4.0.1c | Whether `migrate status` and `migrate diff` stay clean after this migration | BLOCKED | P2 | C-06 | Recorded. Only a schema-to-schema diff was run, with no database |
 | T-09 | 4.0.1b | **Not run:** dropping a CHECK on a live database, to show T38 then fails. The owner's authorization allowed only the approved migration to change the schema | DEFERRED | P2 | Owner, if wanted | **Partly covered:** NC31a and NC31b catch a removed constraint in the migration's text, T38 shows the live constraints refuse every invalid shape, and D5 and D6 show they stop the app's own bad writes |
 | T-10 | 4.0.1b | **Not run:** restoring the `fitdb_test` backup taken before the migration. Only its archive listing was read | NOT STARTED | P2 | Owner, for a restore target | Restored into a separately approved database, with row counts compared to the snapshot |
 
@@ -106,7 +164,7 @@ So code from before this migration **fails for those people, and never reads a n
 | ID | Phase | Description | Status | Priority | Dependency | Acceptance Criteria |
 |---|---|---|---|---|---|---|
 | MIG-01 | 4.0.1b | `20261106120000_nullable_nutrition_targets`, Git blob `62b7459`. **Applied to `fitdb_test` only,** on 2026-11-06, with owner authorization | COMPLETE for `fitdb_test` | P0 | None | `migration-verify` passed. **Not applied to `fitdb`, `fitdb_test_other` or any production database,** which each need separate approval |
-| MIG-02 | 4.0.1c | `Profile`: nullable unread fields, separate migration | NOT STARTED | P1 | Owner approval, Decision 9 = A | Annex H4 and T45 |
+| MIG-02 | 4.0.1c | `20261106130000_nullable_profile_fields`: `sex`, `heightCm`, `currentWeightKg`, `goal`, `activityLevel`, `experience`, `workoutDaysPerWeek` | IN PROGRESS: written. **Not applied anywhere** | P1 | C-06. Decision 9 = A, as built in Stage A | Annex H4, T44 and T45. **Rollback is forward-only once a null exists,** Annex H6 |
 | MIG-03 | 4.0.4 | Token table and acceptance fields | NOT STARTED | P0 | Decisions 8, 10, 11 | Design section 8 |
 
 **Backup taken before applying:** `C:\Users\Aseel\FitWorkoutFoodTracker-backups\fitdb_test-pre-4.0.1b-20261106T060140Z.dump`, custom format, 859,762 bytes. `pg_dump` exited 0, and `pg_restore --list` read it. **It hasn't been restored,** so the restore itself is untested (T-10).
@@ -133,7 +191,7 @@ The merged documents hold **recommendations.** Stage A's authorization covered i
 | R-02 | 4.0 | Clinical and nutrition safety review (Decision 7) | BLOCKED | P0 | Reviewer | Written review at a stated commit, or a signed gap under Annex H2's conditions |
 | R-03 | 4.0.6 | Low-target and underweight-goal safeguards (Decision 23). **800 kcal is still accepted with no warning** | BLOCKED | P0 | R-02 | Reviewed number and source, or a signed gap with the register amended. **No threshold is invented here** |
 | R-04 | 4.0.2 | Self-service deletion, including from refusal and restricted screens. The expected failure on custom exercises hasn't been observed | NOT STARTED | P0 | None | Design section 12 |
-| R-05 | 4.0.2 | Self-service export | NOT STARTED | P0 | M-08 | Includes stopped rows and nulls as null |
+| R-05 | 4.0.2 | Self-service export | NOT STARTED | P0 | M-08, M-09 | Includes stopped rows and nulls as null, including cleared profile fields |
 | R-06 | 4.0.5 | Retention rule for refused and abandoned accounts. Their email and password hash persist until then | BLOCKED | P0 | R-01 | Rule stated in the notice, and applied |
 | R-07 | 4.0.3 | Deployment, HTTPS, one instance, backups with a tested restore | NOT STARTED | P0 | Decisions 4, 5 | Design section 12 |
 | R-08 | 4.0.3 | Read-only check that production starts empty. **Currently an untested assumption** | NOT STARTED | P0 | R-07 | Counts recorded, and 4.0.6's reset done. Otherwise return to Decisions 27 and 30 |
@@ -163,13 +221,18 @@ The merged documents hold **recommendations.** Stage A's authorization covered i
 
 | ID | Phase | Description | Status | Priority | Dependency | Acceptance Criteria |
 |---|---|---|---|---|---|---|
-| TD-01 | 4.0.1 | `calorieTargetOverride` column unused, with a stale comment at `schema.prisma` | DEFERRED | P3 | MIG-02 | Comment fixed, then the column dropped with approval |
+| TD-01 | 4.0.1 | `calorieTargetOverride` column unused. Its stale comment is corrected on this branch | DEFERRED | P3 | MIG-02 | Column dropped with approval |
 | TD-02 | 4.0.1 | `Segmented` keeps button-based radios, and section 11's native radios weren't built, as Annex D allowed | DEFERRED | P3 | None | Separate accessibility change, with a keyboard test |
-| TD-03 | 4.0.1 | Sex, activity, goal, experience and days are asked for with nothing reading them | NOT STARTED | P1 | MIG-02 | T45 |
+| TD-03 | 4.0.1 | Sex, activity, goal, experience and days are asked for with nothing reading them | IN PROGRESS | P1 | MIG-02 | Stopped on this branch. **Left:** T45 |
 | TD-04 | 4.0.1b | Raw CHECK constraints are invisible in `schema.prisma`, and only commented there | DEFERRED | P3 | T-03 | Drift behaviour recorded |
 | TD-05 | 4.0.1b | The stop's date can overwrite a future row, only after a move to an earlier time zone. Accepted, as the alternative undoes the stop | DEFERRED | P3 | None | Revisit if real use shows a problem |
 | TD-06 | Docs | `README.md`, `ARCHITECTURE.md` and the Phase 3.6 status line carry stale statements | NOT STARTED | P2 | None | Design section 15's list done |
 | TD-07 | Docs | `PHASE_4_0_0A_TEST_TARGET_GUARD.md` still says "not merged" | NOT STARTED | P3 | None | Status corrected |
+| TD-09 | 4.0.1c | `goalWeightKg` has no reader, but stays an optional field on the profile page, as it isn't among Annex H4's seven. It's gone from onboarding | DEFERRED | P2 | Owner, R-03 | Decide with underweight-goal safeguards and 4.1's goal card |
+| TD-10 | 4.0.1c | Unread columns stay in the database. Dropping them and their stored values wasn't proposed | DEFERRED | P3 | Owner | Revisit with retention, R-06 |
+| TD-11 | 4.0.1c | Every profile save overwrites the stored time zone with the browser's. Existing behaviour, not changed here | DEFERRED | P3 | None | Decide whether it should only follow a choice |
+| TD-12 | 4.0.1c | A cleared detail can't be entered again from the app, as nothing asks for unset ones (Annex H4) | DEFERRED | P3 | M-15 | 4.1 adds what it reads, including a state for no goal |
+| TD-13 | Docs | `ARCHITECTURE.md`'s Profile summary doesn't say these fields are nullable | NOT STARTED | P3 | Merge of 4.0.1c | Updated |
 | TD-08 | Tests | `npm run test:e2e` and `test:api` cover only some suites. `test:suites` is the complete run | DEFERRED | P3 | None | Named clearly in the README |
 
 ## 9. Items outside this tracker

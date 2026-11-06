@@ -8,17 +8,19 @@ import { cmToIn, inToCm, kgToLb, lbToKg, round, type UnitSystem } from "@/lib/un
 import { LogoutButton } from "@/components/logout-button";
 import { Button, Card, ErrorText, Field, Input, Select, cx } from "@/components/ui";
 
+type Experience = "BEGINNER" | "INTERMEDIATE" | "ADVANCED";
+
 export interface ProfileValues {
   name: string;
   birthDate: string;
-  sex: "MALE" | "FEMALE";
-  heightCm: number;
-  currentWeightKg: number;
+  sex: "MALE" | "FEMALE" | null;
+  heightCm: number | null;
+  currentWeightKg: number | null;
   goalWeightKg: number | null;
-  goal: FitnessGoal;
-  activityLevel: ActivityLevel;
-  experience: "BEGINNER" | "INTERMEDIATE" | "ADVANCED";
-  workoutDaysPerWeek: number;
+  goal: FitnessGoal | null;
+  activityLevel: ActivityLevel | null;
+  experience: Experience | null;
+  workoutDaysPerWeek: number | null;
   unitSystem: UnitSystem;
   timezone: string;
 }
@@ -30,7 +32,9 @@ const GOALS: { v: FitnessGoal; label: string }[] = [
   { v: "STRENGTH", label: "Strength" },
 ];
 
-const UNUSED_HINT = "Stored with your profile. Not used for any calculation at the moment.";
+// Details nothing in the product reads. Nobody is asked for them: a stored one can be edited or cleared.
+type StoredKey = "sex" | "height" | "weight" | "goal" | "activity" | "experience" | "days";
+const STORED_HINT = "Stored with your profile. Not used for any calculation at the moment. Clearing one removes it when you save.";
 const BIRTH_DATE_REFUSED = "This date of birth can't be used.";
 
 // Fixed text in display order, so an error never shows a raw field name or limit.
@@ -38,21 +42,15 @@ const COPY = {
   units: "Please choose your units.",
   name: "Please enter your name.",
   birthDate: "Please enter your date of birth.",
-  sex: "Please choose an option.",
   height: "Please enter a valid height.",
-  weight: "Please enter your current weight.",
+  weight: "Please enter a valid weight.",
   goalWeight: "Please enter a valid goal weight.",
-  goal: "Please choose a goal.",
-  activity: "Please choose an activity level.",
-  experience: "Please choose your training experience.",
-  days: "Please choose your workout days.",
 } as const;
 type FieldKey = keyof typeof COPY;
 const ORDER = Object.keys(COPY) as FieldKey[];
 
 const SERVER_FIELDS: Record<string, FieldKey> = {
-  unitSystem: "units", name: "name", birthDate: "birthDate", sex: "sex", heightCm: "height", currentWeightKg: "weight",
-  goalWeightKg: "goalWeight", goal: "goal", activityLevel: "activity", experience: "experience", workoutDaysPerWeek: "days",
+  unitSystem: "units", name: "name", birthDate: "birthDate", heightCm: "height", currentWeightKg: "weight", goalWeightKg: "goalWeight",
 };
 
 const fieldId = (k: FieldKey) => `profile-${k}`;
@@ -83,6 +81,19 @@ function Segmented<T extends string>({ value, options, onChange, name, id, descr
   );
 }
 
+/** One stored detail, with the action that clears it. The clear takes effect on saving, and can be undone until then. */
+function StoredRow({ id, label, cleared, onToggle, children }: { id: StoredKey; label: string; cleared: boolean; onToggle: () => void; children: React.ReactNode }) {
+  const lower = label.toLowerCase();
+  return (
+    <div className="space-y-1">
+      {cleared ? <p role="status" className="text-sm text-muted">{label} will be removed when you save.</p> : children}
+      <button id={`profile-${id}-action`} type="button" onClick={onToggle} className="text-sm font-semibold text-accent-ink">
+        {cleared ? `Keep ${lower}` : `Clear ${lower}`}
+      </button>
+    </div>
+  );
+}
+
 export function ProfileForm({ initial, submitLabel, redirectTo }: { initial: ProfileValues | null; submitLabel: string; redirectTo?: string }) {
   const router = useRouter();
   // Nothing is preselected for a new profile. A default here would save a value the person never chose.
@@ -92,18 +103,22 @@ export function ProfileForm({ initial, submitLabel, redirectTo }: { initial: Pro
   const [activity, setActivity] = useState<ActivityLevel | "">(initial?.activityLevel ?? "");
   const [name, setName] = useState(initial?.name ?? "");
   const [birthDate, setBirthDate] = useState(initial?.birthDate ?? "");
-  const [experience, setExperience] = useState<ProfileValues["experience"] | "">(initial?.experience ?? "");
-  const [days, setDays] = useState(initial ? String(initial.workoutDaysPerWeek) : "");
+  const [experience, setExperience] = useState<Experience | "">(initial?.experience ?? "");
+  const [days, setDays] = useState(initial?.workoutDaysPerWeek != null ? String(initial.workoutDaysPerWeek) : "");
 
   // Display-unit text fields
-  const initFt = initial ? Math.floor(cmToIn(initial.heightCm) / 12) : "";
-  const initIn = initial ? round(cmToIn(initial.heightCm) - Number(initFt) * 12, 1) : "";
-  const [heightCm, setHeightCm] = useState(initial ? String(round(initial.heightCm, 1)) : "");
+  const initCm = initial?.heightCm ?? null;
+  const initFt = initCm != null ? Math.floor(cmToIn(initCm) / 12) : "";
+  const initIn = initCm != null ? round(cmToIn(initCm) - Number(initFt) * 12, 1) : "";
+  const [heightCm, setHeightCm] = useState(initCm != null ? String(round(initCm, 1)) : "");
   const [heightFt, setHeightFt] = useState(String(initFt));
   const [heightIn, setHeightIn] = useState(String(initIn));
   const toDisp = (kg: number | null | undefined, u: UnitSystem | null) => (kg == null ? "" : String(round(u === "IMPERIAL" ? kgToLb(kg) : kg, 1)));
   const [weight, setWeight] = useState(toDisp(initial?.currentWeightKg, units));
   const [goalWeight, setGoalWeight] = useState(toDisp(initial?.goalWeightKg, units));
+  // Only what the person changed is sent. Displayed numbers are rounded, so saving them back would rewrite stored values.
+  const [edited, setEdited] = useState<{ height?: boolean; weight?: boolean; goalWeight?: boolean }>({});
+  const [cleared, setCleared] = useState<Partial<Record<StoredKey, boolean>>>({});
   const [errors, setErrors] = useState<Partial<Record<FieldKey, string>>>({});
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -145,27 +160,48 @@ export function ProfileForm({ initial, submitLabel, redirectTo }: { initial: Pro
     setUnits(u);
   }
 
+  const isStored: Record<StoredKey, boolean> = {
+    sex: initial?.sex != null, height: initCm != null, weight: initial?.currentWeightKg != null, goal: initial?.goal != null,
+    activity: initial?.activityLevel != null, experience: initial?.experience != null, days: initial?.workoutDaysPerWeek != null,
+  };
+
   function validate(): Partial<Record<FieldKey, string>> {
     const found: Partial<Record<FieldKey, string>> = {};
     const fail = (k: FieldKey) => { found[k] = COPY[k]; };
     if (!units) fail("units");
     if (!name.trim()) fail("name");
     if (!birthDate) fail("birthDate");
-    if (!sex) fail("sex");
     if (units) {
-      if (!Number.isFinite(computedHeightCm) || computedHeightCm < 100 || computedHeightCm > 250) fail("height");
-      const w = toKg(weight);
-      if (!Number.isFinite(w) || w < 30 || w > 300) fail("weight");
-      if (goalWeight.trim()) {
+      if (edited.height && !cleared.height && (!Number.isFinite(computedHeightCm) || computedHeightCm < 100 || computedHeightCm > 250)) fail("height");
+      if (edited.weight && !cleared.weight) {
+        const w = toKg(weight);
+        if (!Number.isFinite(w) || w < 30 || w > 300) fail("weight");
+      }
+      if (edited.goalWeight && goalWeight.trim()) {
         const gw = toKg(goalWeight);
         if (!Number.isFinite(gw) || gw < 30 || gw > 300) fail("goalWeight");
       }
     }
-    if (!goal) fail("goal");
-    if (!activity) fail("activity");
-    if (!experience) fail("experience");
-    if (days === "") fail("days");
     return found;
+  }
+
+  /** Null for a detail being cleared, the value if it was changed, and nothing at all otherwise. */
+  function storedChanges(): Record<string, unknown> {
+    const body: Record<string, unknown> = {};
+    const add = (k: StoredKey, field: string, changed: boolean, value: () => unknown) => {
+      if (!isStored[k]) return;
+      if (cleared[k]) body[field] = null;
+      else if (changed) body[field] = value();
+    };
+    add("sex", "sex", sex !== initial?.sex, () => sex);
+    add("height", "heightCm", !!edited.height, () => round(computedHeightCm, 2));
+    add("weight", "currentWeightKg", !!edited.weight, () => round(toKg(weight), 3));
+    add("goal", "goal", goal !== initial?.goal, () => goal);
+    add("activity", "activityLevel", activity !== initial?.activityLevel, () => activity);
+    add("experience", "experience", experience !== initial?.experience, () => experience);
+    add("days", "workoutDaysPerWeek", days !== String(initial?.workoutDaysPerWeek), () => Number(days));
+    if (edited.goalWeight) body.goalWeightKg = goalWeight.trim() ? round(toKg(goalWeight), 3) : null;
+    return body;
   }
 
   function showErrors(found: Partial<Record<FieldKey, string>>) {
@@ -190,21 +226,14 @@ export function ProfileForm({ initial, submitLabel, redirectTo }: { initial: Pro
     setConfirming(false);
     setBusy(true);
     try {
-      const gw = goalWeight.trim() ? toKg(goalWeight) : null;
       await api("PUT", "/api/profile", {
         name: name.trim(),
         birthDate,
-        sex,
-        heightCm: round(computedHeightCm, 2),
-        currentWeightKg: round(toKg(weight), 3),
-        goalWeightKg: gw != null ? round(gw, 3) : null,
-        goal,
-        activityLevel: activity,
-        experience,
-        workoutDaysPerWeek: Number(days),
         unitSystem: units,
         timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
+        ...storedChanges(),
       });
+      setEdited({});
       setSaved(true);
       if (redirectTo) router.replace(redirectTo);
       router.refresh();
@@ -246,6 +275,8 @@ export function ProfileForm({ initial, submitLabel, redirectTo }: { initial: Pro
   }
 
   const mu = units === "IMPERIAL" ? "lb" : "kg";
+  const toggle = (k: StoredKey) => setCleared((c) => ({ ...c, [k]: !c[k] }));
+  const markHeight = () => setEdited((x) => ({ ...x, height: true }));
   const inputProps = (k: FieldKey) => ({ id: fieldId(k), "aria-invalid": errors[k] ? true : undefined, "aria-describedby": errors[k] ? errorId(k) : undefined });
   const fieldProps = (k: FieldKey) => ({ error: errors[k], errorId: errorId(k) });
   const describedBy = (k: FieldKey) => (errors[k] ? errorId(k) : undefined);
@@ -258,64 +289,89 @@ export function ProfileForm({ initial, submitLabel, redirectTo }: { initial: Pro
       <Field label="Name" {...fieldProps("name")}>
         <Input value={name} onChange={(e) => setName(e.target.value)} autoComplete="given-name" {...inputProps("name")} />
       </Field>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Date of birth" {...fieldProps("birthDate")}>
-          <Input type="date" value={birthDate} onChange={(e) => { setBirthDate(e.target.value); setConfirming(false); }} {...inputProps("birthDate")} />
+      <Field label="Date of birth" {...fieldProps("birthDate")}>
+        <Input type="date" value={birthDate} onChange={(e) => { setBirthDate(e.target.value); setConfirming(false); }} {...inputProps("birthDate")} />
+      </Field>
+      {initial && (
+        <Field label={`Goal weight (${mu})`} hint="Optional" {...fieldProps("goalWeight")}>
+          <Input inputMode="decimal" value={goalWeight} onChange={(e) => { setGoalWeight(e.target.value); setEdited((x) => ({ ...x, goalWeight: true })); }} {...inputProps("goalWeight")} />
         </Field>
-        <Field label="Sex" hint={UNUSED_HINT} group {...fieldProps("sex")}>
-          <Segmented name="Sex" id={fieldId("sex")} describedBy={describedBy("sex")} value={sex} onChange={setSex} options={[{ v: "MALE", label: "Male" }, { v: "FEMALE", label: "Female" }]} />
-        </Field>
-      </div>
-      {!units ? (
-        <p className="text-sm text-muted">Choose your units to enter height and weight.</p>
-      ) : (
-        <>
-          {units === "IMPERIAL" ? (
-            <div className="grid grid-cols-2 gap-3">
-              <Field label="Height (ft)" {...fieldProps("height")}><Input inputMode="numeric" value={heightFt} onChange={(e) => setHeightFt(e.target.value)} {...inputProps("height")} /></Field>
-              <Field label="Height (in)"><Input inputMode="decimal" value={heightIn} onChange={(e) => setHeightIn(e.target.value)} /></Field>
-            </div>
-          ) : (
-            <Field label="Height (cm)" {...fieldProps("height")}><Input inputMode="decimal" value={heightCm} onChange={(e) => setHeightCm(e.target.value)} {...inputProps("height")} /></Field>
-          )}
-          <div className="grid grid-cols-2 gap-3">
-            <Field label={`Current weight (${mu})`} {...fieldProps("weight")}><Input inputMode="decimal" value={weight} onChange={(e) => setWeight(e.target.value)} {...inputProps("weight")} /></Field>
-            <Field label={`Goal weight (${mu})`} hint="Optional" {...fieldProps("goalWeight")}><Input inputMode="decimal" value={goalWeight} onChange={(e) => setGoalWeight(e.target.value)} {...inputProps("goalWeight")} /></Field>
-          </div>
-        </>
       )}
-      <Field label="Goal" group {...fieldProps("goal")}>
-        <div className="grid grid-cols-2 gap-2">
-          {GOALS.map((g, i) => (
-            <button key={g.v} id={i === 0 ? fieldId("goal") : undefined} type="button" onClick={() => setGoal(g.v)} aria-pressed={goal === g.v} aria-describedby={describedBy("goal")}
-              className={cx("h-11 rounded-xl border text-sm font-medium transition", goal === g.v ? "border-fg bg-fg text-bg" : "border-line bg-surface-2 text-fg")}>
-              {g.label}
-            </button>
-          ))}
-        </div>
-      </Field>
-      <Field label="Activity level" hint={UNUSED_HINT} {...fieldProps("activity")}>
-        <Select value={activity} onChange={(e) => setActivity(e.target.value as ActivityLevel)} {...inputProps("activity")}>
-          <option value="" disabled>Choose…</option>
-          {Object.entries(ACTIVITY_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
-        </Select>
-      </Field>
-      <div className="grid grid-cols-2 gap-3">
-        <Field label="Training experience" {...fieldProps("experience")}>
-          <Select value={experience} onChange={(e) => setExperience(e.target.value as ProfileValues["experience"])} {...inputProps("experience")}>
-            <option value="" disabled>Choose…</option>
-            <option value="BEGINNER">Beginner (&lt;1 yr)</option>
-            <option value="INTERMEDIATE">Intermediate (1–3 yr)</option>
-            <option value="ADVANCED">Advanced (3+ yr)</option>
-          </Select>
-        </Field>
-        <Field label="Workout days / week" {...fieldProps("days")}>
-          <Select value={days} onChange={(e) => setDays(e.target.value)} {...inputProps("days")}>
-            <option value="" disabled>Choose…</option>
-            {[0, 1, 2, 3, 4, 5, 6, 7].map((d) => <option key={d} value={d}>{d}</option>)}
-          </Select>
-        </Field>
-      </div>
+      {(Object.keys(isStored) as StoredKey[]).some((k) => isStored[k]) && (
+        <section aria-labelledby="profile-stored" className="space-y-4 rounded-xl border border-line p-4">
+          <div>
+            <h2 id="profile-stored" className="text-sm font-semibold">Other details on your profile</h2>
+            <p className="mt-1 text-sm text-muted">{STORED_HINT}</p>
+          </div>
+          {isStored.sex && (
+            <StoredRow id="sex" label="Sex" cleared={!!cleared.sex} onToggle={() => toggle("sex")}>
+              <Field label="Sex" group>
+                <Segmented name="Sex" id="profile-sex" value={sex} onChange={setSex} options={[{ v: "MALE", label: "Male" }, { v: "FEMALE", label: "Female" }]} />
+              </Field>
+            </StoredRow>
+          )}
+          {isStored.height && (
+            <StoredRow id="height" label="Height" cleared={!!cleared.height} onToggle={() => toggle("height")}>
+              {units === "IMPERIAL" ? (
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="Height (ft)" {...fieldProps("height")}><Input inputMode="numeric" value={heightFt} onChange={(e) => { setHeightFt(e.target.value); markHeight(); }} {...inputProps("height")} /></Field>
+                  <Field label="Height (in)"><Input inputMode="decimal" value={heightIn} onChange={(e) => { setHeightIn(e.target.value); markHeight(); }} /></Field>
+                </div>
+              ) : (
+                <Field label="Height (cm)" {...fieldProps("height")}><Input inputMode="decimal" value={heightCm} onChange={(e) => { setHeightCm(e.target.value); markHeight(); }} {...inputProps("height")} /></Field>
+              )}
+            </StoredRow>
+          )}
+          {isStored.weight && (
+            <StoredRow id="weight" label="Current weight" cleared={!!cleared.weight} onToggle={() => toggle("weight")}>
+              <Field label={`Current weight (${mu})`} {...fieldProps("weight")}><Input inputMode="decimal" value={weight} onChange={(e) => { setWeight(e.target.value); setEdited((x) => ({ ...x, weight: true })); }} {...inputProps("weight")} /></Field>
+            </StoredRow>
+          )}
+          {isStored.goal && (
+            <StoredRow id="goal" label="Goal" cleared={!!cleared.goal} onToggle={() => toggle("goal")}>
+              <Field label="Goal" group>
+                <div className="grid grid-cols-2 gap-2">
+                  {GOALS.map((g) => (
+                    <button key={g.v} type="button" onClick={() => setGoal(g.v)} aria-pressed={goal === g.v}
+                      className={cx("h-11 rounded-xl border text-sm font-medium transition", goal === g.v ? "border-fg bg-fg text-bg" : "border-line bg-surface-2 text-fg")}>
+                      {g.label}
+                    </button>
+                  ))}
+                </div>
+              </Field>
+            </StoredRow>
+          )}
+          {isStored.activity && (
+            <StoredRow id="activity" label="Activity level" cleared={!!cleared.activity} onToggle={() => toggle("activity")}>
+              <Field label="Activity level">
+                <Select value={activity} onChange={(e) => setActivity(e.target.value as ActivityLevel)}>
+                  {Object.entries(ACTIVITY_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+                </Select>
+              </Field>
+            </StoredRow>
+          )}
+          {isStored.experience && (
+            <StoredRow id="experience" label="Training experience" cleared={!!cleared.experience} onToggle={() => toggle("experience")}>
+              <Field label="Training experience">
+                <Select value={experience} onChange={(e) => setExperience(e.target.value as Experience)}>
+                  <option value="BEGINNER">Beginner (&lt;1 yr)</option>
+                  <option value="INTERMEDIATE">Intermediate (1–3 yr)</option>
+                  <option value="ADVANCED">Advanced (3+ yr)</option>
+                </Select>
+              </Field>
+            </StoredRow>
+          )}
+          {isStored.days && (
+            <StoredRow id="days" label="Workout days / week" cleared={!!cleared.days} onToggle={() => toggle("days")}>
+              <Field label="Workout days / week">
+                <Select value={days} onChange={(e) => setDays(e.target.value)}>
+                  {[0, 1, 2, 3, 4, 5, 6, 7].map((d) => <option key={d} value={d}>{d}</option>)}
+                </Select>
+              </Field>
+            </StoredRow>
+          )}
+        </section>
+      )}
 
       {initial ? (
         <a href="/nutrition/targets" className="inline-block text-sm font-semibold text-accent-ink">Set calorie and macro targets →</a>

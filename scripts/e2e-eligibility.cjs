@@ -71,16 +71,12 @@ async function inBrowser(name) {
     await page.goto(`${BASE}/onboarding`);
     const units = page.getByRole("radio", { name: "kg / cm" });
     await hydrated(page, units);
-    assert.equal(await page.getByLabel("Height (cm)").count(), 0, "T21: no height field before units");
-    assert.equal(await page.getByLabel(/Current weight/).count(), 0, "T21: no weight field before units");
     assert.equal(await page.locator('[role=radio][aria-checked="true"]').count(), 0, "nothing is preselected");
-    assert.equal(await page.locator("button[aria-pressed=true]").count(), 0, "no goal is preselected");
-    for (const label of ["Activity level", "Training experience", "Workout days / week"]) assert.equal(await page.getByLabel(label).inputValue(), "", `${label} starts unselected`);
     assert.doesNotMatch(await page.locator("main").innerText(), /BMR|TDEE|Suggested|estimate/i, "no estimate");
 
     await page.getByRole("button", { name: "Continue" }).click();
     await page.getByText("Please choose your units.").waitFor();
-    await page.getByText("Please choose an activity level.").waitFor();
+    await page.getByText("Please enter your date of birth.").waitFor();
     assert.equal(await focusedId(page, "profile-units"), "profile-units", "T20: focus on the first invalid field");
     assert.deepEqual(puts, [], "T20: nothing sent");
     step("nothing preselected, units first, errors focus the first invalid field");

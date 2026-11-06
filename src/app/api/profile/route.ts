@@ -12,6 +12,8 @@ export const GET = accountRoute(async (_req, { user }) => {
 /**
  * Nothing is written unless the declared date is eligible. A refused date is never stored or logged.
  * The attempt limit is friction, not enforcement: a false date or a new email gets past it.
+ * A field left out of the body is undefined here, which Prisma leaves unchanged, and stores as null on a
+ * new row. An explicit null clears it.
  */
 export const PUT = accountRoute(async (req, { user }) => {
   const input = await parseBody(req, profileSchema);

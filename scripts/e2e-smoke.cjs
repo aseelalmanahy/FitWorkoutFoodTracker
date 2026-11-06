@@ -25,7 +25,7 @@ const BASE = target.baseUrl;
   await page.fill('input[name=password]', 'correct horse battery');
   await page.click('button[type=submit]');
   await page.waitForURL('**/onboarding');
-  await completeOnboarding(page, { units: 'IMPERIAL', name: 'Alex Rivera', birthDate: '1994-05-12', goalWeight: '172', goal: 'Fat loss', beforeSubmit: () => page.screenshot({ path: SHOTS + '01-onboarding.png', fullPage: true }) });
+  await completeOnboarding(page, { units: 'IMPERIAL', name: 'Alex Rivera', birthDate: '1994-05-12', beforeSubmit: () => page.screenshot({ path: SHOTS + '01-onboarding.png', fullPage: true }) });
   await page.screenshot({ path: SHOTS + '02-dashboard-empty.png' });
 
   // Create plan
