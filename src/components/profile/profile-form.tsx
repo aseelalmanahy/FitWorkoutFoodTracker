@@ -269,6 +269,7 @@ export function ProfileForm({ initial, submitLabel, redirectTo }: { initial: Pro
         <h2 ref={refusalHeading} tabIndex={-1} className="text-xl font-bold outline-none">We can&apos;t set up an account with that date of birth.</h2>
         <p className="text-sm text-muted">You entered {dateInWords(birthDate)}. We didn&apos;t save that date.</p>
         <Button type="button" variant="secondary" className="w-full" onClick={() => { setRefused(false); setFocusNext(fieldId("birthDate")); }}>Check the date</Button>
+        <a href="/account" className="block text-center text-sm font-semibold text-accent-ink">Delete this account</a>
         <LogoutButton className="w-full" />
       </Card>
     );

@@ -141,6 +141,14 @@ export function beginLoginAttempt(email: string, client: string | null, knownDev
   };
 }
 
+/** After a deletion: these records hold the email in plain text, and would otherwise last until they expire. */
+export function forgetLoginAccount(email: string): void {
+  const account = email.trim().toLowerCase();
+  for (const key of records.keys()) {
+    if (key === `account:${account}` || (/^(known|pair):/.test(key) && key.endsWith(`:${account}`))) records.delete(key);
+  }
+}
+
 let passwordChecks = 0;
 /** Refusing here, before any record is created, means a flood during overload leaves nothing behind. */
 export const hasPasswordCheckCapacity = (knownDevice = false) =>

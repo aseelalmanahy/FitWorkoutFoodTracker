@@ -1,6 +1,6 @@
 # Project Completion Tracker
 
-**The single source of truth for what's done and what isn't.** Last updated 2026-11-06, on `main`, after Phase 4.0.1c merged at `899e54c`.
+**The single source of truth for what's done and what isn't.** Last updated 2026-11-06, on branch `feature/phase-4.0.2-account-data-controls`, from `main` at `9b6a57a`.
 
 **Rules:**
 
@@ -22,7 +22,7 @@
 | M-07 | 4.0.1 | Stage A: eligibility, access gate, automatic targets removed | COMPLETE | Merged at `429d961`. All guarded suites and 26 of 26 negative controls, with independent review. Not for real users on its own |
 | M-08 | 4.0.1b | Nullable targets, calories-only, stopping a target | COMPLETE for development | Merged at `38c4a37`, and verified on `fitdb_test`, section 3. **The migration is on `fitdb_test` only, so `fitdb` can't run this yet (B-07).** Not for real users on its own |
 | M-09 | 4.0.1c | Profile data minimization | COMPLETE for development | Merged at `899e54c`, and verified on `fitdb_test`, section 3. **The migration is on `fitdb_test` only, so `fitdb` can't run this yet (C-08, B-07).** `safety-no-marker` and `db-guard-scoped` weren't run on the final code (T-14). Not for real users on its own |
-| M-10 | 4.0.2 | Account deletion and export | NOT STARTED | Export follows 4.0.1b |
+| M-10 | 4.0.2 | Account deletion and export | **IN PROGRESS** | Implemented on this branch, and verified on `fitdb_test`, sections 2b and 3. **Not COMPLETE until independent review and merge** |
 | M-11 | 4.0.3 | Production foundation | NOT STARTED | Needs decisions 4, 5 and 14 |
 | M-12 | 4.0.4 | Email-proven access | NOT STARTED | Needs 4.0.3 and decisions 8, 10, 11. Has a migration |
 | M-13 | 4.0.5 | Notice, acceptance, retention | NOT STARTED | Needs legal review. Shares 4.0.4's migration |
@@ -87,8 +87,74 @@
 3. Snapshot: `node --env-file=.env.test scripts/run-guarded-suites.cjs profile-migration-snapshot`. This adds 5 more legacy-shaped rows and records every row. Nothing is deleted.
 4. Apply: `node --env-file=.env.test node_modules/prisma/build/index.js migrate deploy`.
 5. Verify, in order: `migrate status`, `profile-migration-verify`, `migrate diff` from the live database to the schema, `profile-nulls`, `profile-minimization`, `profile-minimization-e2e` Parts A and B, every form suite listed as BLOCKED below, the T-12 controls, then the full regression, type check and build.
+## 2b. Phase 4.0.2 detail
+
+**Migration: none needed.** The schema was reviewed, and no change was made.
+
+| ID | Phase | Description | Status | Priority | Dependency | Acceptance Criteria |
+|---|---|---|---|---|---|---|
+| E-01 | 4.0.2 | Deletion: `POST /api/account/delete`, in one transaction, with a row lock, explicit owner-scoped steps, session identity, password and the word DELETE | IN PROGRESS | P0 | E-07 | **Verified on `fitdb_test`:** `account-data`. **Left:** review and merge |
+| E-02 | 4.0.2 | Export: `POST /api/account/export`, versioned JSON, from a field allowlist, in one snapshot, counted first, with password re-entry as the design requires | IN PROGRESS | P0 | E-07 | **Verified on `fitdb_test`:** every mapped field of every model compared with the row. **Left:** review and merge |
+| E-03 | 4.0.2 | `/account` page and public `/account-deleted` page, reachable from the profile, onboarding, refusal and restricted screens | IN PROGRESS | P0 | E-07 | **Verified:** 3 browsers. **Left:** review, merge, real phones |
+| E-04 | 4.0.2 | Every model and field classified in `account-data-map.json`, so a new one fails the unit tests | IN PROGRESS | P1 | E-07 | **Verified:** checked against Prisma's own model list, control N24. **Left:** review and merge |
+| E-05 | 4.0.2 | Stage A gate unchanged: both routes are named exceptions, and everything else stays closed | IN PROGRESS | P0 | E-07 | **Verified:** T33, `nutrition-api`, `eligibility`. **Left:** review and merge |
+| E-06 | 4.0.2 | Owner's decision on export fallback, and legal advice on timing (design section 4.0.2's approvals). The "backups may keep a copy" wording is interim | BLOCKED | P1 | Owner, R-01 | Recorded, with final wording |
+| E-07 | 4.0.2 | Independent review, then the owner's merge approval | NOT STARTED | P0 | ChatGPT review, owner | A specific reviewed commit is approved |
+
+**Deletion map, from the schema:**
+
+| Kind | Models | How |
+|---|---|---|
+| Owned, deleted by an explicit step | `Session`, `Profile`, `WorkoutTemplate`, `ScheduleSlot`, `WorkoutSession`, `FoodEntry`, `NutritionTarget`, then `User` | `where: { userId }` |
+| Owned, but shared when there's no owner | `Exercise`, `Food` | Only rows with this `userId`. Built-in and provider rows have none, and stay |
+| Children, by cascade from an owned parent | `TemplateExercise`, `SessionExercise`, `SetEntry`, `FoodServing` | Checked by id after each deletion |
+| Restricting | `TemplateExercise.exercise`, `SessionExercise.exercise` | Sessions and templates go first. A plain `user.delete` was observed to fail on these |
+| Set null | `FoodEntry.food`, `WorkoutSession.template` | Another person's entry would keep its own copy |
+| External assets | **None.** No model holds a file, and nothing in `src/` writes one | Uploads stay in memory for the request |
+| In memory | Login throttle records with the email, and password and age-refusal attempts, are cleared. Upload, label-scan and food-search limiter entries hold an id only, and expire | S-11 |
 
 ## 3. Tests: run, failed, blocked
+
+### Phase 4.0.2, on `fitdb_test`, with no schema change
+
+| Test | Result | Limit |
+|---|---|---|
+| Unit tests, type check, production build | PASSED, 1,405 | `npm run lint` is the type check. There's no ESLint, R-15 |
+| `account-data` | PASSED, 26 of 26 | Includes all five custom-exercise cases, a whole-database scan for the person's id, email and text, rollback, races, and 250,001 sets |
+| `account-data-e2e` | PASSED, 3 browsers | Eligible, no-profile, refused and restricted accounts, including a real file download. Phone-sized viewport, no real phone. **A real iPhone download is T-15** |
+| Other guarded suites | PASSED | `guard` 51, `guard-browser` 21, `units` 19, `live-identity` 9, `nutrition-api` 77, `release-workflow` 8, `nutrition-targets` 8, `nutrition-targets-e2e`, `profile-minimization` 7, `profile-nulls` 16, `profile-minimization-e2e`, `e2e-smoke`, `e2e-nutrition`, `eligibility`, `hardening` |
+| **`safety-no-marker`, `db-guard-scoped`** | **NOT RUN** | They connect to `fitdb_test_other`, which isn't authorized, T-14 |
+| Not rerun, as unrelated | Not run for this phase | `label-scan`, `label-pdf`, `meal`, the 3 unconfigured suites, `provider-*`, `usda-missing-nutrients` |
+| Failed | None at the final state | See below |
+
+**Found by running it.** PostgreSQL 18 reports a RESTRICT violation as `23001`, which Prisma surfaces as an unknown error rather than `P2003`. Deletion returned 500 until it was mapped, which the rollback test caught. **Measured:** 20,000 sets export at about 345 bytes each, 6.6 MiB. So 250,000 rows is about 86 MiB, within the 128 MiB limit. Deleting 250,001 sets took under a second here, on an unloaded local database.
+
+**Negative controls: 24 of 24 caught, with every file restored and hash-checked.** One defect at a time, with a rebuild.
+
+| Control | Defect | Fails on |
+|---|---|---|
+| N1 | Exercises deleted before sessions | A custom exercise in a session doesn't stop deletion |
+| N2 | Steps run outside the transaction | A failure part-way: every row and column is back |
+| N3, N4 | Deletion or export skips the password | A wrong password deletes and exports nothing |
+| N5 | Confirmation becomes optional | A missing or wrong confirmation deletes nothing |
+| N6 | The body names the account | Nobody can delete someone else's account |
+| N7 | Shared foods deleted with the person | Control user and shared data unchanged |
+| N8 | The user row stays | Every row goes |
+| N10 | The row lock is removed | Two deletions together get the same answer |
+| N11 | Export includes the password hash | No password hash |
+| N12 | Export reads everyone's food entries | Nothing of anyone else's |
+| N13 | Export turns null into 0 | Nulls stay null |
+| N14 | Export drops stopped targets | Every row is in the file |
+| N15 | No row limit | Over the row limit |
+| N16, N17 | Routes closed to restricted or profile-less accounts | Those accounts can export and delete |
+| N18 | Cookies not cleared | Session cookie cleared |
+| N19 | Password attempts unlimited | Even the right password waits |
+| N20 | A reference conflict isn't reported as one | A failure part-way |
+| N21, N22 | The form sends without the word or password | Nothing is sent |
+| N23 | The restricted page has no way out | **A timeout waiting for the link, and not a named assertion** |
+| N24, N25 | A field left out of the map, or a step left out of the code | Their unit tests |
+
+**Corrected along the way:** the first run reported 3 misses. N7 was caught, on the control user's assertion, which fires first, so its expected text was widened. N10 wasn't caught, as the race rarely happens, so a new test holds the row so both requests queue every time, and that catches it. N9 removed one step plus the user row, so it only repeated N8, and it's retired. **A missing step alone can't fail at runtime, as the cascade still removes those rows.** N25 is what catches that, in the source.
 
 ### Phase 4.0.1c, on the migrated `fitdb_test`
 
@@ -213,7 +279,8 @@ So code from before this migration **fails for those people, and never reads a n
 | T-11 | 4.0.1c | `profile-nulls`, Part B, `profile-migration-verify`, and the browser suites listed as BLOCKED earlier | COMPLETE | P0 | None | Results above, on `fitdb_test` |
 | T-12 | 4.0.1c | Controls needing a null column: the route inventing a value on create, a clear ignored, and a page showing a null as a value | COMPLETE | P1 | None | D1 to D9 above. No control changes the schema |
 | T-13 | 4.0.1c | Whether `migrate status` and `migrate diff` stay clean after this migration | COMPLETE | P2 | None | Both clean, after real null rows. `migrate dev` not observed |
-| T-14 | 4.0.1c | **NOT RUN:** `safety-no-marker` and `db-guard-scoped`, as both connect to `fitdb_test_other`, which wasn't authorized. They last passed before the migration, on this branch | BLOCKED | P1 | Owner, to authorize that access | Both pass on the final code, or the owner accepts the gap |
+| T-14 | 4.0.1c, 4.0.2 | **NOT RUN:** `safety-no-marker` and `db-guard-scoped`, as both connect to `fitdb_test_other`, which wasn't authorized. They last passed before the 4.0.1c migration | BLOCKED | P1 | Owner, to authorize that access | Both pass on the final code, or the owner accepts the gap |
+| T-15 | 4.0.2 | Download and deletion on a real iPhone and Android phone | NOT STARTED | P0 | M-14 | Recorded pass or fail per device, including a file save on iOS |
 | T-09 | 4.0.1b | **Not run:** dropping a CHECK on a live database, to show T38 then fails. The owner's authorization allowed only the approved migration to change the schema | DEFERRED | P2 | Owner, if wanted | **Partly covered:** NC31a and NC31b catch a removed constraint in the migration's text, T38 shows the live constraints refuse every invalid shape, and D5 and D6 show they stop the app's own bad writes |
 | T-10 | 4.0.1b, 4.0.1c | **Not run:** restoring either `fitdb_test` backup, from before 4.0.1b and 4.0.1c. Only their archive listings were read | NOT STARTED | P2 | Owner, for a restore target | Restored into a separately approved database, with row counts compared to the snapshots |
 
@@ -248,8 +315,8 @@ The merged documents hold **recommendations.** Stage A's authorization covered i
 | R-01 | 4.0 | Legal review (Decision 6) | BLOCKED | P0 | Reviewer, Decision 2 | Dated advice answers every question in Annex H7 |
 | R-02 | 4.0 | Clinical and nutrition safety review (Decision 7) | BLOCKED | P0 | Reviewer | Written review at a stated commit, or a signed gap under Annex H2's conditions |
 | R-03 | 4.0.6 | Low-target and underweight-goal safeguards (Decision 23). **800 kcal is still accepted with no warning** | BLOCKED | P0 | R-02 | Reviewed number and source, or a signed gap with the register amended. **No threshold is invented here** |
-| R-04 | 4.0.2 | Self-service deletion, including from refusal and restricted screens. The expected failure on custom exercises hasn't been observed | NOT STARTED | P0 | None | Design section 12 |
-| R-05 | 4.0.2 | Self-service export | NOT STARTED | P0 | M-08, M-09 | Includes stopped rows and nulls as null, including cleared profile fields |
+| R-04 | 4.0.2 | Self-service deletion, including from refusal and restricted screens | IN PROGRESS | P0 | E-07 | Built and verified on this branch. The expected failure on custom exercises is now observed: a plain delete is refused by the foreign key. **Left:** review, merge, real phones |
+| R-05 | 4.0.2 | Self-service export | IN PROGRESS | P0 | E-07 | Built and verified on this branch, with stopped rows and nulls as null, including cleared profile fields. **Left:** review, merge, a real iPhone download (T-15) |
 | R-06 | 4.0.5 | Retention rule for refused and abandoned accounts. Their email and password hash persist until then | BLOCKED | P0 | R-01 | Rule stated in the notice, and applied |
 | R-07 | 4.0.3 | Deployment, HTTPS, one instance, backups with a tested restore | NOT STARTED | P0 | Decisions 4, 5 | Design section 12 |
 | R-08 | 4.0.3 | Read-only check that production starts empty. **Currently an untested assumption** | NOT STARTED | P0 | R-07 | Counts recorded, and 4.0.6's reset done. Otherwise return to Decisions 27 and 30 |
@@ -273,6 +340,12 @@ The merged documents hold **recommendations.** Stage A's authorization covered i
 | S-06 | 4.0.1 | Legacy zeros can't be told from deliberate ones, and aren't rewritten | DEFERRED | P2 | R-08 | Empty production database |
 | S-07 | 4.0 | `POST .../sets` has no idempotency key, so a lost response could log a set twice | NOT STARTED | P1 | M-14 | Decided in 4.0.6 |
 | S-08 | 4.0 | Light-theme contrast defects, from the design's review | NOT STARTED | P2 | None | Contrast checked, and fixed |
+| S-10 | 4.0.2 | **New.** `db.ts` passes `log: ["error"]`, so Prisma prints its own error text in production, past `safe-log`. A RESTRICT violation printed the row's id and the constraint. It wasn't changed here, as it covers every route | NOT STARTED | P1 | M-11 | Only type and code logged in production, with a test |
+| S-11 | 4.0.2 | **New.** After a deletion, upload, label-scan and food-search limiters keep the user id in memory until they expire, up to 24 hours. An id only, with no name or email | DEFERRED | P3 | None | Accepted, or cleared with them |
+| S-12 | 4.0.2 | **New.** If another person's plan or session ever referred to someone's custom exercise, that person couldn't delete their account: they get 409, and nothing changes. The API refuses such references, so only direct database writes could make one | DEFERRED | P2 | None | Accepted, or a support path once one exists |
+| S-13 | 4.0.2 | **New.** An export is held in memory, up to 128 MiB, with 2 at once per process. 250,000 rows is judgement. Memory on the real server hasn't been measured | NOT STARTED | P2 | M-11, R-15 | Measured on the deployed instance |
+| S-14 | 4.0.2 | **New.** Deletion can't reach backups or logs, and no list exists to re-apply deletions after a restore. No written policy yet | BLOCKED | P0 | R-01, R-07 | Policy stated in the notice, and the list exists |
+| S-15 | 4.0.2 | **New.** A deletion leaves no record, as anything kept would identify the person. So nothing can show that it happened | DEFERRED | P2 | R-01 | Legal says whether a record is needed |
 | S-09 | 4.0.1 | Raw field names reach people in forms other than profile and targets (`client/api.ts`) | DEFERRED | P2 | None | Fixed copy per form |
 
 ## 8. Technical debt
@@ -290,6 +363,7 @@ The merged documents hold **recommendations.** Stage A's authorization covered i
 | TD-10 | 4.0.1c | Unread columns stay in the database. Dropping them and their stored values wasn't proposed | DEFERRED | P3 | Owner | Revisit with retention, R-06 |
 | TD-11 | 4.0.1c | Every profile save overwrites the stored time zone with the browser's. Existing behaviour, not changed here | DEFERRED | P3 | None | Decide whether it should only follow a choice |
 | TD-12 | 4.0.1c | A cleared detail can't be entered again from the app, as nothing asks for unset ones (Annex H4) | DEFERRED | P3 | M-15 | 4.1 adds what it reads, including a state for no goal |
+| TD-14 | 4.0.2 | `account-data` leaves one shared food row in `fitdb_test` per run, as shared rows must outlive the deletions it tests | DEFERRED | P3 | None | Test database only |
 | TD-13 | Docs | `ARCHITECTURE.md`'s Profile summary doesn't say these fields are nullable | NOT STARTED | P3 | Merge of 4.0.1c | Updated |
 | TD-08 | Tests | `npm run test:e2e` and `test:api` cover only some suites. `test:suites` is the complete run | DEFERRED | P3 | None | Named clearly in the README |
 

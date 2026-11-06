@@ -1,0 +1,72 @@
+{
+  "User": {
+    "deletion": "Deleted last, after everything it owns",
+    "export": ["email", "createdAt", "updatedAt"],
+    "excluded": { "id": "internal identifier", "passwordHash": "credential" }
+  },
+  "Session": {
+    "deletion": "Own rows deleted, on every device",
+    "export": [],
+    "excluded": { "id": "session secret, as a hash", "userId": "the owner", "expiresAt": "security metadata", "createdAt": "security metadata" }
+  },
+  "Profile": {
+    "deletion": "Own row deleted",
+    "export": ["name", "birthDate", "sex", "heightCm", "currentWeightKg", "goalWeightKg", "goal", "activityLevel", "experience", "workoutDaysPerWeek", "unitSystem", "timezone", "calorieTargetOverride", "updatedAt"],
+    "excluded": { "userId": "the owner" }
+  },
+  "Exercise": {
+    "deletion": "Own custom rows deleted. Built-in rows, with no owner, are shared and stay",
+    "export": ["id", "name", "primaryMuscle", "equipment", "createdAt"],
+    "excluded": { "userId": "the owner" }
+  },
+  "WorkoutTemplate": {
+    "deletion": "Own rows deleted",
+    "export": ["id", "name", "notes", "createdAt", "updatedAt"],
+    "excluded": { "userId": "the owner" }
+  },
+  "TemplateExercise": {
+    "deletion": "Cascades from its template. Restricts deleting its exercise, so templates go first",
+    "export": ["id", "templateId", "exerciseId", "position", "targetSets", "targetRepsMin", "targetRepsMax", "targetWeightKg", "restSeconds", "notes"],
+    "excluded": {}
+  },
+  "ScheduleSlot": {
+    "deletion": "Own rows deleted",
+    "export": ["id", "weekday", "templateId", "position"],
+    "excluded": { "userId": "the owner" }
+  },
+  "WorkoutSession": {
+    "deletion": "Own rows deleted, including one in progress",
+    "export": ["id", "templateId", "name", "status", "startedAt", "endedAt", "notes"],
+    "excluded": { "userId": "the owner" }
+  },
+  "SessionExercise": {
+    "deletion": "Cascades from its session. Restricts deleting its exercise, so sessions go first",
+    "export": ["id", "sessionId", "exerciseId", "position", "restSeconds", "notes"],
+    "excluded": {}
+  },
+  "SetEntry": {
+    "deletion": "Cascades from its session exercise",
+    "export": ["id", "sessionExerciseId", "setNumber", "reps", "weightKg", "isWarmup", "rpe", "createdAt"],
+    "excluded": {}
+  },
+  "Food": {
+    "deletion": "Own custom rows deleted. Provider rows, with no owner, are shared and stay",
+    "export": ["id", "source", "name", "brand", "barcode", "dataType", "basisUnit", "kcalPer100", "proteinPer100", "carbsPer100", "fatPer100", "fiberPer100", "fetchedAt", "origin", "createdAt", "updatedAt"],
+    "excluded": { "userId": "the owner", "sourceId": "internal identifier for a custom food" }
+  },
+  "FoodServing": {
+    "deletion": "Cascades from its food",
+    "export": ["id", "foodId", "label", "amount", "isDefault", "position"],
+    "excluded": {}
+  },
+  "FoodEntry": {
+    "deletion": "Own rows deleted",
+    "export": ["id", "date", "mealType", "foodId", "foodName", "brand", "basisUnit", "kcalPer100", "proteinPer100", "carbsPer100", "fatPer100", "fiberPer100", "servingLabel", "servingAmount", "quantity", "kcal", "protein", "carbs", "fat", "fiber", "createdAt", "updatedAt"],
+    "excluded": { "userId": "the owner" }
+  },
+  "NutritionTarget": {
+    "deletion": "Own rows deleted, including stopped ones",
+    "export": ["id", "effectiveFrom", "kcal", "proteinG", "carbsG", "fatG", "source", "createdAt", "updatedAt"],
+    "excluded": { "userId": "the owner" }
+  }
+}

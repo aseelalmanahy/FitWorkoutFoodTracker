@@ -92,6 +92,8 @@ describe("every API route is classified", () => {
   // Anything not named here must use route(), which is closed by default.
   const EXCEPTIONS: Record<string, string> = {
     "app/api/profile/route.ts": "accountRoute",
+    "app/api/account/delete/route.ts": "accountRoute",
+    "app/api/account/export/route.ts": "accountRoute",
     "app/api/auth/login/route.ts": "publicRoute",
     "app/api/auth/register/route.ts": "publicRoute",
     "app/api/auth/logout/route.ts": "publicRoute",
@@ -116,7 +118,7 @@ describe("every API route is classified", () => {
   });
   it("accountRoute is used only where named", () => {
     const users = source.filter((f) => read(f).includes("accountRoute(") && !f.endsWith(path.join("server", "api.ts"))).map(rel);
-    expect(users).toEqual(["app/api/profile/route.ts"]);
+    expect(users.sort()).toEqual(["app/api/account/delete/route.ts", "app/api/account/export/route.ts", "app/api/profile/route.ts"]);
   });
 });
 
@@ -133,8 +135,11 @@ describe("removed things stay removed", () => {
     expect(callers).toEqual(["lib/eligibility.ts", "lib/energy.ts"]);
   });
   it("acceptance 3: nothing but setManualTarget writes a target", () => {
-    const writers = source.filter((f) => /nutritionTarget\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\b/.test(read(f))).map(rel);
+    const writers = source.filter((f) => /nutritionTarget\.(create|createMany|update|updateMany|upsert)\b/.test(read(f))).map(rel);
     expect(writers).toEqual(["lib/server/nutrition/targets.ts"]);
+    // The only removal is the person deleting their whole account.
+    const removers = source.filter((f) => /nutritionTarget\.(delete|deleteMany)\b/.test(read(f))).map(rel);
+    expect(removers).toEqual(["lib/server/account/delete.ts"]);
     const code = inSrc("lib/server/nutrition/targets.ts");
     expect(code.match(/nutritionTarget\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\b/g)).toEqual(["nutritionTarget.upsert"]);
     expect(code).not.toMatch(/"SUGGESTED"/);

@@ -4,16 +4,24 @@
 // be used to log in. Sign up through the API when a test is about registration or login.
 "use strict";
 const { createHash, randomBytes } = require("node:crypto");
+const { hash } = require("@node-rs/argon2");
 
 const UNUSABLE_PASSWORD_HASH = "test-user-without-a-usable-password";
 
-async function createSignedInUser(prisma, email) {
-  const user = await prisma.user.create({ data: { email, passwordHash: UNUSABLE_PASSWORD_HASH } });
+/** Another signed-in device for this user. */
+async function addSession(prisma, userId) {
   const token = randomBytes(32).toString("base64url");
   await prisma.session.create({
-    data: { id: createHash("sha256").update(token).digest("hex"), userId: user.id, expiresAt: new Date(Date.now() + 3_600_000) },
+    data: { id: createHash("sha256").update(token).digest("hex"), userId, expiresAt: new Date(Date.now() + 3_600_000) },
   });
-  return { user, token };
+  return token;
+}
+
+/** With a password, it's a real one, for tests of what requires it. */
+async function createSignedInUser(prisma, email, { password } = {}) {
+  const passwordHash = password ? await hash(password, { memoryCost: 19456, timeCost: 2, parallelism: 1 }) : UNUSABLE_PASSWORD_HASH;
+  const user = await prisma.user.create({ data: { email, passwordHash } });
+  return { user, token: await addSession(prisma, user.id) };
 }
 
 /** Read-only. False until the Phase 4.0.1b migration is applied to this database. */
@@ -30,4 +38,4 @@ async function profileMigrationApplied(prisma) {
   return rows.length === PROFILE_NULLABLE_COLUMNS.length && rows.every((r) => r.is_nullable === "YES");
 }
 
-module.exports = { createSignedInUser, targetMigrationApplied, profileMigrationApplied, PROFILE_NULLABLE_COLUMNS };
+module.exports = { createSignedInUser, addSession, targetMigrationApplied, profileMigrationApplied, PROFILE_NULLABLE_COLUMNS };

@@ -107,6 +107,8 @@ const SUITES = {
   "profile-minimization-e2e": () => withApp("profile-minimization-e2e", { appEnv: MANY }, ({ url }) => runNode([script("e2e-profile-minimization.cjs")], { BASE_URL: url }, 590_000)),
   "profile-migration-snapshot": () => withApp("profile-migration-snapshot", {}, ({ url }) => runNode([script("profile-migration-check.cjs"), "snapshot"], { BASE_URL: url }, 60_000)),
   "profile-migration-verify": () => withApp("profile-migration-verify", {}, ({ url }) => runNode([script("profile-migration-check.cjs"), "verify"], { BASE_URL: url }, 60_000)),
+  "account-data": () => withApp("account-data", {}, ({ url }) => runNode(nodeTest("account-data.test.cjs"), { BASE_URL: url }, 590_000)),
+  "account-data-e2e": () => withApp("account-data-e2e", {}, ({ url }) => runNode([script("e2e-account-data.cjs")], { BASE_URL: url }, 590_000)),
   "label-scan": e2e("label-scan", "e2e-label-scan.cjs", LABEL),
   "label-pdf": e2e("label-pdf", "e2e-label-pdf.cjs", LABEL),
   meal: e2e("meal", "e2e-meal.cjs", MEAL),

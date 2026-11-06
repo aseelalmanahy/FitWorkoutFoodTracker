@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { accessStateFor } from "@/lib/eligibility";
 import { requireUser } from "@/lib/server/auth";
@@ -22,6 +23,7 @@ export default async function AccountRestrictedPage() {
         <p className="mt-1 text-muted">This app isn&apos;t available with the date of birth on this account. If that date is wrong, you can correct it below. Your data hasn&apos;t been deleted.</p>
       </header>
       <ProfileForm initial={profileToValues(profile!)} submitLabel="Save changes" redirectTo="/dashboard" />
+      <Link href="/account" className="mt-4 block text-center text-sm font-semibold text-accent-ink">Download or delete your data</Link>
       <LogoutButton className="mt-3 w-full" />
     </main>
   );

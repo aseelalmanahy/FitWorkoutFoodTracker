@@ -3,7 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api } from "@/lib/client/api";
-import { Button, Card, SectionTitle, cx } from "@/components/ui";
+import { Button, ButtonLink, Card, SectionTitle, cx } from "@/components/ui";
 
 type Theme = "system" | "light" | "dark";
 
@@ -51,6 +51,7 @@ export function AccountActions() {
         </div>
       </Card>
       <SectionTitle>Account</SectionTitle>
+      <ButtonLink href="/account" variant="secondary" className="mb-2 w-full">Download or delete my data</ButtonLink>
       <Button variant="danger" className="w-full" onClick={logout}>Log out</Button>
     </>
   );

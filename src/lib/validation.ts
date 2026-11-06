@@ -42,6 +42,10 @@ export const profileSchema = z.object({
 });
 export type ProfileInput = z.infer<typeof profileSchema>;
 
+// A password check for this request. Length only: a wrong one has to reach the rate-limited comparison.
+export const accountPasswordSchema = z.object({ password: z.string().min(1).max(256) });
+export const deleteAccountSchema = accountPasswordSchema.extend({ confirmation: z.literal("DELETE") });
+
 export const exerciseSchema = z.object({
   name: z.string().trim().min(2).max(80),
   primaryMuscle: z.enum(MUSCLE_GROUPS),

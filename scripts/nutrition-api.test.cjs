@@ -762,7 +762,7 @@ function walk(dir, out = []) {
 }
 const SRC = path.join(__dirname, "..", "src", "app");
 const urlOf = (root, file) => "/" + path.relative(root, path.dirname(file)).split(path.sep).join("/").replace(/\[[^\]]+\]/g, "x");
-const EXEMPT = new Set(["/api/profile", "/api/auth/login", "/api/auth/register", "/api/auth/logout", "/api/health/db-identity"]);
+const EXEMPT = new Set(["/api/profile", "/api/account/delete", "/api/account/export", "/api/auth/login", "/api/auth/register", "/api/auth/logout", "/api/health/db-identity"]);
 function gatedEndpoints() {
   const root = SRC;
   const found = [];

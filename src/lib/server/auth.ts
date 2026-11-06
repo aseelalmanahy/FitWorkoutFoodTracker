@@ -85,6 +85,13 @@ export async function destroySession(): Promise<void> {
   jar.delete(SESSION_COOKIE);
 }
 
+/** After a deletion: nothing identifying stays in this browser. The device cookie has its own path. */
+export async function clearAuthCookies(): Promise<void> {
+  const jar = await cookies();
+  jar.delete(SESSION_COOKIE);
+  jar.delete({ name: DEVICE_COOKIE, path: DEVICE_PATH });
+}
+
 export interface AuthUser {
   id: string;
   email: string;
@@ -136,6 +143,9 @@ export function recordAttempt(key: string): void {
   const list = attempts.get(key) ?? [];
   list.push(Date.now());
   attempts.set(key, list);
+}
+export function forgetAttempts(...keys: string[]): void {
+  for (const key of keys) attempts.delete(key);
 }
 /** Test hook. */
 export const _attemptKeyCount = () => attempts.size;

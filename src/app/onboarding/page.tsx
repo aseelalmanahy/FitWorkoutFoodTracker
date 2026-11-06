@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 import { requireUser } from "@/lib/server/auth";
 import { prisma } from "@/lib/server/db";
@@ -17,6 +18,7 @@ export default async function OnboardingPage() {
         <p className="mt-1 text-muted">You can change this any time.</p>
       </header>
       <ProfileForm initial={null} submitLabel="Continue" redirectTo="/dashboard" />
+      <Link href="/account" className="mt-4 block text-center text-sm font-semibold text-accent-ink">Download or delete your data</Link>
       <LogoutButton className="mt-3 w-full" />
     </main>
   );
