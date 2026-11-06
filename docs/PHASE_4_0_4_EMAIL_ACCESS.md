@@ -127,4 +127,32 @@ An independent read-only review of this plan, before any code, found the change-
 
 **Runnable now:** Vitest with in-memory fakes, which can't prove a database race, and negative controls.
 
-**Written, blocked until MIG-03 is applied to `fitdb_test`:** `scripts/account-tokens.test.cjs` for the real races and backdated expiry, and every suite that registers, now through `scripts/lib/signup.cjs` and the mail stub.
+**Written, blocked until MIG-03 is applied to `fitdb_test`:** `scripts/account-tokens.test.cjs` for the real races and backdated expiry, and every suite that registers, now through `scripts/lib/signup.cjs` and the mail stub. **None has been run.** Over HTTP, expiry is checked just past and safely ahead of it, as an exact moment can't be hit. The 1 ms boundary is unit-tested.
+
+**Also run:** a production build, and the pages in Chromium against a server with an unreachable database address. That covered the fragment being read and cleared, fixed notices, and no CSP violation. Queued jobs failed there with fixed codes, and no address reached the log.
+
+## Review of the code
+
+The read-only security agent found no high or medium defect. **It reasoned from the code, and ran nothing.** Fixed: deletion now refuses if a reset committed after its password check, a job past its deadline stops at its next check, the form separates an uncertain outcome and a short password from a dead link, an unreachable test branch now has a test, and development email stays out of Docker builds. **Left, in the tracker:** S-19, S-20, S-21. It didn't review `scripts/`.
+
+**Not verified:** PostgreSQL's real lock behaviour and the SQL Prisma emits, and whether route bundles share one queue under `next start`. If they don't, each route still has its own serial queue, and only one route issues each purpose, so the cooldown still holds.
+
+## F-11: the Prisma findings, and the recommended order
+
+**The findings.** `npm audit` reports 3 high findings, one chain: `deepmerge-ts` 7.1.5, stack exhaustion when merging recursive object graphs, through `@prisma/config` 6.19.3, through the `prisma` CLI. Audit's only offered fix is `prisma@7.10.1`, marked as breaking.
+
+**Exposure, as read from the code and packages.** `@prisma/config` loads Prisma's own CLI configuration, and `@prisma/client`'s runtime holds no reference to `deepmerge-ts`. Nothing here passes request data to it. **So reaching it would take control of developer configuration, not a web request.** `npm` still lists the chain with `--omit=dev`, because `prisma` is an optional peer of the client, so this doesn't show that it's absent from a production image. F-07's image build should check that.
+
+| | Stay on Prisma 6 for now | Upgrade to 7 before applying MIG-03 |
+|---|---|---|
+| **MIG-03** | Applies as written | Plain SQL, so it's unlikely to differ. **The upgrade guide says nothing about migration history,** so this would have to be shown |
+| **New dependencies** | None | `@prisma/adapter-pg` is required, and the guide also says to add `dotenv` |
+| **Code touched** | None | `db.ts`, `prisma.config.ts`, the generator with a required output path, and every import from `@prisma/client`, including `Prisma` in routes and `dmmf` in the coverage test |
+| **Test safety** | Unchanged | Every script using `new PrismaClient({ datasources })`, including the **test-target guard,** moves to the adapter form. The guide says Prisma ships as ESM and to set `"type": "module"`, and the scripts are CommonJS |
+| **Behaviour** | Unchanged | `pg` rejects invalid certificates, and has no default connection timeout, against 5 seconds before. Env files stop loading by themselves. **The guide doesn't address raw queries or interactive transactions,** which reset, login and deletion now depend on |
+| **Risk** | The findings stay open, with the exposure above | Two large changes at once: a failure couldn't be pinned on either |
+| **Evidence needed** | The 4.0.4 suites | All guarded suites and browsers, needing `fitdb_test` either way |
+
+**Recommendation: stay on Prisma 6 for now, accept F-11 in writing for development only, and upgrade as its own reviewed change, after MIG-03 and the 4.0.4 suites pass and before F-07's image build and any real user.** The exposure is low and doesn't grow with this work, while the upgrade's risk falls on the code this milestone just made lock-sensitive. With 4.0.4's races proved on Prisma 6, they become the upgrade's regression test.
+
+**Check at that time:** npm's `latest` tag currently points to a release candidate of Prisma 8, so the target should be chosen deliberately, and 7.10.1 is the version audit names. **Nothing was upgraded, and no dependency changed.**

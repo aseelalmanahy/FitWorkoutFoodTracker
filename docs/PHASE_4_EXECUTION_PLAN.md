@@ -21,7 +21,7 @@ These are six separate states, and one never implies another.
 |---|---|---|---|---|---|---|---|
 | 4.0.3 Production foundation | M-11 | Yes, `de4607f` | Yes, local production build | Yes, source review of the code | Yes, `de4607f` | **No, nothing is deployed** | R-07, T-16, T-17 and F-06 to finish |
 | Router and orchestrator | TOOL-01, 03, 04 | Yes, `3bc4471` | Yes, largely mocked | Yes, source review | Yes, `3bc4471` | Partly, small live checks | Live checks, from real use. TOOL-02 is NOT STARTED |
-| 4.0.4 Email-proven access | M-12 | No | No | No | No | No | Decisions 8, 10, 11, feature approval, MIG-03 |
+| 4.0.4 Email-proven access | M-12 | Yes, on `feature/phase-4-program` | **Partly:** fakes only, no database | **Partly:** a read-only agent. Source review pending | No | No | A6, then T-19 and T-20. G-03 for real email |
 | 4.0.5 Notice and acceptance | M-13 | No | No | No | No | No | 4.0.4, R-01, Decisions 3, 6, 12 |
 | 4.1 Core progress | M-15 | No | No | No | No | No | Scope approval, Decision 21, its own migration |
 | 4.0.6 Device test and go/no-go | M-14 | No | No | No | No | No | Everything above, T-15, R-13 |
@@ -73,7 +73,7 @@ Each one is **user-visible or adds a table, so each takes the full cycle:** prod
 
 **Acceptance:** identical responses, so nobody can learn who has an account. GET consumes nothing. Parallel use gives one success. Expiry tested at 1 ms either side, by backdating. Cooldown survives a restart. No token in logs. All 14 registering scripts go through the real flow. **No test-only bypass in production code.**
 
-**To resolve during architecture review:** 4.0.3 opens registration for designated test databases through `FIT_TEST_OPEN_REGISTRATION`, on a loopback test server. Check that against "no test-only bypass" once the real flow exists, and remove what's no longer needed.
+**Resolved in architecture review:** `FIT_TEST_OPEN_REGISTRATION` stays. It opens only the allowlist, on a designated test database on this machine, and the email proof still runs.
 
 **Tests:** new guarded suite on `fitdb_test`, with negative controls, then the 14 scripts and all three Playwright browsers. **None of the database or browser tests can pass until MIG-03 is applied to `fitdb_test`,** which is approval A6.
 
@@ -162,7 +162,7 @@ Each one is **user-visible or adds a table, so each takes the full cycle:** prod
 | **A2** | Merge `main` into the router branch, with a normal push | | **Done** |
 | **A3** | Fast-forward `main` to `3bc4471`, with a documentation commit | | **Done** |
 | **A4** | Create `feature/phase-4-program` from that `main` | | **Authorized,** and follows this text |
-| **A5** | Decisions 8, 10, 11, recorded in D-03. Prepare MIG-03's file | Before 4.0.4 | 8: link-first with allowlist. 10: yes. **11: no for the beta, following the product agent over the design's earlier yes,** as it's the smaller change |
+| **A5** | Decisions 8, 10, 11, recorded in D-03. Prepare MIG-03's file | | **Done,** on the owner's approval of 2026-11-06 |
 | **A6** | Back up and apply MIG-03 to `fitdb_test` only | When 4.0.4 reaches database tests | Decide then, on the reviewed file |
 | **A7** | Same for MIG-04 | When 4.1 reaches database tests | Decide then |
 | **A8** | 4.1's scope, Decision 21, `currentWeightKg`, table shape | Before 4.1 | Section 5 |
