@@ -67,7 +67,7 @@ export const NOTICE: Notice = {
       heading: "How long",
       paragraphs: [
         "A sign-in session lasts 30 days. A sign-up link works for 24 hours, and a password reset link for 60 minutes.",
-        "Nothing removes expired rows on a schedule yet. An expired session stays until you next visit, log out or delete your account. An expired link, with the address it was sent to, stays until someone next requests a link.",
+        "Nothing removes expired rows on a schedule yet. An expired session stays until you change or reset your password, or delete your account. An expired link, with the address it was sent to, stays until the app next issues a new link to anyone.",
         `Backups: ${gap("backup period, Decision 12")}. Logs: ${gap("log period, Decision 5")}. Accounts that were never finished, or can't be used: ${gap("retention rule, R-06")}.`,
       ],
     },
@@ -84,7 +84,7 @@ export const NOTICE: Notice = {
   terms: [
     { heading: "Who this is for", paragraphs: ["This app is for adults 18 and over, by invitation. Your age is what you declare, and it isn't verified.", gap("minimum age for the chosen country, and wording on declared age")] },
     { heading: "Not medical advice", paragraphs: [`This app records what you enter. It doesn't give medical or nutrition advice, and can't account for health conditions, pregnancy or medication. ${gap("final wording, and who this isn't for, Decision 7")}`] },
-    { heading: "Accuracy", paragraphs: ["Food information can come from outside sources, and may be wrong. A value a source doesn't give stays empty on that entry. Daily totals add up what's known, and are marked when something is missing."] },
+    { heading: "Accuracy", paragraphs: ["Food information can come from outside sources, and may be wrong. A value a source doesn't give stays empty on that entry. Daily totals add up only what's known, so they can be lower than what you really ate."] },
     { heading: "Your account", paragraphs: ["Keep your password to yourself. You can delete your account at any time.", gap("what happens at the end of the beta, Decision 16")] },
     { heading: "Legal", paragraphs: [gap("operator, governing law, liability and how these terms change")] },
   ],
@@ -104,7 +104,7 @@ export const noticeHash = (notice: Notice) => sha256Hex(noticeText(notice));
  * happened. That's for whoever reviews the commit that sets it, which is why it can only change through a commit.
  */
 export function noticeIsFinal(notice: Notice = NOTICE): boolean {
-  if (notice.status !== "final" || /^draft/i.test(notice.version) || !notice.review) return false;
+  if (notice.status !== "final" || /^\s*draft/i.test(notice.version) || !notice.review) return false;
   const { date, reviewer, textSha256 } = notice.review;
   if (!isRealDate(date) || !reviewer.trim()) return false;
   if (noticeText(notice).includes(DRAFT_MARKER)) return false;

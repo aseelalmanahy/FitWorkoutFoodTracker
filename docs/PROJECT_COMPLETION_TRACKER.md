@@ -25,7 +25,7 @@
 | M-10 | 4.0.2 | Account deletion and export | COMPLETE for development | Merged at `b79331d`, and verified on `fitdb_test`, sections 2b and 3. **Not for real users on its own:** real-device testing (T-15), backup and log retention (S-14) and legal decisions (E-06) stay open. `safety-no-marker` and `db-guard-scoped` weren't run (T-14) |
 | M-11 | 4.0.3 | Production foundation | **IN PROGRESS** | Code and templates merged at `de4607f`, section 2c, with the development code independently source-reviewed. **Operational verification is incomplete: nothing is deployed, and no infrastructure exists. Not COMPLETE until the infrastructure items are done.** Needs decisions 4, 5 and 14 |
 | M-12 | 4.0.4 | Email-proven access | COMPLETE for development | Merged at `eaeff34`, and verified on `fitdb_test`, section 2d. **That covers the locally verified implementation only. The production milestone isn't complete:** no real email can be sent (G-03), and nothing is deployed |
-| M-13 | 4.0.5 | Notice, acceptance, retention | NOT STARTED | Needs legal review. Shares 4.0.4's migration. **The plan in `PHASE_4_0_5_PLAN.md` is conditionally approved for planning, pending review of its correction. Implementation isn't authorized.** O1 to O6 are recorded there |
+| M-13 | 4.0.5 | Notice, acceptance, retention | **IN PROGRESS** | L1 to L5 built on `feature/phase-4.0.5-privacy`, unmerged, section 2e. **Not COMPLETE:** the notice is a draft with no legal review, no retention rule exists, and a draft keeps real registration closed |
 | M-14 | 4.0.6 | Device testing and beta go/no-go | NOT STARTED | Needs everything above |
 | M-15 | 4.1 | Core progress: weight log, goal card | NOT STARTED | Needs 4.0.2's coverage check |
 | M-16 | 4.2 | Real-user beta | NOT STARTED | Needs 4.0 and 4.1 complete |
@@ -181,6 +181,25 @@
 - **Chromium, `production-security-e2e`:** `ERR_PROXY_CONNECTION_FAILED` on `/account`, on the test guard's local proxy. **Cause not established.** Memory was low around that run, which is circumstantial. It passed 5 other times, and if it recurs the proxy should be investigated.
 
 **Database cleanup, 2026-11-06.** 44 rows were removed from `AccountToken` on `fitdb_test`, after a query showed 22 `PASSWORD_RESET` and 22 `SIGNUP`, all at `test.dev`. **The table was verified empty straight after MIG-03.** The three `account-data` runs that seeded links before the cleanup was added left 7, 8 and 7 seeded users (19:39, 19:45 and 19:59 UTC), so 22 users with 2 links each is exactly 44. The rows were gone before this accounting, so it's reasoned from those counts, and no row-by-row record exists. No other table was touched. The suite now removes its own links, and the table has held 0 rows after each later run. Pre-migration backup: section 4.
+
+## 2e. Phase 4.0.5 detail
+
+**Migration: none,** as MIG-03 holds the fields. **The text is a draft with marked gaps, and isn't legal advice. A tick isn't claimed as valid consent.** Plan: `PHASE_4_0_5_PLAN.md`. Inventory: `PHASE_4_0_5_DATA_INVENTORY.md`.
+
+| State | Phase 4.0.5, L1 to L5 |
+|---|---|
+| **IMPLEMENTED** | Yes, unmerged: inventory checked against the code, `/privacy` and `/terms` from one source, acceptance recorded with the account, a counts-only report, and a gate keeping drafts from opening registration |
+| **TESTED** | Yes, on `fitdb_test`, below |
+| **REVIEWED** | **Partly.** A read-only security agent reviewed the plan, the code and the fixes, and ran nothing. **Independent source review is pending** |
+| **MERGED** | No |
+| **OPERATIONALLY VERIFIED** | No |
+
+| ID | Phase | Description | Status | Priority | Dependency | Acceptance Criteria |
+|---|---|---|---|---|---|---|
+| H-01 | 4.0.5 | L1 to L5 | IN PROGRESS | P0 | Source review, merge approval | Reviewed and merged. Whether it may merge before legal advice is still the owner's decision, plan section 2 |
+| H-02 | 4.0.5 | Final notice and terms | BLOCKED | P0 | R-01, Decisions 2, 3, 4, 5, 6, 7, 12, 14, 16 | A reviewed version passes `noticeIsFinal()`, and is checked against a deployment. **Until then, real registration stays closed** |
+| H-03 | 4.0.5 | Retention deletion. Not built, by O4 and the plan's section 6 | BLOCKED | P0 | R-06, product review, S-14's ledger | Its own design and approval |
+| H-04 | 4.0.5 | Reacceptance when a version changes, and whether a history must be kept, which would need a migration | BLOCKED | P1 | R-01 (O3) | Legal's answer, then its own approval |
 
 ## 3. Tests: run, failed, blocked
 
@@ -394,6 +413,7 @@ So code from before this migration **fails for those people, and never reads a n
 | T-19 | 4.0.4 | `account-tokens`, for real races, lock order, backdated expiry, revocation and logs on a real database | COMPLETE | P0 | None | 32 of 32 on `e82cbd9`, on `fitdb_test`, section 2d |
 | T-20 | 4.0.4 | Every suite that registers, moved to the real flow, and all three browsers | COMPLETE | P0 | None | All pass on `e82cbd9`, section 2d. The first real run found two script defects, both fixed. **Excludes T-14's two suites** |
 | T-21 | 4.0.4 | **Not covered by those results:** `live-provider-check.safety`'s tests, moved to the new flow and never run, including its marker refusals. Its SIGTERM test is also skipped on Windows | BLOCKED | P1 | T-14 | Runs when T-14 is authorized |
+| T-23 | 4.0.5 | `privacy-consent` and `privacy-e2e`, on `fitdb_test` and in three browsers | COMPLETE for `fitdb_test` | P1 | None | Passing on `feature/phase-4.0.5-privacy`, with 36 suites in all. **A real deployment's closed gate is unit-tested, and has never been seen on one** |
 | T-09 | 4.0.1b | **Not run:** dropping a CHECK on a live database, to show T38 then fails. The owner's authorization allowed only the approved migration to change the schema | DEFERRED | P2 | Owner, if wanted | **Partly covered:** NC31a and NC31b catch a removed constraint in the migration's text, T38 shows the live constraints refuse every invalid shape, and D5 and D6 show they stop the app's own bad writes |
 | T-10 | 4.0.1b, 4.0.1c | **Not run:** restoring either `fitdb_test` backup, from before 4.0.1b and 4.0.1c. Only their archive listings were read | NOT STARTED | P2 | Owner, for a restore target | Restored into a separately approved database, with row counts compared to the snapshots |
 
@@ -437,7 +457,7 @@ The merged documents hold **recommendations.** Stage A's authorization covered i
 | R-08 | 4.0.3 | Read-only check that production starts empty. **Currently an untested assumption** | NOT STARTED | P0 | R-07 | Counts recorded, and 4.0.6's reset done. Otherwise return to Decisions 27 and 30 |
 | R-09 | 4.0.3 | Closed registration, by allowlist | IN PROGRESS | P0 | S-16, R-07 | Built, and tested on a local production build. **Not on any deployed server.** Non-listed address refused, with the same answer as an existing account |
 | R-10 | 4.0.4 | Password recovery, change password, email verification | IN PROGRESS | P0 | G-03, R-07 | Code merged at `eaeff34`, section 2d. **Nothing can be emailed yet** |
-| R-11 | 4.0.5 | Privacy notice and terms. None exists | BLOCKED | P0 | R-01 | Matches the data-flow inventory |
+| R-11 | 4.0.5 | Privacy notice and terms. **A draft exists, unmerged, with marked gaps** | BLOCKED | P0 | R-01 | Matches the data-flow inventory, H-02 |
 | R-12 | 4.0.6 | Help resource for eating concerns | BLOCKED | P0 | R-02 | Reviewed, and reachable |
 | R-13 | 4.0.6 | Core flows on a real iPhone and Android phone | NOT STARTED | P0 | M-11 to M-13 | Each flow recorded pass or fail |
 | R-14 | 3 | AI spending limit, model choice, cost, prompt injection. AI stays off until done | DEFERRED | P1, if AI is wanted | Decision on Track A | Readiness items 1 to 4 |
@@ -465,12 +485,14 @@ The merged documents hold **recommendations.** Stage A's authorization covered i
 | S-17 | 4.0.3 | **New.** A restart resets in-memory password limits, and a database outage at startup causes a restart loop, so an outage could also reset them | DEFERRED | P2 | S-02 | A shared store, or accepted for the beta |
 | S-18 | 4.0.3 | **New.** No CSP report endpoint exists, so a violation for a real person goes unseen. `next dev` isn't checked by the preflight, so it must never serve real traffic | DEFERRED | P3 | None | Decided at 4.0.6 |
 | S-19 | 4.0.4 | Export didn't re-check the verified hash, as login, change password and deletion do | IN PROGRESS | P2 | Owner, to accept the limit | **Fixed at `3e65a51`:** compared in the snapshot and again after it, with no lock, so it can't delay a reset. A real race, in a known order, gets 409 with no data. **Accepted limit:** a response already past the last check is still sent, with data from before the reset |
-| S-20 | 4.0.3, 4.0.4 | A loopback database named `fitdb_test` skips preflight's identity check, including with open registration. Needs a deliberate misconfiguration. Low | DEFERRED | P3 | None | A `host=` redirect is now refused, at `ae5e10e`. **Left:** the marker isn't required when the flag is set. Accepted, or required |
+| S-20 | 4.0.3, 4.0.4 | A loopback database named `fitdb_test` skips preflight's identity check, including with open registration. Needs a deliberate misconfiguration. Low. **Narrowed on `feature/phase-4.0.5-privacy`:** a test server now has to confirm its database's own marker, in any mode | DEFERRED | P3 | H-01 | A `host=` redirect is now refused, at `ae5e10e`. **Left:** the marker isn't required when the flag is set. Accepted, or required |
 | S-21 | 4.0.4 | Prisma's transaction limit doesn't interrupt a query waiting on a lock, so a held row could hold login, reset and change password as long | IN PROGRESS | P2 | None | **Fixed at `ae5e10e` and `e82cbd9`:** a lock limit, answering 503. Measured in section 2d: about 4 seconds, or about 8 for a queued request. **Left:** pool exhaustion under a long schema change is unmeasured, and deletion's own wait isn't limited |
 | S-22 | 4.0.4 | An abandoned sign-up token holds its address until it expires and the next token is issued, as no background job exists | BLOCKED | P2 | R-06 | Covered by the retention rule. **No period is invented here.** The review rates this medium before the beta, and notes that purging already-expired rows on a timer needs no new period. Not built, as it adds a background job |
 | S-23 | 4.0.4 | Throttles are in memory. At 50,000 keys, eviction can remove a `reauth:` key, and a restart clears all of them, which resets that guess limit. Low | NOT STARTED | P3 | None | Reauth keys kept apart, or accepted |
 | S-24 | 4.0.4 | Development mail files hold live tokens, and are never aged out. `0o600` may not restrict them on Windows. Suites now remove theirs. Low, development only | NOT STARTED | P3 | None | Aged out, or accepted |
 | S-25 | 4.0.4 | The password-changed notice isn't retried, and is lost on a restart. A full queue no longer drops it. A stalled request can also finish deletion or export after its session ends, if it has the current password, which gives nothing beyond logging in. Low | DEFERRED | P3 | None | Accepted, or fixed with a real provider, G-03 |
+| S-26 | 4.0.5 | `next dev` with a local `fitdb`, on a machine others can reach, still opens registration under a draft, as `next dev` skips startup checks. Its mail stays in a local file, so nobody can finish signing up. Low | DEFERRED | P3 | None | Accepted, or a host check added |
+| S-27 | 4.0.5 | The box is enforced in the browser. A script can post the public version with no box, so a stored version shows only that the token holder posted it. By design, and legal says what a tick means (O6) | DEFERRED | P2 | R-01 | Legal's answer recorded |
 | S-09 | 4.0.1 | Raw field names reach people in forms other than profile and targets (`client/api.ts`) | DEFERRED | P2 | None | Fixed copy per form |
 
 ## 8. Technical debt

@@ -82,7 +82,7 @@ describe("each check can fail", () => {
   it("a new file calling fetch", () => {
     expect(problemsWith((_, f) => f.sources.push(FETCH)).join()).toMatch(/call site: src\/lib\/server\/new-thing.ts isn't in the inventory/);
   });
-  it.each(["new Anthropic({})", 'import x from "node:https";', 'import x from "https";', 'import "node:http";', "new WebSocket(u)", "navigator.sendBeacon(u)", 'await import("node:net")', "const f = fetch;", "fetch.call(null, u)", 'import A from "@anthropic-ai/sdk";', 'import { request } from "undici";'])("a new file using %s", (code) => {
+  it.each(["new Anthropic({})", 'import x from "node:https";', 'import x from "https";', 'import "node:http";', "new WebSocket(u)", "navigator.sendBeacon(u)", 'await import("node:net")', "const f = fetch;", "const f = window.fetch;", "fetch (u)", "/* note */ fetch(u)", "fetch.call(null, u)", 'import A from "@anthropic-ai/sdk";', 'import { request } from "undici";', 'await import("undici")', 'require("nodemailer")'])("a new file using %s", (code) => {
     expect(problemsWith((_, f) => f.sources.push({ path: "src/lib/new.ts", text: code })).join()).toMatch(/call site: src\/lib\/new.ts/);
   });
   it("a stale entry in the call-site list", () => {
@@ -103,6 +103,13 @@ describe("each check can fail", () => {
   });
   it("a mail transport declared with satisfies", () => {
     expect(problemsWith((_, f) => f.sources.push({ path: "src/lib/server/mail/smtp.ts", text: "const smtp = { async send() {} } satisfies MailTransport;" })).join()).toMatch(/mail transport: smtp/);
+  });
+  it("a transport given the factory's name, in any file", () => {
+    expect(problemsWith((_, f) => f.sources.push({ path: "src/lib/server/mail/other.ts", text: "const mailTransport: MailTransport = { async send() {} };" })).join()).toMatch(/mail transport: mailTransport/);
+  });
+  it("a transport cast, or extending another class", () => {
+    expect(problemsWith((_, f) => f.sources.push({ path: "src/lib/a.ts", text: "const smtp = {} as MailTransport;" })).join()).toMatch(/mail transport: smtp/);
+    expect(problemsWith((_, f) => f.sources.push({ path: "src/lib/a.ts", text: "class Smtp extends Base implements MailTransport {" })).join()).toMatch(/mail transport: Smtp/);
   });
   it("a second mail factory", () => {
     expect(problemsWith((_, f) => f.sources.push({ path: "src/lib/server/mail/other.ts", text: "export function mailTransport() { return null; }" })).join()).toMatch(/mail: the factory/);
@@ -153,6 +160,7 @@ describe("the notice", () => {
     feb.review = { ...feb.review!, date: "2026-02-30" };
     expect(noticeIsFinal(feb)).toBe(false);
     expect(noticeIsFinal(reviewed({ version: "DRAFT-x" }))).toBe(false);
+    expect(noticeIsFinal(reviewed({ version: " draft-x" }))).toBe(false);
   });
   it("final needs every part of the review", () => {
     expect(noticeIsFinal(reviewed())).toBe(true);

@@ -1,6 +1,6 @@
 # Phase 4.0.5: privacy, consent and data retention
 
-**Conditionally approved for planning, on 2026-11-06, pending review of this correction. Implementation isn't authorized, and Phase 4.0.5 is NOT STARTED.** Based on `main` at `5434f90`. Requirements stay in `PHASE_4_0_DESIGN.md`, section 10 and the 4.0.5 milestone, and in Annex H of `PHASE_4_0_1_IMPLEMENTATION_PLAN.md`. Status stays in the tracker.
+**The owner authorized local development of L1 to L5 on 2026-11-06, and they're built on `feature/phase-4.0.5-privacy`, unmerged. Status is in the tracker, section 2e. Final text and any deletion stay blocked.** Based on `main` at `5434f90`. Requirements stay in `PHASE_4_0_DESIGN.md`, section 10 and the 4.0.5 milestone, and in Annex H of `PHASE_4_0_1_IMPLEMENTATION_PLAN.md`. Status stays in the tracker.
 
 This version corrects `5d83560`, after an independent review and three read-only reviews of it: architecture, security and QA. They read code and ran nothing, and no database was touched.
 

@@ -32,6 +32,15 @@ test("hides small counts, zero included, as 0 beside under 5 would show someone 
   assert.equal(report.rows[0].accounts, 100);
 });
 
+test("a row too small to hide both sides says only that it's small", async () => {
+  for (const total of [0, 1, 5, 6, 9]) {
+    const report = await reportAccountFacts(readerGiving((_m, where) => (where.sessions?.some ? Math.min(1, total) : total)), NOW);
+    for (const [label, value] of Object.entries(report.rows[0])) if (label !== "account age") assert.equal(value, `under ${2 * SMALL}`, `${total}: ${label}`);
+  }
+  const big = await reportAccountFacts(readerGiving(() => 2 * SMALL), NOW);
+  assert.equal(big.rows[0].accounts, 2 * SMALL);
+});
+
 test("hides a complement, as a total minus a hidden count would recover it", async () => {
   const report = await reportAccountFacts(readerGiving((_m, where) => (where.sessions?.some ? 98 : where.sessions?.none ? 2 : 100)), NOW);
   assert.equal(report.rows[0]["an unexpired session"], `all but under ${SMALL}`);

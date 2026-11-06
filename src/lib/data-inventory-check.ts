@@ -30,8 +30,8 @@ export interface InventoryFacts {
 const NETWORK_MODULES = "http|https|net|tls|dns|dgram|child_process|http2";
 /** Anything that can reach another host or process. Each match has to be in a listed file. */
 export const OUTBOUND_PATTERNS = [
-  /\bfetch\(/,
-  /=\s*(?:globalThis\.)?fetch\b/,
+  /\bfetch\s*\(/,
+  /=\s*(?:globalThis\.|window\.|self\.)?fetch\b/,
   /\bfetch\.(?:call|apply|bind)\b/,
   /\bhttps?\.(?:request|get)\(/,
   /\b(?:net|tls)\.connect\(/,
@@ -42,14 +42,14 @@ export const OUTBOUND_PATTERNS = [
   /\bnew Anthropic\(/,
   new RegExp(`(?:from|import)\\s+["'](?:node:)?(?:${NETWORK_MODULES})["']`),
   new RegExp(`(?:require|import)\\(["'](?:node:)?(?:${NETWORK_MODULES})["']\\)`),
-  /(?:from|import)\s+["'](?:@anthropic-ai\/sdk|undici|axios|got|node-fetch|ws|nodemailer|openai)["']/,
+  /(?:from\s+|import\s+|import\(|require\()["'](?:@anthropic-ai\/sdk|undici|axios|got|node-fetch|ws|nodemailer|openai)["']/,
 ];
 const HOST_LITERAL = /\bhttps?:\/\/([a-z0-9][a-z0-9.-]*)/gi;
-const MAIL_IMPLEMENTATION = /(?::|\bsatisfies)\s*MailTransport\b/g;
+const MAIL_IMPLEMENTATION = /(?::|\bsatisfies|\bas)\s*MailTransport\b/g;
 
 /** Comment lines say nothing about what runs. Trailing comments need a space, so a URL's `//` isn't one. */
 export function withoutComments(text: string): string {
-  return text.split(/\r?\n/).filter((line) => !/^\s*(?:\/\/|\/\*|\*)/.test(line)).map((line) => line.replace(/\s\/\/\s.*$/, "")).join("\n");
+  return text.split(/\r?\n/).map((line) => line.replace(/\/\*.*?\*\//g, "")).filter((line) => !/^\s*(?:\/\/|\/\*|\*)/.test(line)).map((line) => line.replace(/\s\/\/\s.*$/, "")).join("\n");
 }
 
 export const callSiteFiles = (sources: InventoryFacts["sources"]) =>
@@ -94,11 +94,12 @@ export function inventoryProblems(inv: Inventory, facts: InventoryFacts): string
     for (const line of withoutComments(s.text).split("\n")) {
       if (MAIL_IMPLEMENTATION.test(line)) {
         const name = /(?:const|let|function)\s+(\w+)/.exec(line)?.[1] ?? line.trim();
-        if (name !== "mailTransport") transports.push(name); // the factory hands one out, and isn't one
+        // The one factory hands a transport out, and isn't one. Anything else with that name still counts.
+        if (!(s.path === inv.mail.factory && /function\s+mailTransport\s*\(/.test(line))) transports.push(name);
       }
       MAIL_IMPLEMENTATION.lastIndex = 0;
     }
-    for (const m of withoutComments(s.text).matchAll(/class\s+(\w+)\s+implements\s+MailTransport\b/g)) transports.push(m[1]);
+    for (const m of withoutComments(s.text).matchAll(/class\s+(\w+)[^{]*\bimplements\b[^{]*\bMailTransport\b/g)) transports.push(m[1]);
   }
   sameSet("mail transport", inv.mail.transports, transports.sort(), out);
 
