@@ -669,10 +669,10 @@ The full list for 4.0.1 is in the plan's section 13. A "799 shows no warning" co
 | 5 | Host, database, email provider, monthly ceiling | Section 11 | 4.0.3, 4.0.4 |
 | 6 | Legal reviewer and budget | Needed for 4.0.5 | 4.0.5 |
 | 7 | Qualified safety reviewer | Needed for floors, wording and help resource | Beta |
-| 8 | Sign-up model | Link-first with allowlist. Fallback: invite links | 4.0.4 |
+| 8 | Sign-up model | Link-first with allowlist. Fallback: invite links. **Approved by the owner, 2026-11-06:** no account until a valid link is used | 4.0.4 |
 | 9 | Calorie default: A, no estimate. B, estimate on request, never applied. C, suggestion with explicit acceptance | **A, changed from C,** reopened only once a named reviewer has seen it. The agent's review of the revised plan also recommends A, withdrawing its earlier on-request position. See the plan's section 8 | 4.0.1 |
-| 10 | Whether emailed recovery is required for the beta | Yes, as you've said. Review A disagrees | 4.0.4 |
-| 11 | One-page sign-up with profile | Yes, subject to review | 4.0.4 |
+| 10 | Whether emailed recovery is required for the beta | Yes, as you've said. Review A disagrees. **Approved by the owner, 2026-11-06:** required | 4.0.4 |
+| 11 | One-page sign-up with profile | Yes, subject to review. **Decided otherwise by the owner, 2026-11-06:** onboarding stays separate from registration for the beta, as the product agent recommended | 4.0.4 |
 | 12 | Backup retention | About 14 days, to confirm | 4.0.5 |
 | 13 | Export fallback if time runs short | Keep self-service. It's small | 4.0.2 |
 | 14 | Production data access rule | Written, and restricted | 4.0.3 |

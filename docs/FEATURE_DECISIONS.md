@@ -407,6 +407,8 @@ These came from gaps found while inspecting the code. None was requested.
 | Maintenance cost | Low to Medium |
 | What would change this decision | Nothing |
 
+**Owner decisions, 2026-11-06, for Phase 4.0.4.** Decision 8 approved: link-first registration with an invitation allowlist, and no account until a valid link is used. Decision 10 approved: emailed password recovery is required. Decision 11: onboarding stays separate from registration for the beta, following this agent's recommendation over the design's earlier proposal. **Approved for development only:** the migration file may be written, and applying it, an email provider or SDK, a Prisma major upgrade, deployment and merging each still need separate approval.
+
 ### Account deletion and data export
 
 **Recommendation: BUILD** · Priority: P0 · Tier: MVP ESSENTIAL
