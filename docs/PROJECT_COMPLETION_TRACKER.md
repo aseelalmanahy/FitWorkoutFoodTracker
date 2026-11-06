@@ -1,6 +1,6 @@
 # Project Completion Tracker
 
-**The single source of truth for what's done and what isn't.** Last updated 2026-11-06, on branch `feature/phase-4.0.3-production-foundation`, from `main` at `e743b53`.
+**The single source of truth for what's done and what isn't.** Last updated 2026-11-06, on `main`, after Phase 4.0.3 merged at `de4607f`.
 
 **Rules:**
 
@@ -23,7 +23,7 @@
 | M-08 | 4.0.1b | Nullable targets, calories-only, stopping a target | COMPLETE for development | Merged at `38c4a37`, and verified on `fitdb_test`, section 3. **The migration is on `fitdb_test` only, so `fitdb` can't run this yet (B-07).** Not for real users on its own |
 | M-09 | 4.0.1c | Profile data minimization | COMPLETE for development | Merged at `899e54c`, and verified on `fitdb_test`, section 3. **The migration is on `fitdb_test` only, so `fitdb` can't run this yet (C-08, B-07).** `safety-no-marker` and `db-guard-scoped` weren't run on the final code (T-14). Not for real users on its own |
 | M-10 | 4.0.2 | Account deletion and export | COMPLETE for development | Merged at `b79331d`, and verified on `fitdb_test`, sections 2b and 3. **Not for real users on its own:** real-device testing (T-15), backup and log retention (S-14) and legal decisions (E-06) stay open. `safety-no-marker` and `db-guard-scoped` weren't run (T-14) |
-| M-11 | 4.0.3 | Production foundation | **IN PROGRESS** | Code and templates on this branch, section 2c. **Nothing is deployed, and no infrastructure exists. Not COMPLETE until review, merge and the infrastructure items.** Needs decisions 4, 5 and 14 |
+| M-11 | 4.0.3 | Production foundation | **IN PROGRESS** | Code and templates merged at `de4607f`, section 2c, with the development code independently source-reviewed. **Operational verification is incomplete: nothing is deployed, and no infrastructure exists. Not COMPLETE until the infrastructure items are done.** Needs decisions 4, 5 and 14 |
 | M-12 | 4.0.4 | Email-proven access | NOT STARTED | Needs 4.0.3 and decisions 8, 10, 11. Has a migration |
 | M-13 | 4.0.5 | Notice, acceptance, retention | NOT STARTED | Needs legal review. Shares 4.0.4's migration |
 | M-14 | 4.0.6 | Device testing and beta go/no-go | NOT STARTED | Needs everything above |
@@ -115,6 +115,8 @@
 ## 2c. Phase 4.0.3 detail
 
 **Migration: none.** No schema change. **No infrastructure was created, and nothing was deployed.**
+
+**Merged at `de4607f`, by fast-forward, after independent source review of the development code. That covers the code only.** M-11 stays IN PROGRESS, and every unresolved infrastructure and security blocker stays open, each at the status shown in this tracker.
 
 | ID | Phase | Description | Status | Priority | Dependency | Acceptance Criteria |
 |---|---|---|---|---|---|---|
@@ -394,7 +396,7 @@ The merged documents hold **recommendations.** Stage A's authorization covered i
 |---|---|---|---|---|---|---|
 | S-01 | 4.0 | `APP_ORIGIN` falls back to request headers, a hazard for reset links | IN PROGRESS | P0 | F-08 | A production server now refuses to start without an HTTPS `APP_ORIGIN`, tested. The fallback stays for development and the suites. **Left:** review and merge, and a test through a real proxy (T-17) |
 | S-02 | 3 | Rate limits are in memory, per process, and reset on restart | DEFERRED | P1 | One instance at beta | Shared store before scaling |
-| S-03 | 4.0 | Register's 409 and timing reveal whether an email exists | IN PROGRESS | P0 | M-12 | **Closed in production mode on this branch:** one 403 and matching timing, tested. A successful sign-up still shows an invited address is unused, S-16. Link-first sign-up closes that. Development keeps the 409 |
+| S-03 | 4.0 | Register's 409 and timing reveal whether an email exists | IN PROGRESS | P0 | M-12 | **Closed in production mode at `de4607f`:** one 403 and matching timing, tested. A successful sign-up still shows an invited address is unused, S-16. Link-first sign-up closes that. Development keeps the 409 |
 | S-04 | 4.0 | Declared age can be false. Accepted, and never called verification | DEFERRED | P2 | R-01 | Legal confirms |
 | S-05 | 4.0.1 | Legacy `SUGGESTED` rows stay in force, possibly with defective values, until replaced or stopped | DEFERRED | P1 | R-08 | Empty production database |
 | S-06 | 4.0.1 | Legacy zeros can't be told from deliberate ones, and aren't rewritten | DEFERRED | P2 | R-08 | Empty production database |
