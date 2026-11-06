@@ -96,6 +96,8 @@ async function login(page, ctx, a) {
   assert.equal(cookie.httpOnly, true);
   if (check.browser === "webkit") {
     // This WebKit build won't send a Secure cookie over plain http://localhost, so the same real session is kept without that flag.
+    // The form's own move to the dashboard finishes first, as leaving during it makes WebKit report it as a failure.
+    await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {});
     await ctx.clearCookies();
     await ctx.addCookies([{ name: cookie.name, value: cookie.value, url: BASE, httpOnly: true, sameSite: "Lax", secure: false }]);
   } else {

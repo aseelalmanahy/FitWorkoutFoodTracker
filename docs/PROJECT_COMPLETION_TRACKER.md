@@ -1,4 +1,6 @@
-# Project Completion Tracker
+
+| TD-17 | QA | `GET /api/exercises/{id}/previous` answers 200 with `null` for another account's exercise, where `/history` answers 404. No data leaks, as it reads only the caller's sessions | NOT STARTED | P3 | None | The two routes agree, or the difference is accepted |
+| T-22 | QA | 10 synthetic accounts on `fitdb_test`, created by hand, and read through real logins in three browsers | COMPLETE for `fitdb_test` | P3 | None | 258 of 258 checks, `docs/QA_FIXTURES.md`. They skip sign-up, so they prove how the app reads data, and nothing about sign-up. **Local only, so not operationally verified.** The accounts remain until `--cleanup` |# Project Completion Tracker
 
 **The single source of truth for what's done and what isn't.** Last updated 2026-11-06, on `main`, after Phase 4.0.4 merged at `eaeff34`. **No production infrastructure has been deployed.**
 
