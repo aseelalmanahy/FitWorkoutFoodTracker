@@ -7,6 +7,8 @@
 const fs = require("node:fs");
 const path = require("node:path");
 
+/** The notice version a person would be shown, read from the source, as the page sends it. */
+const NOTICE_VERSION = /version: "([^"]+)"/.exec(fs.readFileSync(path.join(__dirname, "..", "..", "src", "lib", "legal", "notice.ts"), "utf8"))[1];
 const TOKEN_IN_LINK = /#token=([A-Za-z0-9_-]{43})(?![A-Za-z0-9_-])/;
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -72,7 +74,7 @@ async function signUpWithApi(baseUrl, email, password, { post = defaultPost(base
   const registered = await post("/api/auth/register", { email });
   if (registered.status !== 200) throw new Error(`sign-up for ${email}: /api/auth/register answered ${registered.status}`);
   const token = await readMailLink(email, "signup", { dir, timeoutMs, ignore: seen });
-  const completed = await post("/api/auth/register/complete", { token, password });
+  const completed = await post("/api/auth/register/complete", { token, password, acceptedVersion: NOTICE_VERSION });
   if (completed.status !== 200) throw new Error(`sign-up for ${email}: /api/auth/register/complete answered ${completed.status}`);
   const login = await post("/api/auth/login", { email, password });
   if (login.status !== 200) throw new Error(`sign-up for ${email}: /api/auth/login answered ${login.status}`);
@@ -97,6 +99,7 @@ async function signUpInBrowser(page, baseUrl, email, password, { dir = process.e
   // Playwright's errors quote the URL, and this one holds a token.
   try { await page.goto(`${baseUrl}/register/complete#token=${token}`); } catch { throw new Error(`sign-up for ${email}: the emailed link's page didn't load`); }
   await page.fill("input[name=password]", password);
+  await page.check("input[name=accept]");
   await page.click("button[type=submit]");
   await page.waitForURL("**/login?created=1");
   await page.fill("input[name=email]", email);
@@ -105,4 +108,4 @@ async function signUpInBrowser(page, baseUrl, email, password, { dir = process.e
   await page.waitForURL("**/onboarding");
 }
 
-module.exports = { readMailLink, mailFiles, signUpWithApi, signUpInBrowser };
+module.exports = { readMailLink, mailFiles, signUpWithApi, signUpInBrowser, NOTICE_VERSION };

@@ -9,6 +9,7 @@ import { forgetAttempts, hashPassword } from "@/lib/server/auth";
 import { _resetLoginThrottle, acquirePasswordCheck } from "@/lib/server/login-throttle";
 import { JOB_DEADLINE_MS, _accountJobsIdle, _accountJobsWaiting, enqueueAccountJob } from "@/lib/server/mail/queue";
 import { MailRejected, type MailMessage } from "@/lib/server/mail/transport";
+import { NOTICE } from "@/lib/legal/notice";
 
 type Row = Record<string, unknown>;
 const f = vi.hoisted(() => ({
@@ -21,6 +22,8 @@ const f = vi.hoisted(() => ({
   send: null as null | ((m: MailMessage, s: AbortSignal) => Promise<void>),
   /** Runs just before a transaction, to stand in for something committing during the slow password hash. */
   beforeTransaction: null as null | (() => void),
+  /** A reviewed notice, for what only happens on a real deployment once one exists. */
+  finalNotice: false,
   /** The options of the latest transaction. */
   txOptions: null as null | { timeout?: number },
   /** Every raw query fails as PostgreSQL's lock_timeout would. */
@@ -130,6 +133,10 @@ vi.mock("@/lib/server/db", () => {
   };
   return { prisma: new Proxy(all as Row, { get: (t, k: string) => (k === "$transaction" ? $transaction : t[k]) }) };
 });
+vi.mock("@/lib/legal/notice", async (original) => {
+  const actual = await original<typeof import("@/lib/legal/notice")>();
+  return { ...actual, noticeIsFinal: (n?: never) => f.finalNotice || actual.noticeIsFinal(n) };
+});
 vi.mock("next/headers", () => ({
   cookies: async () => ({
     get: (name: string) => (f.cookies.has(name) ? { value: f.cookies.get(name) } : undefined),
@@ -155,6 +162,7 @@ const routes = {
   change: () => import("@/app/api/account/password/route"),
   exportData: () => import("@/app/api/account/export/route"),
 };
+const VERSION = NOTICE.version;
 const ORIGIN = "http://localhost:3000";
 const PASSWORD = "correct horse battery";
 const NEW_PASSWORD = "a different long passphrase";
@@ -200,6 +208,8 @@ beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
   vi.setSystemTime(new Date("2026-11-06T12:00:00Z"));
   vi.stubEnv("TRUST_PROXY_HOPS", "1");
+  vi.stubEnv("NODE_ENV", "development");
+  vi.stubEnv("DATABASE_URL", "postgresql://u:p@localhost:5432/fitdb_fake");
   for (const list of [f.users, f.sessions, f.tokens, f.calls, f.sent, f.cookieSets, f.cookieDeletes]) list.length = 0;
   f.cookies.clear();
   f.send = null;
@@ -207,6 +217,7 @@ beforeEach(() => {
   f.stall = null;
   f.duringExportReads = null;
   f.lockTimedOut = false;
+  f.finalNotice = false;
   origin = ORIGIN;
   _resetLoginThrottle();
   forgetAttempts("reauth:user-1");
@@ -269,17 +280,18 @@ describe("sign-up", () => {
 
   it("the link creates the account with the password chosen then, and doesn't sign anyone in", async () => {
     const token = await askSignup("New.User@Example.com");
-    expect((await post("complete", { token, password: PASSWORD })).status).toBe(200);
+    expect((await post("complete", { token, password: PASSWORD, acceptedVersion: VERSION })).status).toBe(200);
     expect(f.users.map((u) => u.email)).toEqual(["new.user@example.com"]);
     expect(f.users[0].passwordHash).toMatch(/^\$argon2id\$/);
-    expect(f.users[0].termsAcceptedAt).toBeUndefined();
+    expect(f.users[0].termsVersion).toBe(VERSION);
+    expect(f.users[0].termsAcceptedAt).toEqual(new Date("2026-11-06T12:00:00Z"));
     expect(f.sessions).toEqual([]);
     expect(f.cookieSets).toEqual([]);
   });
 
   it("a profile-less account can then log in", async () => {
     const token = await askSignup("new@example.com");
-    await post("complete", { token, password: PASSWORD });
+    await post("complete", { token, password: PASSWORD, acceptedVersion: VERSION });
     expect((await post("login", { email: "new@example.com", password: PASSWORD })).status).toBe(200);
     expect(f.sessions).toHaveLength(1);
     expect(f.cookies.has("fit_session")).toBe(true);
@@ -295,8 +307,8 @@ describe("sign-up", () => {
 
   it("reusing a link fails, and creates nothing", async () => {
     const token = await askSignup("new@example.com");
-    await post("complete", { token, password: PASSWORD });
-    const again = await post("complete", { token, password: NEW_PASSWORD });
+    await post("complete", { token, password: PASSWORD, acceptedVersion: VERSION });
+    const again = await post("complete", { token, password: NEW_PASSWORD, acceptedVersion: VERSION });
     expect(again.status).toBe(400);
     expect(f.users).toHaveLength(1);
   });
@@ -304,14 +316,14 @@ describe("sign-up", () => {
   it("works until its expiry, and not from that moment on", async () => {
     const token = await askSignup("early@example.com");
     vi.setSystemTime((f.tokens[0].expiresAt as Date).getTime() - 1);
-    expect((await post("complete", { token, password: PASSWORD })).status).toBe(200);
+    expect((await post("complete", { token, password: PASSWORD, acceptedVersion: VERSION })).status).toBe(200);
 
     vi.setSystemTime(new Date("2026-11-06T12:00:00Z"));
     const late = await askSignup("late@example.com");
     vi.setSystemTime((f.tokens[0].expiresAt as Date).getTime() + 1);
-    expect((await post("complete", { token: late, password: PASSWORD })).status).toBe(400);
+    expect((await post("complete", { token: late, password: PASSWORD, acceptedVersion: VERSION })).status).toBe(400);
     vi.setSystemTime((f.tokens[0].expiresAt as Date).getTime());
-    expect((await post("complete", { token: late, password: PASSWORD })).status).toBe(400);
+    expect((await post("complete", { token: late, password: PASSWORD, acceptedVersion: VERSION })).status).toBe(400);
     expect(f.users.map((u) => u.email)).toEqual(["early@example.com"]);
   });
 
@@ -319,13 +331,13 @@ describe("sign-up", () => {
     const token = await askSignup("new@example.com");
     vi.setSystemTime((f.tokens[0].expiresAt as Date).getTime() - 1);
     f.beforeTransaction = () => advance(2);
-    expect((await post("complete", { token, password: PASSWORD })).status).toBe(400);
+    expect((await post("complete", { token, password: PASSWORD, acceptedVersion: VERSION })).status).toBe(400);
     expect(f.users).toEqual([]);
   });
 
   it("parallel use of one link gives exactly one success, with no 429 or 500", async () => {
     const token = await askSignup("new@example.com");
-    const results = await Promise.all(Array.from({ length: 8 }, () => post("complete", { token, password: PASSWORD }, { "X-Forwarded-For": "203.0.113.200" })));
+    const results = await Promise.all(Array.from({ length: 8 }, () => post("complete", { token, password: PASSWORD, acceptedVersion: VERSION }, { "X-Forwarded-For": "203.0.113.200" })));
     expect(results.map((r) => r.status).sort()).toEqual([200, 400, 400, 400, 400, 400, 400, 400]);
     expect(f.users).toHaveLength(1);
   });
@@ -335,7 +347,7 @@ describe("sign-up", () => {
     advance(60_001);
     const second = await askSignup("new@example.com");
     expect(f.tokens).toHaveLength(2);
-    const results = await Promise.all([post("complete", { token: first, password: PASSWORD }), post("complete", { token: second, password: NEW_PASSWORD })]);
+    const results = await Promise.all([post("complete", { token: first, password: PASSWORD, acceptedVersion: VERSION }), post("complete", { token: second, password: NEW_PASSWORD, acceptedVersion: VERSION })]);
     expect(results.map((r) => r.status).sort()).toEqual([200, 400]);
     expect(f.users).toHaveLength(1);
     expect(f.tokens).toEqual([]);
@@ -344,7 +356,7 @@ describe("sign-up", () => {
   it("an account appearing just before the transaction refuses cleanly, and the token isn't spent", async () => {
     const token = await askSignup("new@example.com");
     f.beforeTransaction = () => { f.users.push({ id: "rival", email: "new@example.com", passwordHash: "x" }); };
-    const res = await post("complete", { token, password: PASSWORD });
+    const res = await post("complete", { token, password: PASSWORD, acceptedVersion: VERSION });
     expect(res.status).toBe(400);
     expect((await res.json()).error).toMatch(/isn't valid/);
     expect(f.users.map((u) => u.id)).toEqual(["rival"]);
@@ -355,16 +367,16 @@ describe("sign-up", () => {
     const first = await askSignup("new@example.com");
     advance(60_001);
     const second = await askSignup("new@example.com");
-    await post("complete", { token: first, password: PASSWORD });
+    await post("complete", { token: first, password: PASSWORD, acceptedVersion: VERSION });
     expect(f.tokens).toEqual([]);
-    expect((await post("complete", { token: second, password: PASSWORD })).status).toBe(400);
+    expect((await post("complete", { token: second, password: PASSWORD, acceptedVersion: VERSION })).status).toBe(400);
   });
 
   it("a malformed or unknown token and a short password are refused, and spend nothing", async () => {
     const token = await askSignup("new@example.com");
-    expect((await post("complete", { token: "short", password: PASSWORD })).status).toBe(400);
-    expect((await post("complete", { token: "x".repeat(43), password: PASSWORD })).status).toBe(400);
-    expect((await post("complete", { token, password: "short" })).status).toBe(400);
+    expect((await post("complete", { token: "short", password: PASSWORD, acceptedVersion: VERSION })).status).toBe(400);
+    expect((await post("complete", { token: "x".repeat(43), password: PASSWORD, acceptedVersion: VERSION })).status).toBe(400);
+    expect((await post("complete", { token, password: "short", acceptedVersion: VERSION })).status).toBe(400);
     expect(f.tokens).toHaveLength(1);
     expect(f.users).toEqual([]);
   });
@@ -372,17 +384,18 @@ describe("sign-up", () => {
   it("a bad token costs no Argon2 slot, and when none is free a good one isn't spent", async () => {
     const token = await askSignup("new@example.com");
     const held = Array.from({ length: 14 }, () => acquirePasswordCheck());
-    expect((await post("complete", { token: "x".repeat(43), password: PASSWORD })).status).toBe(400);
-    expect((await post("complete", { token, password: PASSWORD })).status).toBe(429);
+    expect((await post("complete", { token: "x".repeat(43), password: PASSWORD, acceptedVersion: VERSION })).status).toBe(400);
+    expect((await post("complete", { token, password: PASSWORD, acceptedVersion: VERSION })).status).toBe(429);
     expect(f.tokens).toHaveLength(1);
     held.forEach((release) => release!());
-    expect((await post("complete", { token, password: PASSWORD })).status).toBe(200);
+    expect((await post("complete", { token, password: PASSWORD, acceptedVersion: VERSION })).status).toBe(200);
   });
 });
 
 describe("the allowlist", () => {
   beforeEach(() => {
     vi.stubEnv("NODE_ENV", "production");
+    f.finalNotice = true; // a real deployment can't register under a draft
     vi.stubEnv("APP_ORIGIN", "https://app.example");
     vi.stubEnv("REGISTRATION_ALLOWLIST", "invited@example.com");
     origin = "https://app.example";
@@ -411,13 +424,13 @@ describe("the allowlist", () => {
   it("is checked again when the link is used, so removing an address stops a link already sent", async () => {
     const token = await askSignup("invited@example.com");
     vi.stubEnv("REGISTRATION_ALLOWLIST", "someone.else@example.com");
-    expect((await post("complete", { token, password: PASSWORD })).status).toBe(400);
+    expect((await post("complete", { token, password: PASSWORD, acceptedVersion: VERSION })).status).toBe(400);
     expect(f.users).toEqual([]);
   });
 
   it("a row for an address that was never invited can't create an account either", async () => {
     f.tokens.push({ id: hash("a".repeat(43)), purpose: "SIGNUP", email: "stranger@example.com", userId: null, expiresAt: new Date(Date.now() + 60_000), createdAt: new Date() });
-    expect((await post("complete", { token: "a".repeat(43), password: PASSWORD })).status).toBe(400);
+    expect((await post("complete", { token: "a".repeat(43), password: PASSWORD, acceptedVersion: VERSION })).status).toBe(400);
     expect(f.users).toEqual([]);
   });
 
@@ -436,6 +449,95 @@ describe("the allowlist", () => {
     await _accountJobsIdle();
     expect(f.sent).toEqual([]);
     expect(f.tokens).toEqual([]);
+  });
+});
+
+describe("while the notice is a draft, a real deployment", () => {
+  beforeEach(() => {
+    vi.stubEnv("NODE_ENV", "production");
+    vi.stubEnv("APP_ORIGIN", "https://app.example");
+    vi.stubEnv("REGISTRATION_ALLOWLIST", "invited@example.com");
+    origin = "https://app.example";
+  });
+
+  it("sends no invitation to a listed address, with the same answer as ever, and no lookup first", async () => {
+    const res = await post("register", { email: "invited@example.com" });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true });
+    expect(f.calls).toEqual([]);
+    await _accountJobsIdle();
+    expect(f.sent).toEqual([]);
+    expect(f.tokens).toEqual([]);
+  });
+
+  it("refuses a link sent before the gate closed, the same way as a bad link, and creates nothing", async () => {
+    f.finalNotice = true;
+    const token = await askSignup("invited@example.com");
+    f.finalNotice = false;
+    const held = await post("complete", { token, password: PASSWORD, acceptedVersion: VERSION });
+    const bad = await post("complete", { token: "x".repeat(43), password: PASSWORD, acceptedVersion: VERSION });
+    expect(held.status).toBe(400);
+    expect(await held.text()).toBe(await bad.text());
+    expect(f.users).toEqual([]);
+    expect(f.tokens).toHaveLength(1);
+  });
+
+  it("still lets existing accounts recover, as nothing about them depends on the documents", async () => {
+    const user = await makeUser("invited@example.com");
+    await post("forgot", { email: user.email });
+    await _accountJobsIdle();
+    expect(f.sent.map((m) => m.kind)).toEqual(["password-reset"]);
+  });
+});
+
+describe("recording acceptance", () => {
+  it("needs the version, with a 400 that spends nothing", async () => {
+    const token = await askSignup("new@example.com");
+    expect((await post("complete", { token, password: PASSWORD })).status).toBe(400);
+    expect((await post("complete", { token, password: PASSWORD, acceptedVersion: "" })).status).toBe(400);
+    expect((await post("complete", { token, password: PASSWORD, acceptedVersion: "x".repeat(65) })).status).toBe(400);
+    expect(f.tokens).toHaveLength(1);
+    expect(f.users).toEqual([]);
+  });
+
+  it("refuses an old version with a 409 that names no version and spends nothing, before any lookup", async () => {
+    const token = await askSignup("new@example.com");
+    f.calls.length = 0;
+    const res = await post("complete", { token, password: PASSWORD, acceptedVersion: "draft-1999-01-01" });
+    expect(res.status).toBe(409);
+    expect(await res.text()).not.toContain(VERSION);
+    expect(f.calls).toEqual([]);
+    expect(f.tokens).toHaveLength(1);
+    expect(f.users).toEqual([]);
+    expect((await post("complete", { token, password: PASSWORD, acceptedVersion: VERSION })).status).toBe(200);
+  });
+
+  it("answers a wrong version the same for a real token and a made-up one, so it reveals nothing", async () => {
+    const token = await askSignup("new@example.com");
+    const [real, fake] = [await post("complete", { token, password: PASSWORD, acceptedVersion: "old" }), await post("complete", { token: "x".repeat(43), password: PASSWORD, acceptedVersion: "old" })];
+    expect(real.status).toBe(fake.status);
+    expect(await real.text()).toBe(await fake.text());
+  });
+
+  it("stores the server's version and time, whatever else the client sends", async () => {
+    const token = await askSignup("new@example.com");
+    await post("complete", { token, password: PASSWORD, acceptedVersion: VERSION, termsVersion: "forged", termsAcceptedAt: "1999-01-01T00:00:00Z" });
+    expect(f.users[0].termsVersion).toBe(VERSION);
+    expect(f.users[0].termsAcceptedAt).toEqual(new Date("2026-11-06T12:00:00Z"));
+  });
+
+  it("is written with the account, so a failed transaction leaves neither", async () => {
+    const token = await askSignup("new@example.com");
+    f.calls.length = 0;
+    await post("complete", { token, password: PASSWORD, acceptedVersion: VERSION });
+    expect(f.calls.filter((c) => c === "user.create")).toHaveLength(1);
+    expect(f.calls.some((c) => c === "user.update" || c === "user.updateMany")).toBe(false);
+  });
+
+  it("isn't asked of a reset, which shares the rest of that form", async () => {
+    const user = await makeUser();
+    const token = await askReset(user.email);
+    expect((await post("reset", { token, password: NEW_PASSWORD })).status).toBe(200);
   });
 });
 
@@ -632,7 +734,7 @@ describe("password reset", () => {
   it("a token is good only for its own purpose, in both directions", async () => {
     const user = await makeUser();
     const resetToken = await askReset(user.email);
-    expect((await post("complete", { token: resetToken, password: NEW_PASSWORD })).status).toBe(400);
+    expect((await post("complete", { token: resetToken, password: NEW_PASSWORD, acceptedVersion: VERSION })).status).toBe(400);
     const signupToken = await askSignup("new@example.com");
     expect((await post("reset", { token: signupToken, password: NEW_PASSWORD })).status).toBe(400);
     expect(f.tokens).toHaveLength(2);
@@ -645,7 +747,7 @@ describe("password reset", () => {
     const later = new Date(Date.now() + 60_000);
     // A reset row for an address with no account would otherwise create one.
     f.tokens.push({ id: hash("r".repeat(43)), purpose: "PASSWORD_RESET", email: "nobody@example.com", userId: null, expiresAt: later, createdAt: new Date() });
-    expect((await post("complete", { token: "r".repeat(43), password: NEW_PASSWORD })).status).toBe(400);
+    expect((await post("complete", { token: "r".repeat(43), password: NEW_PASSWORD, acceptedVersion: VERSION })).status).toBe(400);
     expect(f.users).toHaveLength(1);
     // A sign-up row with a user on it would otherwise reset that user's password.
     f.tokens.push({ id: hash("s".repeat(43)), purpose: "SIGNUP", email: user.email, userId: user.id, expiresAt: later, createdAt: new Date() });
@@ -856,10 +958,10 @@ describe("secrets stay out of logs", () => {
     const logged: unknown[][] = [];
     for (const method of ["log", "info", "warn", "error", "debug"] as const) vi.spyOn(console, method).mockImplementation((...args) => { logged.push(args); });
     const token = await askSignup("secret.person@example.com");
-    await post("complete", { token, password: PASSWORD });
+    await post("complete", { token, password: PASSWORD, acceptedVersion: VERSION });
     const reset = await askReset("secret.person@example.com");
     await post("reset", { token: reset, password: NEW_PASSWORD });
-    await post("complete", { token: "x".repeat(43), password: PASSWORD });
+    await post("complete", { token: "x".repeat(43), password: PASSWORD, acceptedVersion: VERSION });
     await _accountJobsIdle();
     const text = logged.flat().map(String).join(" ");
     for (const secret of ["secret.person", token, reset, PASSWORD, NEW_PASSWORD]) expect(text).not.toContain(secret);
