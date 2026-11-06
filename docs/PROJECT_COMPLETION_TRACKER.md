@@ -25,7 +25,7 @@
 | M-10 | 4.0.2 | Account deletion and export | COMPLETE for development | Merged at `b79331d`, and verified on `fitdb_test`, sections 2b and 3. **Not for real users on its own:** real-device testing (T-15), backup and log retention (S-14) and legal decisions (E-06) stay open. `safety-no-marker` and `db-guard-scoped` weren't run (T-14) |
 | M-11 | 4.0.3 | Production foundation | **IN PROGRESS** | Code and templates merged at `de4607f`, section 2c, with the development code independently source-reviewed. **Operational verification is incomplete: nothing is deployed, and no infrastructure exists. Not COMPLETE until the infrastructure items are done.** Needs decisions 4, 5 and 14 |
 | M-12 | 4.0.4 | Email-proven access | COMPLETE for development | Merged at `eaeff34`, and verified on `fitdb_test`, section 2d. **That covers the locally verified implementation only. The production milestone isn't complete:** no real email can be sent (G-03), and nothing is deployed |
-| M-13 | 4.0.5 | Notice, acceptance, retention | NOT STARTED | Needs legal review. Shares 4.0.4's migration. **A plan is proposed in `PHASE_4_0_5_PLAN.md`, unreviewed and unapproved** |
+| M-13 | 4.0.5 | Notice, acceptance, retention | NOT STARTED | Needs legal review. Shares 4.0.4's migration. **The plan in `PHASE_4_0_5_PLAN.md` is conditionally approved for planning, pending review of its correction. Implementation isn't authorized.** O1 to O6 are recorded there |
 | M-14 | 4.0.6 | Device testing and beta go/no-go | NOT STARTED | Needs everything above |
 | M-15 | 4.1 | Core progress: weight log, goal card | NOT STARTED | Needs 4.0.2's coverage check |
 | M-16 | 4.2 | Real-user beta | NOT STARTED | Needs 4.0 and 4.1 complete |
