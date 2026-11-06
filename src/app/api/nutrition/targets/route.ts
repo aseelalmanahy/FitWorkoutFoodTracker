@@ -1,7 +1,7 @@
 import { route, parseBody } from "@/lib/server/api";
 import { prisma } from "@/lib/server/db";
 import { nutritionTargetSchema } from "@/lib/validation";
-import { getTargets, localToday, setManualTarget, suggestionFromProfile } from "@/lib/server/nutrition/targets";
+import { getTargets, localToday, setManualTarget } from "@/lib/server/nutrition/targets";
 import { targetForDate } from "@/lib/nutrition";
 import { HttpError } from "@/lib/server/api";
 
@@ -13,9 +13,9 @@ async function profileOf(userId: string) {
 
 export const GET = route(async (_req, { user }) => {
   const profile = await profileOf(user.id);
-  const targets = await getTargets(user.id, profile);
+  const targets = await getTargets(user.id);
   const today = localToday(profile.timezone);
-  return { today, current: targetForDate(targets, today), suggestion: suggestionFromProfile(profile), history: targets };
+  return { today, current: targetForDate(targets, today), history: targets };
 });
 
 export const PUT = route(async (req, { user }) => {

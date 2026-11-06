@@ -475,6 +475,9 @@ async function main() {
     must((await A.patch(`/api/nutrition/entries/${e.body.entry.id}`, { quantity: 2 })).status === 200, "edit failed");
     d = (await A.get(`/api/nutrition/day?date=${today}`)).body;
     must(Math.abs(d.totals.kcal - Math.round(expected * 200) / 100) < 0.021, `after edit ${d.totals.kcal} ≠ ${expected * 2}`);
+    must(!d.target && !d.calories, "a target appeared that nobody set");
+    must((await A.put("/api/nutrition/targets", { kcal: 2000, proteinG: 100, fatG: 60 })).status === 200, "setting a target failed");
+    d = (await A.get(`/api/nutrition/day?date=${today}`)).body;
     must(d.target && d.calories, "target/remaining missing");
     must((await B.patch(`/api/nutrition/entries/${e.body.entry.id}`, { quantity: 9 })).status === 404, "other user could edit");
     must((await B.del(`/api/nutrition/entries/${e.body.entry.id}`)).status === 404, "other user could delete");
@@ -488,6 +491,7 @@ async function main() {
   await check("FLOW-2", "Workflow", "log an OFF product by grams; history keeps the day's target", async () => {
     const f = ctx.nutella;
     if (!f) throw skip("OFF product unavailable");
+    must((await A.put("/api/nutrition/targets", { kcal: 2000, proteinG: 100, fatG: 60 })).status === 200, "setting a target failed");
     const e = await A.post("/api/nutrition/entries", { date: today, mealType: "SNACK", foodId: f.id, servingId: null, quantity: 30 });
     must(e.status === 200, `log → ${e.status}`);
     const h = (await A.get(`/api/nutrition/history?end=${today}&days=7`)).body;

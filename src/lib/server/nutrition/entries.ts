@@ -163,7 +163,7 @@ export async function deleteEntry(userId: string, id: string) {
 export async function daySummary(userId: string, profile: Profile, date: string) {
   const [rows, targets] = await Promise.all([
     prisma.foodEntry.findMany({ where: { userId, date: fromIsoDate(date) }, orderBy: { createdAt: "asc" }, include: WITH_SOURCE }),
-    getTargets(userId, profile),
+    getTargets(userId),
   ]);
   const entries = rows.map(entryToDto);
   const target = targetForDate(targets, date);
@@ -199,7 +199,7 @@ export async function history(userId: string, profile: Profile, end: string, day
       _sum: { kcal: true, protein: true, carbs: true, fat: true, fiber: true },
       _count: { _all: true, kcal: true, protein: true, carbs: true, fat: true, fiber: true },
     }),
-    getTargets(userId, profile),
+    getTargets(userId),
   ]);
   const byDate = new Map(groups.map((g) => [toIsoDate(g.date), g]));
   const list: DaySummary[] = dateRange(start, days).map((date) => {

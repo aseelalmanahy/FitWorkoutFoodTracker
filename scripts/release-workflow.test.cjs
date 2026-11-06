@@ -36,7 +36,6 @@ const profile = (over = {}) => ({ name: "R", birthDate: "1990-01-01", sex: "MALE
 
 const A = client(), X = client(), S = client();
 const food = {};
-let suggestedKcal;
 const entries = {};
 const D0 = today(), D1 = addDays(D0, -1), D2 = addDays(D0, -2);
 
@@ -78,10 +77,7 @@ test("1–2. search finds generic and custom foods; detail exposes servings", as
 });
 
 test("3, 5, 14. log all four meals, several foods in one meal, scaled by serving", async () => {
-  const seeded = (await A.get("/api/nutrition/targets")).body.current; // seeds today's suggested target
-  assert.equal(seeded.source, "SUGGESTED");
-  suggestedKcal = seeded.kcal;
-  assert.ok(suggestedKcal >= 1500, "suggestion respects the male intake floor");
+  assert.equal((await A.get("/api/nutrition/targets")).body.current, null, "no target is created for the person");
   const sv = (f) => f.servings.find((x) => x.isDefault).id;
   entries.oats = await log(A, D0, "BREAKFAST", food.oats, sv(food.oats), 2);       // 80 g → 300 kcal, P10 C54 F6
   entries.egg = await log(A, D0, "BREAKFAST", food.egg, sv(food.egg), 2);          // 100 g → 140, P12 C1 F10
@@ -124,20 +120,16 @@ test("4. edit (quantity, meal) and delete update totals immediately", async () =
   assert.equal(d.macros.fat.remaining, r2(60 - 19.44));
 });
 
-// Targets are one row per effective date. The manual change in test 6–7 was made on the same
-// day as the seeded suggestion, so it replaced that row. The first (and only) target is
-// therefore the manual one, and backdated days are covered by it (audit D4 behaviour).
-// The "past days keep an earlier target" case is covered by test 11 and by nutrition-api D4.
-test("12. backdated entries are covered by the first target (here the manual one set today)", async () => {
+// Under Decision 19, a target starts on its effective date. Backdated days stay without one.
+test("12. backdated entries get no target; the manual one set today covers today only", async () => {
   await log(A, D1, "LUNCH", food.oats, food.oats.servings.find((x) => x.isDefault).id, 4); // 160 g → 600, P20
   await log(A, D2, "DINNER", food.chicken, null, 450);                                     // 742.5, P139.5
   const p1 = (await A.get(`/api/nutrition/day?date=${D1}`)).body;
   const p2 = (await A.get(`/api/nutrition/day?date=${D2}`)).body;
-  assert.ok(p1.target && p2.target, "backdated days have a target");
-  assert.deepEqual([p1.target.kcal, p2.target.kcal, p2.target.source, p2.target.effectiveFrom], [2000, 2000, "MANUAL", D2]);
-  assert.equal(p2.calories.remaining, r2(2000 - 742.5));
-  assert.equal((await A.get(`/api/nutrition/day?date=${D0}`)).body.target.kcal, 2000);
-  assert.equal((await A.get(`/api/nutrition/day?date=${addDays(D2, -1)}`)).body.target, null, "no target before the earliest entry");
+  assert.deepEqual([p1.target, p2.target, p2.calories], [null, null, null], "backdated days have no target");
+  assert.equal(p2.totals.kcal, 742.5, "their totals still count");
+  const d0 = (await A.get(`/api/nutrition/day?date=${D0}`)).body.target;
+  assert.deepEqual([d0.kcal, d0.source, d0.effectiveFrom], [2000, "MANUAL", D0]);
 });
 
 test("8–9. history: each day's own totals and target; weekly averages; protein consistency; 8-week window", async () => {
@@ -145,32 +137,28 @@ test("8–9. history: each day's own totals and target; weekly averages; protein
   assert.equal(h.days.length, 7);
   const day = (d) => h.days.find((x) => x.date === d);
   assert.deepEqual([day(D0).totals.kcal, day(D1).totals.kcal, day(D2).totals.kcal], [1177.52, 600, 742.5]);
-  assert.deepEqual([day(D0).target.kcal, day(D1).target.kcal, day(D2).target.kcal], [2000, 2000, 2000]);
+  assert.deepEqual([day(D0).target.kcal, day(D1).target, day(D2).target], [2000, null, null]);
   assert.equal(h.summary.daysLogged, 3);
   assert.equal(h.summary.avg.kcal, 840);     // (1177.52 + 600 + 742.5) / 3 = 840.0067 → 840.0
   assert.equal(h.summary.avg.protein, 94.4); // (123.84 + 20 + 139.5) / 3 = 94.45 → 94.4
   assert.equal(h.summary.avgTargetKcal, 2000);
-  // Protein ≥ 90 % of the day's target (150 g → 135 g): D0 123.84 no; D1 20 no; D2 139.5 yes
-  assert.equal(h.summary.proteinDaysWithTarget, 3);
-  assert.equal(h.summary.proteinOnTargetDays, 1);
+  // Protein ≥ 90 % of the day's target (150 g → 135 g): only D0 has a target, and 123.84 is below it
+  assert.equal(h.summary.proteinDaysWithTarget, 1);
+  assert.equal(h.summary.proteinOnTargetDays, 0);
   const trend = (await A.get(`/api/nutrition/history?end=${D0}&days=56`)).body;
   assert.equal(trend.days.length, 56);
   assert.equal(trend.days[0].date, addDays(D0, -55));
   assert.equal(trend.summary.daysLogged, 3);
 });
 
-test("11. suggested targets follow a profile change from today on; past days keep the old suggestion", async () => {
-  const s0 = (await S.get("/api/nutrition/targets")).body.current;
-  assert.equal(s0.source, "SUGGESTED");
+test("11. a profile change writes no target, and past days keep theirs", async () => {
+  assert.equal((await S.get("/api/nutrition/targets")).body.current, null);
   const past = addDays(D0, -3);
   await log(S, past, "LUNCH", food.banana, null, 100);
   await S.put("/api/profile", profile({ currentWeightKg: 95 }));
   const s1 = (await S.get("/api/nutrition/targets")).body;
-  assert.equal(s1.current.source, "SUGGESTED");
-  assert.ok(s1.current.kcal > s0.kcal && s1.current.proteinG > s0.proteinG);
-  const e = 4 * s1.current.proteinG + 4 * s1.current.carbsG + 9 * s1.current.fatG;
-  assert.ok(e <= s1.current.kcal && s1.current.kcal - e < 4, "new suggestion internally consistent");
-  assert.equal((await S.get(`/api/nutrition/day?date=${past}`)).body.target.kcal, s0.kcal, "past day keeps the old suggestion");
+  assert.deepEqual([s1.current, s1.history], [null, []], "no target from a profile change");
+  assert.equal((await S.get(`/api/nutrition/day?date=${past}`)).body.target, null);
   // A's manual target is untouched by A's own profile change
   await A.put("/api/profile", profile({ currentWeightKg: 95 }));
   assert.equal((await A.get("/api/nutrition/targets")).body.current.kcal, 2000);

@@ -3,7 +3,6 @@ import {
   addDays, carbsFromRemainder, entryNutrients, isIsoDate, macroKcal, mondayOf, progress, remaining,
   scaleNutrients, sumNutrients, summarizePeriod, targetForDate, type DaySummary, type Nutrients,
 } from "./nutrition";
-import { suggestMacros } from "./energy";
 
 const per100: Nutrients = { kcal: 200, protein: 10, carbs: 25, fat: 7.5, fiber: null };
 
@@ -55,28 +54,6 @@ describe("remaining and progress", () => {
 });
 
 describe("macro targets", () => {
-  it("are internally consistent with the energy target", () => {
-    for (const goal of ["FAT_LOSS", "MUSCLE_GAIN", "MAINTENANCE", "STRENGTH"] as const) {
-      for (const kcal of [1200, 1800, 2500, 3500]) {
-        const m = suggestMacros({ kcal, weightKg: 80, goal });
-        const e = macroKcal(m.proteinG, m.carbsG, m.fatG);
-        expect(e).toBeLessThanOrEqual(kcal);
-        expect(kcal - e).toBeLessThan(4 + 1e-9);
-        expect(m.carbsG).toBeGreaterThanOrEqual(0);
-      }
-    }
-  });
-  it("uses 1.6 g/kg protein for muscle gain and 2.0 g/kg for fat loss", () => {
-    expect(suggestMacros({ kcal: 2800, weightKg: 80, goal: "MUSCLE_GAIN" }).proteinG).toBe(128);
-    expect(suggestMacros({ kcal: 2200, weightKg: 80, goal: "FAT_LOSS" }).proteinG).toBe(160);
-  });
-  it("uses goal weight as protein reference for fat loss", () => {
-    expect(suggestMacros({ kcal: 2200, weightKg: 120, goalWeightKg: 90, goal: "FAT_LOSS" }).proteinG).toBe(180);
-  });
-  it("fits protein and fat inside very low energy targets", () => {
-    const m = suggestMacros({ kcal: 800, weightKg: 150, goal: "FAT_LOSS" });
-    expect(macroKcal(m.proteinG, m.carbsG, m.fatG)).toBeLessThanOrEqual(800);
-  });
   it("derives carbs from remainder", () => {
     expect(carbsFromRemainder(2000, 150, 60)).toBe(215); // 2000-600-540=860/4
     expect(carbsFromRemainder(1000, 200, 100)).toBeNull();

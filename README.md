@@ -9,7 +9,7 @@ plan for Phases 2–4 are in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 - **Accounts:** email and password sign-up and log-in. Argon2id hashing, server-side sessions, CSRF origin checks, login throttling.
 - **Profile:** date of birth, sex, height, weight, goal weight, goal, activity level, experience, days per week, lb/kg units.
-  Shows a live **Mifflin-St Jeor BMR / TDEE** estimate and a suggested calorie target, with a user override. All values are labelled as estimates.
+  For adults 18 and over, by declared date of birth, which isn't age verification. Choices aren't preselected. No estimate or suggested target is shown.
 - **Workout plans:** pick exercises (47 built-in, or create custom ones). Set target sets, rep range, weight, rest and notes. Reorder, edit, delete.
 - **Weekly schedule:** assign plans to weekdays and move them between days. Days with no plan are rest days.
 - **Workout logging:** each set row shows the **previous performance** for that set and is pre-filled from it, so a tap logs the same weight and reps.
@@ -23,7 +23,7 @@ plan for Phases 2–4 are in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Phase 2 features
 
-- **Targets:** a suggested calorie target (Mifflin-St Jeor BMR × activity factor) plus protein, carbohydrate and fat targets derived from the profile, or your own targets.
+- **Targets:** optional, and always your own: the app never suggests or creates one. Older automatic rows are labelled "Set automatically earlier".
   Carbohydrate is calculated from the remaining energy, so 4P + 4C + 9F always matches the calorie target. Targets are effective-dated: changing them never alters past days.
   Manual targets are never overwritten by profile changes.
 - **Food search:** your custom foods, **USDA FoodData Central** (generic foods) and **Open Food Facts** (packaged foods), searched in parallel.

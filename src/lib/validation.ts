@@ -23,10 +23,8 @@ const isValidTimeZone = (tz: string) => {
 
 export const profileSchema = z.object({
   name: z.string().trim().min(1, "Required").max(80),
-  birthDate: z.iso.date().refine((d) => {
-    const age = (Date.now() - new Date(d).getTime()) / (365.25 * 86400000);
-    return age >= 13 && age <= 110;
-  }, "Age must be between 13 and 110"),
+  // Format only. Eligibility is decided in the route, by eligibilityOf, so no age rule lives here.
+  birthDate: z.iso.date(),
   sex: z.enum(["MALE", "FEMALE"]),
   heightCm: z.number().min(100).max(250),
   currentWeightKg: z.number().min(30).max(300),
@@ -37,7 +35,6 @@ export const profileSchema = z.object({
   workoutDaysPerWeek: z.number().int().min(0).max(7),
   unitSystem: z.enum(["METRIC", "IMPERIAL"]),
   timezone: z.string().max(64).refine(isValidTimeZone, "Unknown time zone"),
-  calorieTargetOverride: z.number().int().min(800).max(8000).nullable(),
 });
 export type ProfileInput = z.infer<typeof profileSchema>;
 

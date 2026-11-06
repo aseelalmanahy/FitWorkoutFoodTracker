@@ -27,7 +27,7 @@ function client() {
     try { json = await res.json(); } catch {}
     return { status: res.status, body: json };
   };
-  return { cookie: () => cookie, call, get: (p) => call("GET", p), post: (p, b) => call("POST", p, b), put: (p, b) => call("PUT", p, b), patch: (p, b) => call("PATCH", p, b), del: (p) => call("DELETE", p) };
+  return { cookie: () => cookie, signInWith: (token) => { cookie = `fit_session=${token}`; }, call, get: (p) => call("GET", p), post: (p, b) => call("POST", p, b), put: (p, b) => call("PUT", p, b), patch: (p, b) => call("PATCH", p, b), del: (p) => call("DELETE", p) };
 }
 
 const profile = (tz = "UTC") => ({
@@ -55,7 +55,7 @@ test("authentication is required on every nutrition endpoint", async () => {
     ["GET", "/api/foods/search?q=banana"], ["POST", "/api/foods/resolve"], ["GET", "/api/foods/recent"], ["POST", "/api/foods"],
     ["GET", "/api/foods/x"], ["GET", "/api/foods/barcode/3017624010966"], ["GET", "/api/nutrition/day"], ["GET", "/api/nutrition/history"],
     ["POST", "/api/nutrition/entries"], ["PATCH", "/api/nutrition/entries/x"], ["DELETE", "/api/nutrition/entries/x"],
-    ["GET", "/api/nutrition/targets"], ["PUT", "/api/nutrition/targets"], ["POST", "/api/nutrition/targets/suggestion"],
+    ["GET", "/api/nutrition/targets"], ["PUT", "/api/nutrition/targets"],
   ];
   for (const [m, p] of paths) {
     const r = await anon.call(m, p, m === "GET" || m === "DELETE" ? undefined : {});
@@ -132,13 +132,10 @@ test("resolving an external food caches it once (no duplicates)", async () => {
   assert.equal((await A.post("/api/foods/resolve", { source: "USDA", sourceId: "424242" })).status, 404);
 });
 
-test("targets: seeded suggestion, manual update with derived carbs, consistency check", async () => {
+test("targets: none is seeded; manual update with derived carbs, consistency check", async () => {
   const g = await A.get("/api/nutrition/targets");
   assert.equal(g.status, 200);
-  assert.equal(g.body.current.source, "SUGGESTED");
-  const { kcal, proteinG, carbsG, fatG } = g.body.current;
-  const e = 4 * proteinG + 4 * carbsG + 9 * fatG;
-  assert.ok(e <= kcal && kcal - e < 4, "suggested macros add up to kcal");
+  assert.equal(g.body.current, null, "nothing is written for the person");
   assert.equal((await A.put("/api/nutrition/targets", { kcal: 1000, proteinG: 200, fatG: 50 })).status, 400);
   assert.equal((await A.put("/api/nutrition/targets", { kcal: 100, proteinG: 0, fatG: 0 })).status, 400);
   const p = await A.put("/api/nutrition/targets", { kcal: 2300, proteinG: 160, fatG: 70 });
@@ -149,18 +146,6 @@ test("targets: seeded suggestion, manual update with derived carbs, consistency 
 test("profile changes never overwrite manual targets", async () => {
   await A.put("/api/profile", { ...profile(), currentWeightKg: 95 });
   assert.equal((await A.get("/api/nutrition/targets")).body.current.kcal, 2300);
-});
-
-test("suggested targets follow profile changes; apply-suggestion works", async () => {
-  const s = await B.get("/api/nutrition/targets");
-  const before = s.body.current.kcal;
-  await B.put("/api/profile", { ...profile(), currentWeightKg: 95 });
-  const after = (await B.get("/api/nutrition/targets")).body.current;
-  assert.equal(after.source, "SUGGESTED");
-  assert.ok(after.kcal > before);
-  const a = await A.post("/api/nutrition/targets/suggestion");
-  assert.equal(a.body.target.source, "SUGGESTED");
-  await A.put("/api/nutrition/targets", { kcal: 2300, proteinG: 160, fatG: 70 }); // restore for later tests
 });
 
 let entryId;
@@ -249,7 +234,7 @@ test("user isolation: B cannot read, edit or delete A's entries or custom foods"
   assert.equal(bd.body.totals.kcal, 0);
   const bh = await B.get(`/api/nutrition/history?days=7`);
   assert.equal(bh.body.summary.daysLogged, 0);
-  assert.notEqual((await B.get("/api/nutrition/targets")).body.current.kcal, 800);
+  assert.equal((await B.get("/api/nutrition/targets")).body.current, null, "A's target isn't B's");
   assert.equal((await B.get("/api/foods/recent")).body.foods.length, 0);
   // entry still intact for A
   assert.equal((await A.patch(`/api/nutrition/entries/${entryId}`, { quantity: 50 })).status, 200);
@@ -307,7 +292,7 @@ test("recent foods stay distinct and complete when one food is logged many times
   assert.deepEqual(ids, [banana.id, nutella.id], "most recent first, no duplicates, older foods not dropped");
 });
 
-test("concurrent first requests seed exactly one target (no race errors)", async () => {
+test("T9: concurrent first reads all succeed and write nothing", async () => {
   const D = client();
   const email = `d${run}@test.dev`;
   await D.post("/api/auth/register", { email, password: "long password 123" });
@@ -315,7 +300,7 @@ test("concurrent first requests seed exactly one target (no race errors)", async
   const rs = await Promise.all(Array.from({ length: 8 }, (_, i) => D.get(i % 2 ? "/api/nutrition/targets" : `/api/nutrition/day?date=${today()}`)));
   assert.deepEqual(rs.map((r) => r.status), Array(8).fill(200));
   const u = await prisma.user.findUnique({ where: { email } });
-  assert.equal(await prisma.nutritionTarget.count({ where: { userId: u.id } }), 1);
+  assert.equal(await prisma.nutritionTarget.count({ where: { userId: u.id } }), 0);
 });
 
 test("cached rows from another endpoint (e.g. a stub) are never served as provider data", async () => {
@@ -399,27 +384,25 @@ test("entries can't exceed the per-entry amount limit (prevents total overflow)"
   await A.del(`/api/nutrition/entries/${ok.body.entry.id}`);
 });
 
-test("D4: an entry backdated before the first target is covered by that target; later targets unchanged", async () => {
+test("T26: an entry backdated before the first target stays without one, and the target's date doesn't move", async () => {
   const E = client();
   const email = `e${run}@test.dev`;
   await E.post("/api/auth/register", { email, password: "long password 123" });
   await E.put("/api/profile", profile());
-  const seeded = (await E.get("/api/nutrition/targets")).body.current; // seeded today
+  assert.equal((await E.put("/api/nutrition/targets", { kcal: 2000, proteinG: 150, fatG: 60 })).status, 200);
   const past = addDays(today(), -5);
   assert.equal((await E.post("/api/nutrition/entries", { date: past, mealType: "LUNCH", foodId: banana.id, servingId: null, quantity: 100 })).status, 200);
   const pd = await E.get(`/api/nutrition/day?date=${past}`);
-  assert.ok(pd.body.target, "past day now has a target");
-  assert.equal(pd.body.target.kcal, seeded.kcal);
-  assert.equal(pd.body.target.effectiveFrom, past);
-  assert.equal(pd.body.calories.remaining, seeded.kcal - 89);
-  // A manual change today must not alter the backdated day.
-  await E.put("/api/nutrition/targets", { kcal: 2000, proteinG: 150, fatG: 60 });
+  assert.equal(pd.body.target, null, "the earlier day has no target");
+  assert.equal(pd.body.calories, null);
+  assert.equal(pd.body.macros, null);
+  assert.equal(pd.body.totals.kcal, 89, "the entry itself still counts");
   const h = await E.get(`/api/nutrition/history?end=${today()}&days=7`);
-  assert.equal(h.body.days.find((d) => d.date === past).target.kcal, seeded.kcal);
+  assert.equal(h.body.days.find((d) => d.date === past).target, null);
   assert.equal(h.body.days.find((d) => d.date === today()).target.kcal, 2000);
-  assert.equal(h.body.days.find((d) => d.date === addDays(past, -1)).target, null, "days before any entry still have no target");
   const u = await prisma.user.findUnique({ where: { email } });
-  assert.equal(await prisma.nutritionTarget.count({ where: { userId: u.id } }), 2);
+  const rows = await prisma.nutritionTarget.findMany({ where: { userId: u.id } });
+  assert.deepEqual(rows.map((r) => r.effectiveFrom.toISOString().slice(0, 10)), [today()], "effectiveFrom stays today");
 });
 
 test("D5: serving ids stay stable across a refresh; an add in progress still succeeds", async () => {
@@ -733,4 +716,334 @@ test("a server error says nothing about why", async () => {
   const r = await A.post("/api/foods", customBody(`Bad \u0000 character ${run}`));
   assert.ok(r.status >= 400, `status ${r.status}`);
   assert.doesNotMatch(JSON.stringify(r.body), /prisma|postgres|invalid byte|sequence|\bquery\b/i);
+});
+
+// ─── Phase 4.0.1 Stage A: eligibility, access gate, no automatic targets ─────
+// Test ids are from docs/PHASE_4_0_1_IMPLEMENTATION_PLAN.md, sections 12 and H4.
+const fs = require("node:fs");
+const path = require("node:path");
+const { createSignedInUser } = require("./lib/test-users.cjs");
+
+let stageUser = 0;
+async function newUser(label, { withProfile = true } = {}) {
+  const c = client();
+  const email = `${label}${++stageUser}x${run}@test.dev`;
+  const { user, token } = await createSignedInUser(prisma, email);
+  c.signInWith(token);
+  if (withProfile) assert.equal((await c.put("/api/profile", profile())).status, 200);
+  return { c, user, email };
+}
+/** Relative to the UTC date. Fixtures mustn't run on 29 February, as the plan's Annex D says. */
+const yearsAgo = (years, offsetDays = 0) => {
+  const n = new Date();
+  return new Date(Date.UTC(n.getUTCFullYear() - years, n.getUTCMonth(), n.getUTCDate() + offsetDays)).toISOString().slice(0, 10);
+};
+const dbDate = (iso) => new Date(`${iso}T00:00:00Z`);
+const profileRow = (userId, birthDate) => ({
+  userId, name: "Row", birthDate: dbDate(birthDate), sex: "FEMALE", heightCm: 170, currentWeightKg: 60, goal: "MAINTENANCE",
+  activityLevel: "LIGHT", experience: "BEGINNER", workoutDaysPerWeek: 2, unitSystem: "METRIC", timezone: "UTC",
+});
+async function restrictedUser(label) {
+  const u = await newUser(label, { withProfile: false });
+  await prisma.profile.create({ data: profileRow(u.user.id, yearsAgo(17)) });
+  return u;
+}
+const targetRows = (userId) => prisma.nutritionTarget.findMany({ where: { userId }, orderBy: { effectiveFrom: "asc" } });
+const openPage = (c, p) => fetch(BASE + p, { headers: c ? { Cookie: c.cookie() } : {}, redirect: "manual" });
+const redirectOf = (res) => res.headers.get("location")?.replace(ORIGIN, "") ?? null;
+
+function walk(dir, out = []) {
+  for (const name of fs.readdirSync(dir)) {
+    const full = path.join(dir, name);
+    if (fs.statSync(full).isDirectory()) walk(full, out);
+    else out.push(full);
+  }
+  return out;
+}
+const SRC = path.join(__dirname, "..", "src", "app");
+const urlOf = (root, file) => "/" + path.relative(root, path.dirname(file)).split(path.sep).join("/").replace(/\[[^\]]+\]/g, "x");
+const EXEMPT = new Set(["/api/profile", "/api/auth/login", "/api/auth/register", "/api/auth/logout", "/api/health/db-identity"]);
+function gatedEndpoints() {
+  const root = SRC;
+  const found = [];
+  for (const f of walk(path.join(root, "api")).filter((x) => path.basename(x) === "route.ts")) {
+    const url = urlOf(root, f);
+    if (EXEMPT.has(url)) continue;
+    for (const m of fs.readFileSync(f, "utf8").matchAll(/export const (GET|POST|PUT|PATCH|DELETE)\b/g)) found.push([m[1], url]);
+  }
+  return found;
+}
+function appPages() {
+  const root = path.join(SRC, "(app)");
+  return walk(root).filter((x) => path.basename(x) === "page.tsx").map((f) => urlOf(root, f));
+}
+const sendAs = (c, m, url) => c.call(m, url, m === "GET" || m === "DELETE" ? undefined : {});
+
+test("T4: a declared 17-year-old is refused and nothing is written", async () => {
+  const { c, user } = await newUser("t4", { withProfile: false });
+  const r = await c.put("/api/profile", { ...profile(), birthDate: yearsAgo(17) });
+  assert.equal(r.status, 422);
+  assert.equal(r.body.details.reason, "age_ineligible");
+  assert.equal(await prisma.profile.count({ where: { userId: user.id } }), 0);
+});
+
+test("T1 at the route: the birthday boundary, and out-of-range dates", async () => {
+  const { c, user } = await newUser("t1", { withProfile: false });
+  assert.equal((await c.put("/api/profile", { ...profile(), birthDate: yearsAgo(18, 1) })).status, 422, "18 tomorrow");
+  assert.equal((await c.put("/api/profile", { ...profile(), birthDate: yearsAgo(-1) })).status, 400, "in the future");
+  assert.equal((await c.put("/api/profile", { ...profile(), birthDate: yearsAgo(111) })).status, 400, "over the data-entry bound");
+  assert.equal((await c.put("/api/profile", { ...profile(), birthDate: "2000-02-30" })).status, 400, "not a date");
+  assert.equal(await prisma.profile.count({ where: { userId: user.id } }), 0);
+  assert.equal((await c.put("/api/profile", { ...profile(), birthDate: yearsAgo(18) })).status, 200, "18 today");
+});
+
+test("T3: the client's time zone can't change the answer", async () => {
+  // Chosen so that a rule using the person's local date would give the opposite result.
+  const now = new Date();
+  if (now.getUTCHours() === 23 && now.getUTCMinutes() === 59) await new Promise((r) => setTimeout(r, 61_000));
+  const hour = new Date().getUTCHours();
+  if (hour >= 10) {
+    // It's already tomorrow on Kiritimati, where this person has turned 18. Not yet in UTC.
+    const { c, user } = await newUser("t3k", { withProfile: false });
+    const r = await c.put("/api/profile", { ...profile("Pacific/Kiritimati"), birthDate: yearsAgo(18, 1) });
+    assert.equal(r.status, 422);
+    assert.equal(await prisma.profile.count({ where: { userId: user.id } }), 0);
+  }
+  if (hour < 11) {
+    // It's still yesterday in Pago Pago, where this person is 17. They're 18 in UTC.
+    const { c } = await newUser("t3p", { withProfile: false });
+    assert.equal((await c.put("/api/profile", { ...profile("Pacific/Pago_Pago"), birthDate: yearsAgo(18) })).status, 200);
+  }
+});
+
+test("T5: a refused edit changes nothing, and access continues", async () => {
+  const { c, user } = await newUser("t5");
+  const before = await prisma.profile.findUnique({ where: { userId: user.id } });
+  const r = await c.put("/api/profile", { ...profile(), name: "Changed", currentWeightKg: 99, birthDate: yearsAgo(17) });
+  assert.equal(r.status, 422);
+  assert.deepEqual(await prisma.profile.findUnique({ where: { userId: user.id } }), before, "every column unchanged");
+  assert.equal((await c.get("/api/sessions")).status, 200, "an uncommitted edit doesn't restrict");
+  assert.equal((await openPage(c, "/dashboard")).status, 200);
+});
+
+test("T6: the refusal states no threshold, once the entered date is taken out", async () => {
+  const { c } = await newUser("t6", { withProfile: false });
+  const date = yearsAgo(17);
+  const r = await c.put("/api/profile", { ...profile(), birthDate: date });
+  const text = JSON.stringify(r.body).replace(date, "");
+  assert.doesNotMatch(text, /18|13/);
+  assert.doesNotMatch(text, /adult|years/i);
+});
+
+test("T7: a refused date doesn't reach the server log", async () => {
+  const log = process.env.SERVER_LOG_FILE;
+  assert.ok(log, "SERVER_LOG_FILE must be set");
+  const { c } = await newUser("t7", { withProfile: false });
+  const date = yearsAgo(16, -123);
+  assert.equal((await c.put("/api/profile", { ...profile(), birthDate: date })).status, 422);
+  await new Promise((r) => setTimeout(r, 300));
+  assert.ok(!fs.readFileSync(log, "utf8").includes(date), "date absent from the log");
+});
+
+test("T36: refused attempts are limited, without blocking the rest of an account", async () => {
+  const fresh = await newUser("t36a", { withProfile: false });
+  for (let i = 0; i < 10; i++) assert.equal((await fresh.c.put("/api/profile", { ...profile(), birthDate: yearsAgo(17) })).status, 422, `attempt ${i + 1}`);
+  const limited = await fresh.c.put("/api/profile", { ...profile(), birthDate: yearsAgo(17) });
+  assert.equal(limited.status, 429);
+  assert.equal(JSON.stringify(limited.body).includes(yearsAgo(17)), false, "no date in the answer");
+  assert.equal((await fresh.c.put("/api/profile", { ...profile(), birthDate: yearsAgo(30) })).status, 429, "applies to any new date until the window ends");
+  assert.equal(await prisma.profile.count({ where: { userId: fresh.user.id } }), 0);
+
+  const existing = await newUser("t36b");
+  for (let i = 0; i < 10; i++) await existing.c.put("/api/profile", { ...profile(), birthDate: yearsAgo(17) });
+  assert.equal((await existing.c.put("/api/profile", { ...profile(), birthDate: yearsAgo(31) })).status, 429);
+  assert.equal((await existing.c.put("/api/profile", { ...profile(), name: "Still editable" })).status, 200, "an edit that keeps the date isn't limited");
+
+  const other = await newUser("t36c", { withProfile: false });
+  assert.equal((await other.c.put("/api/profile", { ...profile(), birthDate: yearsAgo(17) })).status, 422, "one account's limit isn't another's");
+});
+
+test("T33: every gated endpoint refuses a session with no profile, and a restricted one", async () => {
+  const endpoints = gatedEndpoints();
+  assert.ok(endpoints.length >= 40, `found ${endpoints.length}`);
+  const none = await newUser("t33n", { withProfile: false });
+  const restricted = await restrictedUser("t33r");
+  for (const [m, url] of endpoints) {
+    assert.equal((await sendAs(none.c, m, url)).status, 409, `no profile: ${m} ${url}`);
+    const r = await sendAs(restricted.c, m, url);
+    assert.equal(r.status, 403, `restricted: ${m} ${url}`);
+    assert.equal(r.body.details.reason, "account_restricted");
+    assert.equal((await sendAs(anon, m, url)).status, 401, `anonymous: ${m} ${url}`);
+  }
+  for (const u of [none, restricted]) {
+    assert.equal(await prisma.food.count({ where: { userId: u.user.id } }), 0);
+    assert.equal(await prisma.workoutSession.count({ where: { userId: u.user.id } }), 0);
+    assert.equal(await prisma.foodEntry.count({ where: { userId: u.user.id } }), 0);
+  }
+});
+
+test("T33: what a restricted person keeps: profile, correction and logout", async () => {
+  const restricted = await restrictedUser("t33k");
+  assert.equal((await restricted.c.get("/api/profile")).status, 200);
+  const r = await restricted.c.put("/api/profile", { ...profile(), birthDate: yearsAgo(17) });
+  assert.equal(r.status, 422, "the same rule applies to a correction");
+  assert.equal((await restricted.c.get("/api/sessions")).status, 403, "still restricted");
+  const fixed = await restricted.c.put("/api/profile", { ...profile(), birthDate: yearsAgo(30) });
+  assert.equal(fixed.status, 200);
+  assert.equal((await restricted.c.get("/api/sessions")).status, 200, "a corrected date restores access");
+  const again = await restrictedUser("t33l");
+  assert.equal(await prisma.user.count({ where: { id: again.user.id } }), 1, "the account isn't deleted");
+  assert.equal((await again.c.post("/api/auth/logout", {})).status, 200);
+  assert.equal((await again.c.get("/api/profile")).status, 401, "the session is gone");
+});
+
+test("the gate keeps login and the Origin check working", async () => {
+  // Through the real sign-up, as this test logs in with the password.
+  const email = `gate${run}@test.dev`;
+  assert.equal((await client().post("/api/auth/register", { email, password: "long password 123" })).status, 200);
+  const { id } = await prisma.user.findUnique({ where: { email } });
+  await prisma.profile.create({ data: profileRow(id, yearsAgo(17)) });
+  const fresh = client();
+  assert.equal((await fresh.post("/api/auth/login", { email, password: "long password 123" })).status, 200, "a restricted person can still sign in");
+  assert.equal((await fresh.call("PUT", "/api/profile", profile(), { Origin: "https://evil.example" })).status, 403, "cross-origin refused on the exception");
+  assert.equal((await fresh.call("POST", "/api/foods", {}, { Origin: "https://evil.example" })).status, 403);
+});
+
+test("T34: pages send a restricted person to one place, with no redirect loop", async () => {
+  const pages = appPages();
+  assert.ok(pages.length > 10, `found ${pages.length}`);
+  const restricted = await restrictedUser("t34r");
+  const none = await newUser("t34n", { withProfile: false });
+  const ok = await newUser("t34o");
+  for (const p of pages) {
+    const r = await openPage(restricted.c, p);
+    assert.equal(redirectOf(r), "/account-restricted", `restricted: ${p} (${r.status})`);
+    assert.equal(redirectOf(await openPage(none.c, p)), "/onboarding", `no profile: ${p}`);
+  }
+  assert.equal((await openPage(restricted.c, "/account-restricted")).status, 200, "the page itself loads");
+  assert.equal(redirectOf(await openPage(restricted.c, "/onboarding")), "/dashboard", "which then leads back to the one place");
+  assert.equal(redirectOf(await openPage(none.c, "/account-restricted")), "/onboarding");
+  assert.equal((await openPage(none.c, "/onboarding")).status, 200);
+  assert.equal(redirectOf(await openPage(ok.c, "/account-restricted")), "/dashboard");
+  assert.equal((await openPage(ok.c, "/dashboard")).status, 200);
+  assert.match(redirectOf(await openPage(null, "/account-restricted")), /\/login$/);
+});
+
+test("T8: reads write nothing, with and without entries, through the API and the pages", async () => {
+  const { c, user } = await newUser("t8");
+  const reads = async () => {
+    for (const p of ["/api/nutrition/targets", `/api/nutrition/day?date=${today()}`, `/api/nutrition/history?end=${today()}&days=7`]) assert.equal((await c.get(p)).status, 200, p);
+    for (const p of ["/nutrition", "/nutrition/targets", "/nutrition/history"]) assert.equal((await openPage(c, p)).status, 200, p);
+    assert.equal(await prisma.nutritionTarget.count({ where: { userId: user.id } }), 0);
+  };
+  await reads();
+  assert.equal((await c.post("/api/nutrition/entries", { date: addDays(today(), -3), mealType: "LUNCH", foodId: banana.id, servingId: null, quantity: 100 })).status, 200);
+  await reads();
+});
+
+test("T10: a first manual save writes exactly one row, with no suggestion beside it", async () => {
+  const { c, user } = await newUser("t10");
+  await c.post("/api/nutrition/entries", { date: addDays(today(), -4), mealType: "LUNCH", foodId: banana.id, servingId: null, quantity: 100 });
+  assert.equal((await c.put("/api/nutrition/targets", { kcal: 2000, proteinG: 120, fatG: 60 })).status, 200);
+  const rows = await targetRows(user.id);
+  assert.deepEqual(rows.map((r) => [r.source, r.effectiveFrom.toISOString().slice(0, 10)]), [["MANUAL", today()]]);
+});
+
+test("T11: a profile edit never changes a target row, of either source", async () => {
+  for (const source of ["SUGGESTED", "MANUAL"]) {
+    const { c, user } = await newUser("t11");
+    await prisma.nutritionTarget.create({ data: { userId: user.id, effectiveFrom: dbDate(today()), kcal: 1234, proteinG: 80, carbsG: 100, fatG: 40, source } });
+    const before = await targetRows(user.id);
+    assert.equal((await c.put("/api/profile", { ...profile(), currentWeightKg: 110, goal: "FAT_LOSS" })).status, 200);
+    assert.deepEqual(await targetRows(user.id), before, `${source} row unchanged`);
+  }
+});
+
+test("T12: a legacy override column creates no target", async () => {
+  const { c, user } = await newUser("t12");
+  await prisma.profile.update({ where: { userId: user.id }, data: { calorieTargetOverride: 1500 } });
+  assert.equal((await c.get("/api/nutrition/targets")).body.current, null);
+  assert.equal((await c.get(`/api/nutrition/day?date=${today()}`)).body.target, null);
+  assert.equal(await prisma.nutritionTarget.count({ where: { userId: user.id } }), 0);
+});
+
+test("T13: a sent override is ignored", async () => {
+  const { c, user } = await newUser("t13");
+  assert.equal((await c.put("/api/profile", { ...profile(), calorieTargetOverride: 800 })).status, 200);
+  assert.equal((await prisma.profile.findUnique({ where: { userId: user.id } })).calorieTargetOverride, null, "column unchanged");
+  assert.equal(await prisma.nutritionTarget.count({ where: { userId: user.id } }), 0);
+});
+
+test("T14: the person's own save replaces today's legacy row, and only that save converts it", async () => {
+  const { c, user } = await newUser("t14");
+  await prisma.nutritionTarget.create({ data: { userId: user.id, effectiveFrom: dbDate(today()), kcal: 1110, proteinG: 80, carbsG: 100, fatG: 20, source: "SUGGESTED" } });
+  assert.equal((await c.get("/api/nutrition/targets")).body.current.source, "SUGGESTED", "a read doesn't convert it");
+  assert.equal((await c.put("/api/profile", { ...profile(), currentWeightKg: 85 })).status, 200);
+  assert.equal((await c.get("/api/nutrition/targets")).body.current.source, "SUGGESTED", "a profile edit doesn't convert it");
+  assert.equal((await c.put("/api/nutrition/targets", { kcal: 2100, proteinG: 120, fatG: 60 })).status, 200);
+  const rows = await targetRows(user.id);
+  assert.deepEqual(rows.map((r) => [r.source, r.kcal]), [["MANUAL", 2100]]);
+});
+
+test("T15, T16: the suggestion route and the suggestion key are gone", async () => {
+  const { c } = await newUser("t15");
+  assert.equal((await c.post("/api/nutrition/targets/suggestion", {})).status, 404);
+  const g = await c.get("/api/nutrition/targets");
+  assert.equal(g.status, 200);
+  assert.equal("suggestion" in g.body, false);
+  assert.deepEqual(Object.keys(g.body).sort(), ["current", "history", "today"]);
+});
+
+test("T17: a day with no target works, with correct totals", async () => {
+  const { c } = await newUser("t17");
+  await c.post("/api/nutrition/entries", { date: today(), mealType: "LUNCH", foodId: banana.id, servingId: null, quantity: 100 });
+  const d = await c.get(`/api/nutrition/day?date=${today()}`);
+  assert.equal(d.status, 200);
+  assert.deepEqual([d.body.target, d.body.calories, d.body.macros], [null, null, null]);
+  assert.equal(d.body.totals.kcal, 89);
+  const h = await c.get(`/api/nutrition/history?end=${today()}&days=7`);
+  assert.equal(h.status, 200);
+  assert.deepEqual([h.body.summary.avgTargetKcal, h.body.summary.proteinDaysWithTarget], [null, 0]);
+  assert.equal(h.body.summary.daysLogged, 1);
+});
+
+test("T29: earlier rows survive reads, a profile edit and a save, and past days keep their own target", async () => {
+  const { c, user } = await newUser("t29");
+  const dates = [addDays(today(), -20), addDays(today(), -10), addDays(today(), -5)];
+  await prisma.nutritionTarget.createMany({ data: [
+    { userId: user.id, effectiveFrom: dbDate(dates[0]), kcal: 1110, proteinG: 80, carbsG: 100, fatG: 20, source: "SUGGESTED" },
+    { userId: user.id, effectiveFrom: dbDate(dates[1]), kcal: 2500, proteinG: 150, carbsG: 288, fatG: 69, source: "MANUAL" },
+    { userId: user.id, effectiveFrom: dbDate(dates[2]), kcal: 2200, proteinG: 140, carbsG: 255, fatG: 60, source: "MANUAL" },
+  ] });
+  await c.post("/api/nutrition/entries", { date: addDays(today(), -30), mealType: "LUNCH", foodId: banana.id, servingId: null, quantity: 100 });
+  const before = await targetRows(user.id);
+  await c.get("/api/nutrition/targets");
+  await c.get(`/api/nutrition/history?end=${today()}&days=56`);
+  await c.put("/api/profile", { ...profile(), currentWeightKg: 90 });
+  assert.equal((await c.put("/api/nutrition/targets", { kcal: 1900, proteinG: 130, fatG: 55 })).status, 200);
+  const after = await targetRows(user.id);
+  assert.deepEqual(after.slice(0, 3), before, "earlier rows unchanged in every column");
+  assert.equal(after.length, 4);
+  const on = async (d) => (await c.get(`/api/nutrition/day?date=${d}`)).body.target;
+  assert.equal(await on(addDays(today(), -30)), null);
+  assert.deepEqual([(await on(addDays(today(), -15))).kcal, (await on(addDays(today(), -15))).source], [1110, "SUGGESTED"]);
+  assert.equal((await on(addDays(today(), -7))).kcal, 2500);
+  assert.equal((await on(addDays(today(), -1))).kcal, 2200);
+  assert.equal((await on(today())).kcal, 1900);
+});
+
+test("T30: omitted macros are refused, and never become 0", async () => {
+  const { c, user } = await newUser("t30");
+  assert.equal((await c.put("/api/nutrition/targets", { kcal: 2000 })).status, 400);
+  assert.equal((await c.put("/api/nutrition/targets", { kcal: 2000, proteinG: 100 })).status, 400);
+  assert.equal((await c.put("/api/nutrition/targets", { kcal: 2000, proteinG: null, fatG: null })).status, 400, "nullable macros are 4.0.1b");
+  assert.equal(await prisma.nutritionTarget.count({ where: { userId: user.id } }), 0);
+});
+
+test("existing workouts still work for an eligible person", async () => {
+  const { c } = await newUser("wk");
+  assert.equal((await c.get("/api/exercises")).status, 200);
+  assert.equal((await c.get("/api/templates")).status, 200);
+  assert.equal((await c.get("/api/schedule")).status, 200);
+  assert.equal((await c.get("/api/sessions")).status, 200);
 });

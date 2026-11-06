@@ -26,7 +26,7 @@ function client() {
     try { json = await res.json(); } catch {}
     return { status: res.status, body: json };
   };
-  return { get: (p) => call("GET", p), post: (p, b) => call("POST", p, b) };
+  return { get: (p) => call("GET", p), post: (p, b) => call("POST", p, b), put: (p, b) => call("PUT", p, b) };
 }
 const U = {};
 before(async () => {
@@ -35,6 +35,7 @@ before(async () => {
   for (const n of ["usda", "usda2", "detail", "offs", "offp"]) {
     U[n] = client();
     assert.equal((await U[n].post("/api/auth/register", { email: `mal${n}${run}@test.dev`, password: "long password 123" })).status, 200);
+    assert.equal((await U[n].put("/api/profile", { name: "T", birthDate: "1990-01-01", sex: "MALE", heightCm: 180, currentWeightKg: 80, goalWeightKg: null, goal: "MAINTENANCE", activityLevel: "MODERATE", experience: "BEGINNER", workoutDaysPerWeek: 3, unitSystem: "METRIC", timezone: "UTC" })).status, 200); // the access gate needs one
   }
 });
 const srcErr = (r, s) => r.body.errors.find((e) => e.source === s);

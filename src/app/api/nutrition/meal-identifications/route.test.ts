@@ -15,7 +15,7 @@ import * as routeModule from "./route";
 
 const fakes = vi.hoisted(() => ({ sessionFind: vi.fn(), cookies: new Map<string, string>(), write: vi.fn(), identifier: null as unknown, timeoutMs: undefined as number | undefined }));
 vi.mock("@/lib/server/db", () => ({
-  prisma: new Proxy({}, { get: (_t, model: string) => (model === "session" ? { findUnique: fakes.sessionFind, delete: async () => ({}) } : new Proxy({}, { get: () => fakes.write })) }),
+  prisma: new Proxy({}, { get: (_t, model: string) => (model === "session" ? { findUnique: fakes.sessionFind, delete: async () => ({}) } : model === "profile" ? { findUnique: async () => ({ birthDate: new Date("1990-01-01T00:00:00Z") }) } : new Proxy({}, { get: () => fakes.write })) }),
 }));
 vi.mock("next/headers", () => ({
   cookies: async () => ({ get: (name: string) => (fakes.cookies.has(name) ? { value: fakes.cookies.get(name) } : undefined), set: () => {}, delete: () => {} }),

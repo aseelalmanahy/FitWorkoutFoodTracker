@@ -32,6 +32,7 @@ export function AuthForm({ mode }: { mode: "login" | "register" }) {
         <div className="mb-6 grid h-12 w-12 place-items-center rounded-2xl bg-accent text-xl font-black text-accent-fg">F</div>
         <h1 className="text-3xl font-bold tracking-tight">{mode === "login" ? "Welcome back" : "Create your account"}</h1>
         <p className="mt-1 text-muted">{mode === "login" ? "Log in to continue your training." : "Plan, log and track your progress."}</p>
+        {mode === "register" && <p className="mt-2 text-sm font-medium">For adults 18 and over.</p>}
       </div>
       <form onSubmit={onSubmit} className="space-y-4" noValidate>
         <Field label="Email">

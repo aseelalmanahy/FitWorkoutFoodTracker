@@ -15,7 +15,7 @@ function CalorieRing({ fraction, over }: { fraction: number; over: boolean }) {
   return (
     <svg width="128" height="128" viewBox="0 0 128 128" aria-hidden>
       <circle cx="64" cy="64" r={r} fill="none" stroke="var(--surface-2)" strokeWidth="12" />
-      <circle cx="64" cy="64" r={r} fill="none" stroke={over ? "var(--down)" : "var(--accent)"} strokeWidth="12" strokeLinecap="round"
+      <circle cx="64" cy="64" r={r} fill="none" stroke={over ? "var(--muted)" : "var(--accent)"} strokeWidth="12" strokeLinecap="round"
         strokeDasharray={c} strokeDashoffset={c * (1 - fraction)} transform="rotate(-90 64 64)" />
     </svg>
   );
@@ -47,19 +47,23 @@ export default async function NutritionPage({ searchParams }: { searchParams: Pr
               <CalorieRing fraction={day.calories.fraction} over={over} />
               <div className="absolute inset-0 grid place-items-center text-center">
                 <div>
-                  <p className={`num text-2xl font-bold leading-none ${over ? "text-down" : ""}`}>{fmtKcal(over ? day.calories.over : day.calories.remaining)}</p>
+                  <p className="num text-2xl font-bold leading-none">{fmtKcal(over ? day.calories.over : day.calories.remaining)}</p>
                   <p className="mt-1 text-[11px] text-muted">{over ? "kcal over" : "kcal left"}</p>
                 </div>
               </div>
             </div>
             <div className="num min-w-0 space-y-2 text-sm">
-              <div><p className="text-xs text-muted">Target</p><p className="font-semibold">{fmtKcal(t.kcal)} kcal</p></div>
+              <div><p className="text-xs text-muted">Target</p><p className="font-semibold">{fmtKcal(t.kcal)} kcal</p>{t.source === "SUGGESTED" && <p className="text-[11px] text-muted">Set automatically earlier</p>}</div>
               <div><p className="text-xs text-muted">Consumed</p><p className="font-semibold">{fmtKcal(day.totals.kcal)} kcal{day.totals.incomplete.includes("kcal") && " *"}</p></div>
-              <div><p className="text-xs text-muted">Remaining</p><p className={`font-semibold ${over ? "text-down" : ""}`}>{over ? `0 (${fmtKcal(day.calories.over)} over)` : `${fmtKcal(day.calories.remaining)} kcal`}</p></div>
+              <div><p className="text-xs text-muted">Remaining</p><p className="font-semibold">{over ? `0 (${fmtKcal(day.calories.over)} over)` : `${fmtKcal(day.calories.remaining)} kcal`}</p></div>
             </div>
           </div>
         ) : (
-          <p className="text-sm text-muted">No target was set for this date. <Link href="/nutrition/targets" className="font-semibold text-fg underline">Set targets</Link></p>
+          <div className="num text-sm">
+            <p className="text-xs text-muted">Consumed</p>
+            <p className="font-semibold">{fmtKcal(day.totals.kcal)} kcal{day.totals.incomplete.includes("kcal") && " *"}</p>
+            {date === today && <Link href="/nutrition/targets" className="mt-2 inline-block text-xs text-muted underline">Add a target</Link>}
+          </div>
         )}
         <div className="mt-5 space-y-3.5 border-t border-line pt-4">
           <MacroBar label="Protein" consumed={day.totals.protein} target={t?.proteinG ?? null} incomplete={day.totals.incomplete.includes("protein")} />

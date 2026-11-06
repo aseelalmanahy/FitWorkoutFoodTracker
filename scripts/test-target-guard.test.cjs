@@ -569,7 +569,7 @@ test("the guard has no import-time side effects", () => {
 // ─── Coverage: every script is classified, and write-capable ones use the guard ─
 
 const GUARDED = [
-  "e2e-hardening.cjs", "e2e-label-pdf.cjs", "e2e-label-scan.cjs", "e2e-meal.cjs", "e2e-nutrition.cjs", "e2e-smoke.cjs",
+  "e2e-eligibility.cjs", "e2e-hardening.cjs", "e2e-label-pdf.cjs", "e2e-label-scan.cjs", "e2e-meal.cjs", "e2e-nutrition.cjs", "e2e-smoke.cjs",
   "nutrition-api.test.cjs", "provider-config.test.cjs", "provider-malformed.test.cjs", "provider-protection.test.cjs", "release-workflow.test.cjs",
 ];
 const OTHER_WRITE_CAPABLE = {

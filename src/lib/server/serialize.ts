@@ -15,6 +15,5 @@ export function profileToValues(p: Profile): ProfileValues {
     workoutDaysPerWeek: p.workoutDaysPerWeek,
     unitSystem: p.unitSystem,
     timezone: p.timezone,
-    calorieTargetOverride: p.calorieTargetOverride,
   };
 }

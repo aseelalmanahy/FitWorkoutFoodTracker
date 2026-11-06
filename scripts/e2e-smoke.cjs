@@ -3,6 +3,7 @@
 const { chromium } = require('playwright');
 const assert = require('node:assert/strict');
 const SHOTS = (process.env.SHOTS_DIR || require('os').tmpdir()) + '/';
+const { completeOnboarding } = require('./lib/e2e-onboarding.cjs');
 const target = require('./lib/test-target-guard.cjs').requireSafeTarget();
 const BASE = target.baseUrl;
 (async () => {
@@ -24,16 +25,7 @@ const BASE = target.baseUrl;
   await page.fill('input[name=password]', 'correct horse battery');
   await page.click('button[type=submit]');
   await page.waitForURL('**/onboarding');
-  await page.getByLabel('Name').fill('Alex Rivera');
-  await page.getByLabel('Date of birth').fill('1994-05-12');
-  await page.getByLabel('Height (ft)').fill('5');
-  await page.getByLabel('Height (in)').fill('10');
-  await page.getByLabel('Current weight (lb)').fill('180');
-  await page.getByLabel('Goal weight (lb)').fill('172');
-  await page.getByRole('button', { name: 'Fat loss' }).click();
-  await page.screenshot({ path: SHOTS + '01-onboarding.png', fullPage: true });
-  await page.getByRole('button', { name: 'Continue' }).click();
-  await page.waitForURL('**/dashboard');
+  await completeOnboarding(page, { units: 'IMPERIAL', name: 'Alex Rivera', birthDate: '1994-05-12', goalWeight: '172', goal: 'Fat loss', beforeSubmit: () => page.screenshot({ path: SHOTS + '01-onboarding.png', fullPage: true }) });
   await page.screenshot({ path: SHOTS + '02-dashboard-empty.png' });
 
   // Create plan
@@ -134,6 +126,7 @@ const BASE = target.baseUrl;
   await p2.fill('input[name=password]', 'another long password');
   await p2.click('button[type=submit]');
   await p2.waitForURL('**/onboarding');
+  await completeOnboarding(p2, { name: 'Other' });
   const sid = firstUrl.split('/').pop();
   const st = await p2.evaluate(async (sid) => (await fetch('/api/sessions/' + sid)).status, sid);
   console.log('other user GET session (expect 404):', st);

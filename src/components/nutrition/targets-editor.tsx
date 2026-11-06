@@ -2,18 +2,22 @@
 
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { api, parseNum } from "@/lib/client/api";
+import { ApiError, api, parseNum } from "@/lib/client/api";
 import { carbsFromRemainder, fmtKcal, macroKcal, type DatedTarget } from "@/lib/nutrition";
 import { Button, Card, ErrorText, Field, Input } from "@/components/ui";
 
-interface Suggestion { kcal: number; proteinG: number; carbsG: number; fatG: number; bmr: number; tdee: number; rationale: string }
+// 800 to 8,000 is the range the app accepts. It isn't a safety limit, and nothing here calls it one.
+const KCAL_RANGE = "Enter a number from 800 to 8,000. This is the range the app accepts, not a recommendation.";
+const MACRO_RANGE = "Enter protein from 0 to 600 g and fat from 0 to 400 g.";
 
-export function TargetsEditor({ current, suggestion }: { current: DatedTarget | null; suggestion: Suggestion }) {
+export function TargetsEditor({ current, hasEarlierTarget }: { current: DatedTarget | null; hasEarlierTarget: boolean }) {
   const router = useRouter();
-  const start = current ?? { ...suggestion, source: "SUGGESTED" as const, effectiveFrom: "" };
-  const [kcal, setKcal] = useState(String(start.kcal));
-  const [protein, setProtein] = useState(String(start.proteinG));
-  const [fat, setFat] = useState(String(start.fatG));
+  // Only the person's own numbers are offered back. A legacy automatic row starts blank, so saving
+  // without typing can't relabel a value nobody chose as "Set by you".
+  const own = current?.source === "MANUAL" ? current : null;
+  const [kcal, setKcal] = useState(own ? String(own.kcal) : "");
+  const [protein, setProtein] = useState(own ? String(own.proteinG) : "");
+  const [fat, setFat] = useState(own ? String(own.fatG) : "");
   const [error, setError] = useState<string | null>(null);
   const [msg, setMsg] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -22,35 +26,21 @@ export function TargetsEditor({ current, suggestion }: { current: DatedTarget | 
   const valid = [k, p, f].every((x) => Number.isFinite(x) && x >= 0);
   const carbs = valid ? carbsFromRemainder(Math.round(k), Math.round(p), Math.round(f)) : null;
   const pct = (g: number, per: number) => (k > 0 ? Math.round(((g * per) / k) * 100) : 0);
-  const differsFromSuggestion = current && (current.kcal !== suggestion.kcal || current.proteinG !== suggestion.proteinG || current.fatG !== suggestion.fatG);
 
   async function save() {
     setError(null);
     setMsg(null);
     if (!valid) return setError("Enter each target as a plain number, such as 2000.");
+    if (Math.round(k) < 800 || Math.round(k) > 8000) return setError(KCAL_RANGE);
+    if (Math.round(p) > 600 || Math.round(f) > 400) return setError(MACRO_RANGE);
     if (carbs === null) return setError("Protein and fat contain more energy than the calorie target.");
     setBusy(true);
     try {
       await api("PUT", "/api/nutrition/targets", { kcal: Math.round(k), proteinG: Math.round(p), fatG: Math.round(f) });
-      setMsg("Saved. New targets apply from today. Earlier days keep their previous targets.");
+      setMsg(hasEarlierTarget ? "Saved. New targets apply from today. Earlier days keep their previous targets." : "Saved. New targets apply from today.");
       router.refresh();
     } catch (e) {
-      setError((e as Error).message);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  async function useSuggestion() {
-    setBusy(true);
-    setError(null);
-    try {
-      const { target } = await api<{ target: DatedTarget }>("POST", "/api/nutrition/targets/suggestion");
-      setKcal(String(target.kcal)); setProtein(String(target.proteinG)); setFat(String(target.fatG));
-      setMsg("Suggested targets applied from today. They will follow future profile changes until you edit them.");
-      router.refresh();
-    } catch (e) {
-      setError((e as Error).message);
+      setError(e instanceof ApiError && e.status === 400 && e.details ? "Check the numbers and try again." : (e as Error).message);
     } finally {
       setBusy(false);
     }
@@ -63,26 +53,9 @@ export function TargetsEditor({ current, suggestion }: { current: DatedTarget | 
         {current ? (
           <>
             <p className="num mt-1 text-2xl font-bold">{fmtKcal(current.kcal)} kcal</p>
-            <p className="num text-sm text-muted">P {current.proteinG} g · C {current.carbsG} g · F {current.fatG} g · {current.source === "MANUAL" ? "Set by you" : "Suggested"} · since {current.effectiveFrom}</p>
+            <p className="num text-sm text-muted">P {current.proteinG} g · C {current.carbsG} g · F {current.fatG} g · {current.source === "MANUAL" ? "Set by you" : "Set automatically earlier"} · since {current.effectiveFrom}</p>
           </>
         ) : <p className="mt-1 text-sm text-muted">No target yet.</p>}
-      </Card>
-
-      <Card className="p-4">
-        <p className="text-sm font-semibold">Suggestion from your profile</p>
-        <div className="num mt-2 grid grid-cols-3 gap-2 text-sm">
-          <div><p className="text-xs text-muted">BMR</p><p className="font-semibold">{fmtKcal(suggestion.bmr)}</p></div>
-          <div><p className="text-xs text-muted">TDEE</p><p className="font-semibold">{fmtKcal(suggestion.tdee)}</p></div>
-          <div><p className="text-xs text-muted">Target</p><p className="font-semibold text-accent-ink">{fmtKcal(suggestion.kcal)}</p></div>
-        </div>
-        <p className="num mt-1 text-sm text-muted">P {suggestion.proteinG} g · C {suggestion.carbsG} g · F {suggestion.fatG} g</p>
-        <p className="mt-2 text-xs text-muted">{suggestion.rationale}</p>
-        <p className="mt-2 text-xs leading-relaxed text-muted">
-          Estimates only: Mifflin-St Jeor BMR × activity factor. Individual needs commonly differ by 10 % or more. Protein is
-          1.6 g/kg body weight (2.0 g/kg when losing fat), fat is 25 % of energy, and carbohydrate is the remainder. Adjust based
-          on your weight trend over 2–4 weeks.
-        </p>
-        {differsFromSuggestion && <Button variant="secondary" className="mt-3 w-full" onClick={useSuggestion} disabled={busy}>Use suggestion</Button>}
       </Card>
 
       <Card className="space-y-3 p-4">

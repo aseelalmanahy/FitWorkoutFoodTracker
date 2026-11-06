@@ -15,7 +15,7 @@ export function DailyIntakeChart({ data }: { data: { label: string; kcal: number
           <YAxis {...axis} width={48} />
           <Tooltip {...tooltip} formatter={(v, name) => [v == null ? "—" : `${Math.round(Number(v)).toLocaleString()} kcal`, name === "kcal" ? "Consumed" : "Target"]} />
           <Bar dataKey="kcal" fill="var(--accent)" radius={[6, 6, 0, 0]} isAnimationActive={false} />
-          <Line dataKey="target" stroke="var(--muted)" strokeDasharray="4 4" dot={false} strokeWidth={2} type="stepAfter" isAnimationActive={false} />
+          {data.some((d) => d.target != null) && <Line dataKey="target" stroke="var(--muted)" strokeDasharray="4 4" dot={false} strokeWidth={2} type="stepAfter" isAnimationActive={false} />}
         </ComposedChart>
       </ResponsiveContainer>
     </div>

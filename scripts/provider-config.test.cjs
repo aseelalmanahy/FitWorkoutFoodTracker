@@ -18,6 +18,7 @@ test("missing USDA key: generic client message, detail only in server log", asyn
     return { status: res.status, text: await res.text() };
   };
   assert.equal((await call("POST", "/api/auth/register", { email: `cfg${Date.now()}@test.dev`, password: "long password 123" })).status, 200);
+  assert.equal((await call("PUT", "/api/profile", { name: "T", birthDate: "1990-01-01", sex: "MALE", heightCm: 180, currentWeightKg: 80, goalWeightKg: null, goal: "MAINTENANCE", activityLevel: "MODERATE", experience: "BEGINNER", workoutDaysPerWeek: 3, unitSystem: "METRIC", timezone: "UTC" })).status, 200); // the access gate needs one
   const search = await call("GET", "/api/foods/search?q=banana&sources=USDA");
   assert.equal(search.status, 200);
   const err = JSON.parse(search.text).errors[0];

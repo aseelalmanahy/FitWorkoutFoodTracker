@@ -27,7 +27,7 @@ vi.mock("@/lib/server/images/validate", async (original) => {
   };
 });
 vi.mock("@/lib/server/db", () => ({
-  prisma: new Proxy({}, { get: (_t, model: string) => (model === "session" ? { findUnique: fakes.sessionFind, delete: async () => ({}) } : { findUnique: fakes.findUser, create: fakes.create, update: fakes.create, upsert: fakes.create }) }),
+  prisma: new Proxy({}, { get: (_t, model: string) => (model === "session" ? { findUnique: fakes.sessionFind, delete: async () => ({}) } : model === "profile" ? { findUnique: async () => ({ birthDate: new Date("1990-01-01T00:00:00Z") }) } : { findUnique: fakes.findUser, create: fakes.create, update: fakes.create, upsert: fakes.create }) }),
 }));
 vi.mock("next/headers", () => ({
   cookies: async () => ({ get: (name: string) => (fakes.cookies.has(name) ? { value: fakes.cookies.get(name) } : undefined), set: () => {}, delete: () => {} }),

@@ -88,8 +88,8 @@ export function Textarea({ className, ...props }: ComponentProps<"textarea">) {
   return <textarea className={cx(inputBase, "min-h-20 py-2.5", className)} {...props} />;
 }
 
-export function Field({ label, hint, error, group, children }: { label: string; hint?: ReactNode; error?: string; group?: boolean; children: ReactNode }) {
-  const msg = error ? <span className="mt-1 block text-xs text-down">{error}</span> : hint ? <span className="mt-1 block text-xs text-muted">{hint}</span> : null;
+export function Field({ label, hint, error, errorId, group, children }: { label: string; hint?: ReactNode; error?: string; errorId?: string; group?: boolean; children: ReactNode }) {
+  const msg = error ? <span id={errorId} className="mt-1 block text-xs text-down">{error}</span> : hint ? <span className="mt-1 block text-xs text-muted">{hint}</span> : null;
   // Button groups must not live inside <label>: the label would become the first button's accessible name.
   if (group) {
     return (

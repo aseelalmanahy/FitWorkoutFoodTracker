@@ -7,6 +7,7 @@ const assert = require("node:assert/strict");
 const playwright = require("playwright");
 const sharp = require("sharp");
 
+const { completeOnboarding } = require("./lib/e2e-onboarding.cjs");
 const target = require("./lib/test-target-guard.cjs").requireSafeTarget({ labelStub: true });
 const BASE = target.baseUrl;
 const STUB = target.stubUrl;
@@ -66,14 +67,7 @@ async function signUp(page) {
     await page.click("button[type=submit]");
     await page.waitForURL("**/onboarding");
   }
-  await page.getByRole("radio", { name: "kg / cm" }).click();
-  await page.getByLabel("Name").fill("Sam");
-  await page.getByLabel("Date of birth").fill("1990-01-01");
-  await page.getByLabel("Height (cm)").fill("180");
-  await page.getByLabel("Current weight (kg)").fill("80");
-  await page.getByRole("button", { name: "Maintenance" }).click();
-  await page.getByRole("button", { name: "Continue" }).click();
-  await page.waitForURL("**/dashboard");
+  await completeOnboarding(page);
 }
 
 const stub = {

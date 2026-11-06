@@ -50,10 +50,10 @@ export default async function NutritionHistoryPage({ searchParams }: { searchPar
               <Stat label="Days logged" value={`${s.daysLogged} / ${s.days}`} sub={week === thisWeek ? "Days so far this week; averages use logged days" : "Averages use logged days only"} />
               <Stat label="Avg protein" value={`${fmtG(s.avg.protein)} g`} sub={`C ${fmtG(s.avg.carbs)} g · F ${fmtG(s.avg.fat)} g`} />
               <Stat label="Protein consistency" value={s.proteinDaysWithTarget ? `${s.proteinOnTargetDays} / ${s.proteinDaysWithTarget} days` : "—"}
-                sub={`Days ≥ ${Math.round(PROTEIN_ON_TARGET_THRESHOLD * 100)} % of protein target`} />
+                sub={s.proteinDaysWithTarget ? `Days ≥ ${Math.round(PROTEIN_ON_TARGET_THRESHOLD * 100)} % of protein target` : undefined} />
             </div>
             <div className="mt-4 border-t border-line pt-3"><DailyIntakeChart data={chart} /></div>
-            <p className="mt-1 text-xs text-muted">Bars: calories consumed. Dashed line: the target in force on each day.</p>
+            {chart.some((c) => c.target != null) && <p className="mt-1 text-xs text-muted">Bars: calories consumed. Dashed line: the target in force on each day.</p>}
           </>
         ) : <p className="text-sm text-muted">Nothing logged this week.</p>}
       </Card>
@@ -61,8 +61,9 @@ export default async function NutritionHistoryPage({ searchParams }: { searchPar
       <SectionTitle>Days</SectionTitle>
       <Card className="divide-y divide-line">
         {[...weekDays].reverse().filter((d) => d.date <= today).map((d) => {
-          const over = d.target && d.totals.kcal > d.target.kcal;
-          const proteinOk = d.target && d.entries > 0 && d.totals.protein >= PROTEIN_ON_TARGET_THRESHOLD * d.target.proteinG;
+          // The weekly summary already leaves out a protein target of 0, as any intake would "reach" it.
+          const hasProteinTarget = !!d.target && d.target.proteinG > 0;
+          const proteinOk = hasProteinTarget && d.entries > 0 && d.totals.protein >= PROTEIN_ON_TARGET_THRESHOLD * d.target!.proteinG;
           return (
             <Link key={d.date} href={d.date === today ? "/nutrition" : `/nutrition?date=${d.date}`} className="flex items-center justify-between gap-3 px-4 py-3">
               <span>
@@ -70,8 +71,8 @@ export default async function NutritionHistoryPage({ searchParams }: { searchPar
                 <span className="num text-xs text-muted">{d.entries ? `P ${fmtG(d.totals.protein)} · C ${fmtG(d.totals.carbs)} · F ${fmtG(d.totals.fat)} g` : "Not logged"}</span>
               </span>
               <span className="num text-right">
-                <span className={cx("block text-sm font-semibold", over && "text-down")}>{d.entries ? fmtKcal(d.totals.kcal) : "—"}{d.target && <span className="font-normal text-muted"> / {fmtKcal(d.target.kcal)}</span>}</span>
-                {d.entries > 0 && d.target && <span className={cx("text-[11px]", proteinOk ? "text-up" : "text-muted")}>{proteinOk ? "Protein on target" : "Protein below target"}</span>}
+                <span className="block text-sm font-semibold">{d.entries ? fmtKcal(d.totals.kcal) : "—"}{d.target && <span className="font-normal text-muted"> / {fmtKcal(d.target.kcal)}</span>}</span>
+                {d.entries > 0 && hasProteinTarget && <span className={cx("text-[11px]", proteinOk ? "text-up" : "text-muted")}>{proteinOk ? "Protein on target" : "Protein below target"}</span>}
               </span>
             </Link>
           );

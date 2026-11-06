@@ -2,7 +2,9 @@ import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
 import { z, ZodError } from "zod";
 import { Prisma } from "@prisma/client";
+import { accessStateFor } from "@/lib/eligibility";
 import { getCurrentUser, type AuthUser } from "./auth";
+import { prisma } from "./db";
 import { trustedProxyHops } from "./login-throttle";
 import { logServerError } from "./safe-log";
 
@@ -70,21 +72,38 @@ function handleError(err: unknown) {
   return jsonError(500, "Internal server error");
 }
 
-/** Wrap a route handler with origin check, error mapping, and optional auth. */
-export function route<P = Record<string, never>>(
-  handler: (req: NextRequest, ctx: { params: P; user: AuthUser }) => Promise<Response | unknown>,
-): (req: NextRequest, ctx: Ctx<P>) => Promise<Response> {
+type Handler<P> = (req: NextRequest, ctx: { params: P; user: AuthUser }) => Promise<Response | unknown>;
+
+function authenticated<P>(handler: Handler<P>, gated: boolean): (req: NextRequest, ctx: Ctx<P>) => Promise<Response> {
   return async (req, ctx) => {
     try {
       if (!checkOrigin(req)) return jsonError(403, "Invalid origin");
       const user = await getCurrentUser();
       if (!user) return jsonError(401, "Not authenticated");
+      if (gated) {
+        const state = accessStateFor(await prisma.profile.findUnique({ where: { userId: user.id }, select: { birthDate: true } }));
+        if (state === "no_profile") return jsonError(409, "Complete your profile first");
+        if (state === "restricted") return jsonError(403, "This account is restricted.", { reason: "account_restricted" });
+      }
       const result = await handler(req, { params: await ctx.params, user });
       return result instanceof Response ? result : NextResponse.json(result ?? { ok: true });
     } catch (err) {
       return handleError(err);
     }
   };
+}
+
+/**
+ * Origin check, sign-in and error mapping, plus the access gate: no profile gets 409, and a stored
+ * date under the minimum gets 403. Closed by default, so a new route can't be left open by accident.
+ */
+export function route<P = Record<string, never>>(handler: Handler<P>) {
+  return authenticated(handler, true);
+}
+
+/** Signed in, without the access gate, for what a restricted person must still reach. Named exceptions only. */
+export function accountRoute<P = Record<string, never>>(handler: Handler<P>) {
+  return authenticated(handler, false);
 }
 
 export function publicRoute(handler: (req: NextRequest) => Promise<Response | unknown>) {

@@ -9,6 +9,7 @@ const playwright = require("playwright");
 const sharp = require("sharp");
 const { fixtures } = require("./lib/pdf-fixtures.cjs");
 
+const { completeOnboarding } = require("./lib/e2e-onboarding.cjs");
 const target = require("./lib/test-target-guard.cjs").requireSafeTarget({ labelStub: true });
 const BASE = target.baseUrl;
 const STUB = target.stubUrl;
@@ -37,14 +38,7 @@ async function signUp(page) {
     await page.click("button[type=submit]");
     await page.waitForURL("**/onboarding");
   }
-  await page.getByRole("radio", { name: "kg / cm" }).click();
-  await page.getByLabel("Name").fill("Sam");
-  await page.getByLabel("Date of birth").fill("1990-01-01");
-  await page.getByLabel("Height (cm)").fill("180");
-  await page.getByLabel("Current weight (kg)").fill("80");
-  await page.getByRole("button", { name: "Maintenance" }).click();
-  await page.getByRole("button", { name: "Continue" }).click();
-  await page.waitForURL("**/dashboard");
+  await completeOnboarding(page);
 }
 
 async function photo() {
@@ -61,7 +55,7 @@ async function runBrowser(name, buffer) {
   const page = await ctx.newPage();
   const errors = [];
   page.on("pageerror", (e) => {
-    if (name === "webkit" && /\?_rsc=\S* due to access control checks/.test(e.message)) return;
+    if (name === "webkit" && /[?&]_rsc=\S* due to access control checks/.test(e.message)) return;
     errors.push(e.message);
   });
   await signUp(page);
@@ -678,6 +672,8 @@ async function runBrowser(name, buffer) {
   await calories.waitFor();
   await hydrated(calories);
   const targetBefore = (await json("/api/nutrition/targets")).current;
+  await page.getByLabel("Protein (g)").fill("100");
+  await page.getByLabel("Fat (g)").fill("50");
   await calories.fill("1,200");
   await page.getByRole("button", { name: /^Save/ }).click();
   await page.getByText("Enter each target as a plain number").waitFor();
