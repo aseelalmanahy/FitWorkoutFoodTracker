@@ -21,7 +21,7 @@ These are six separate states, and one never implies another.
 |---|---|---|---|---|---|---|---|
 | 4.0.3 Production foundation | M-11 | Yes, `de4607f` | Yes, local production build | Yes, source review of the code | Yes, `de4607f` | **No, nothing is deployed** | R-07, T-16, T-17 and F-06 to finish |
 | Router and orchestrator | TOOL-01, 03, 04 | Yes, `3bc4471` | Yes, largely mocked | Yes, source review | Yes, `3bc4471` | Partly, small live checks | Live checks, from real use. TOOL-02 is NOT STARTED |
-| 4.0.4 Email-proven access | M-12 | Yes, on `feature/phase-4-program` | **Partly:** fakes only, no database | **Partly:** a read-only agent. Source review pending | No | No | A6, then T-19 and T-20. G-03 for real email |
+| 4.0.4 Email-proven access | M-12 | Yes, on `feature/phase-4-program` | Yes, on `fitdb_test` | **Partly:** a read-only agent. Source review pending | No | No | Source review and merge approval. G-03 for real email |
 | 4.0.5 Notice and acceptance | M-13 | No | No | No | No | No | 4.0.4, R-01, Decisions 3, 6, 12 |
 | 4.1 Core progress | M-15 | No | No | No | No | No | Scope approval, Decision 21, its own migration |
 | 4.0.6 Device test and go/no-go | M-14 | No | No | No | No | No | Everything above, T-15, R-13 |
@@ -163,7 +163,7 @@ Each one is **user-visible or adds a table, so each takes the full cycle:** prod
 | **A3** | Fast-forward `main` to `3bc4471`, with a documentation commit | | **Done** |
 | **A4** | Create `feature/phase-4-program` from that `main` | | **Authorized,** and follows this text |
 | **A5** | Decisions 8, 10, 11, recorded in D-03. Prepare MIG-03's file | | **Done,** on the owner's approval of 2026-11-06 |
-| **A6** | Back up and apply MIG-03 to `fitdb_test` only | When 4.0.4 reaches database tests | Decide then, on the reviewed file |
+| **A6** | Back up and apply MIG-03 to `fitdb_test` only | | **Done,** on the owner's authorization of 2026-11-06 |
 | **A7** | Same for MIG-04 | When 4.1 reaches database tests | Decide then |
 | **A8** | 4.1's scope, Decision 21, `currentWeightKg`, table shape | Before 4.1 | Section 5 |
 | **A9** | F-11: Prisma 7, or accept in writing | **Preferably before MIG-03,** so the upgrade isn't done across new migrations | Owner's call, as it's a breaking upgrade |

@@ -127,7 +127,7 @@ An independent read-only review of this plan, before any code, found the change-
 
 **Runnable now:** Vitest with in-memory fakes, which can't prove a database race, and negative controls.
 
-**Written, blocked until MIG-03 is applied to `fitdb_test`:** `scripts/account-tokens.test.cjs` for the real races and backdated expiry, and every suite that registers, now through `scripts/lib/signup.cjs` and the mail stub. **None has been run.** Over HTTP, expiry is checked just past and safely ahead of it, as an exact moment can't be hit. The 1 ms boundary is unit-tested.
+**Run on `fitdb_test`, after MIG-03:** `scripts/account-tokens.test.cjs` for the real races and backdated expiry, and every suite that registers, through `scripts/lib/signup.cjs` and the mail stub. Results are in tracker section 2d. Over HTTP, expiry is checked just past and safely ahead of it, as an exact moment can't be hit. The 1 ms boundary is unit-tested.
 
 **Also run:** a production build, and the pages in Chromium against a server with an unreachable database address. That covered the fragment being read and cleared, fixed notices, and no CSP violation. Queued jobs failed there with fixed codes, and no address reached the log.
 
@@ -135,7 +135,9 @@ An independent read-only review of this plan, before any code, found the change-
 
 The read-only security agent found no high or medium defect. **It reasoned from the code, and ran nothing.** Fixed: deletion now refuses if a reset committed after its password check, a job past its deadline stops at its next check, the form separates an uncertain outcome and a short password from a dead link, an unreachable test branch now has a test, and development email stays out of Docker builds. **Left, in the tracker:** S-19, S-20, S-21. It didn't review `scripts/`.
 
-**Not verified:** PostgreSQL's real lock behaviour and the SQL Prisma emits, and whether route bundles share one queue under `next start`. If they don't, each route still has its own serial queue, and only one route issues each purpose, so the cooldown still holds.
+**A later review of the final code, with `scripts/`,** found no critical or high defect. Its medium findings on reset links and lock waits are fixed, S-22 is left, and the rest are fixed or in the tracker.
+
+**Measured since:** a lock limit of 4 seconds applies per lock, so a queued request can wait about 8. Sign-in transactions allow 10 seconds, so that always ends in 503. **Not verified:** whether route bundles share one queue under `next start`. If they don't, each route still has its own serial queue, and only one route issues each purpose, so the cooldown still holds.
 
 ## F-11: the Prisma findings, and the recommended order
 

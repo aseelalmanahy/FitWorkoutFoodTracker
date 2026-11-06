@@ -24,7 +24,7 @@
 | M-09 | 4.0.1c | Profile data minimization | COMPLETE for development | Merged at `899e54c`, and verified on `fitdb_test`, section 3. **The migration is on `fitdb_test` only, so `fitdb` can't run this yet (C-08, B-07).** `safety-no-marker` and `db-guard-scoped` weren't run on the final code (T-14). Not for real users on its own |
 | M-10 | 4.0.2 | Account deletion and export | COMPLETE for development | Merged at `b79331d`, and verified on `fitdb_test`, sections 2b and 3. **Not for real users on its own:** real-device testing (T-15), backup and log retention (S-14) and legal decisions (E-06) stay open. `safety-no-marker` and `db-guard-scoped` weren't run (T-14) |
 | M-11 | 4.0.3 | Production foundation | **IN PROGRESS** | Code and templates merged at `de4607f`, section 2c, with the development code independently source-reviewed. **Operational verification is incomplete: nothing is deployed, and no infrastructure exists. Not COMPLETE until the infrastructure items are done.** Needs decisions 4, 5 and 14 |
-| M-12 | 4.0.4 | Email-proven access | **IN PROGRESS** | Code on `feature/phase-4-program`, section 2d. **Not COMPLETE:** its database and browser suites have never run, as MIG-03 isn't applied anywhere, and no real email can be sent |
+| M-12 | 4.0.4 | Email-proven access | **IN PROGRESS** | **The active phase,** on `feature/phase-4-program`, section 2d. Code verified on `fitdb_test`. **Not COMPLETE:** source review and merge are outstanding, and no real email can be sent, G-03 |
 | M-13 | 4.0.5 | Notice, acceptance, retention | NOT STARTED | Needs legal review. Shares 4.0.4's migration |
 | M-14 | 4.0.6 | Device testing and beta go/no-go | NOT STARTED | Needs everything above |
 | M-15 | 4.1 | Core progress: weight log, goal card | NOT STARTED | Needs 4.0.2's coverage check |
@@ -130,30 +130,55 @@
 | F-08 | 4.0.3 | Independent review, then the owner's merge approval | COMPLETE | P0 | None | The owner approved `de4607f` after independent source review, and it's merged. **This covers the code, and verifies nothing operationally** |
 | F-09 | 4.0.3 | Least-privilege database roles, rehearsed | BLOCKED | P1 | Decision 5 | App and migration both work under `deploy/database-roles.sql`, or it's corrected |
 | F-10 | 4.0.3 | A release and a rollback rehearsed, monitoring and alerts in operation, a named person for patching | BLOCKED | P0 | R-07, owner | Each done once, and written down |
-| F-11 | 4.0.3 | 3 high `npm audit` findings, in `deepmerge-ts` through Prisma. The fix is a breaking move to Prisma 7 | BLOCKED | P1 | Owner decision | Upgraded, or accepted in writing. **Recommended:** accept for development only, and upgrade as its own reviewed change after MIG-03 and 4.0.4's suites pass, before F-07 and any real user. `PHASE_4_0_4_EMAIL_ACCESS.md` |
+| F-11 | 4.0.3 | 3 high `npm audit` findings, in `deepmerge-ts` through Prisma. The fix is a breaking move to Prisma 7 | BLOCKED | P1 | Owner decision | Upgraded, or accepted in writing. **The owner kept Prisma 6 for 4.0.4's development verification, which doesn't accept this for production.** Stays open for a separate reviewed upgrade before release, after 4.0.4's suites, which have now passed, and before F-07 and any real user. `PHASE_4_0_4_EMAIL_ACCESS.md` |
 
 **Owner decisions still needed:** 4 (name and domain), 5 (host, database, ceiling), 12 (backup retention), 14 (production data access), the recovery objectives, the deletion ledger including whether deletion may depend on it, and F-11.
 
 ## 2d. Phase 4.0.4 detail
 
-**Migration: `20261106140000_account_tokens`, prepared and applied nowhere.** Decisions 8, 10 and 11 were recorded on 2026-11-06. **No email provider, SDK or new dependency was added, and nothing was deployed.** Plan and F-11 assessment: `PHASE_4_0_4_EMAIL_ACCESS.md`.
+**Migration: `20261106140000_account_tokens`, applied to `fitdb_test` only.** Decisions 8, 10 and 11 were recorded on 2026-11-06. **No email provider, SDK or new dependency was added, and nothing was deployed.** Plan and F-11 assessment: `PHASE_4_0_4_EMAIL_ACCESS.md`.
 
 | State | Phase 4.0.4 |
 |---|---|
 | **IMPLEMENTED** | Yes, on `feature/phase-4-program`: link-first sign-up, one-time links, reset, change password, session revocation, limits, generic responses, file mail stub, provider interface |
-| **TESTED** | **Partly.** Vitest on in-memory fakes, 47 of 47 deliberate defects caught, a production build, and pages in one real browser against an unreachable database. **No database or race has been exercised** |
-| **REVIEWED** | **Partly.** A read-only security agent reviewed the plan and the code, and its findings are fixed or listed here. **It didn't review `scripts/`, and independent source review is pending** |
+| **TESTED** | **Yes, on `fitdb_test`,** results below. Real races are run in a known order, and controlled by real locks. **Real email and real devices aren't exercised** |
+| **REVIEWED** | **Partly.** A read-only security agent reviewed the plan, the code, and the final code with `scripts/` at `8057d59`. Its findings are fixed or listed here. **It hasn't seen the fixes made after that (`ae5e10e`, `5b36b6c`, `e82cbd9`), and it ran nothing. Independent source review is pending** |
 | **MERGED** | No |
 | **OPERATIONALLY VERIFIED** | No |
 
 | ID | Phase | Description | Status | Priority | Dependency | Acceptance Criteria |
 |---|---|---|---|---|---|---|
-| G-01 | 4.0.4 | Sign-up, recovery, change password and their pages | IN PROGRESS | P0 | G-02, T-19, T-20 | All suites pass on the final code, then review and the owner's merge approval |
-| G-02 | 4.0.4 | Back up `fitdb_test` and apply MIG-03 to it. **This code can't run on any database without it,** like B-07 and C-08 | BLOCKED | P0 | Owner, separate authorization | Applied with a backup, and `migrate status` clean |
+| G-01 | 4.0.4 | Sign-up, recovery, change password and their pages | IN PROGRESS | P0 | Source review, merge approval | All suites pass on the final code, **done, below.** Then review and the owner's merge approval |
+| G-02 | 4.0.4 | Back up `fitdb_test` and apply MIG-03 to it. **This code can't run on any database without it,** like B-07 and C-08 | COMPLETE | P0 | None | Applied on 2026-11-06 with the owner's authorization, after a verified backup, section 4. `migrate status` clean, no drift, every table's row count unchanged, and the marker's row unchanged. **`fitdb_test` only** |
 | G-03 | 4.0.4 | A real email provider. **Production sends nothing today:** it warns once at startup, and sign-up and reset fail closed behind the same response | BLOCKED | P0 | Decision 5, Decision 4, R-07 | Provider chosen with click tracking off, built behind `MailTransport`, delivery observed, and startup then refuses to run without it |
 | G-04 | 4.0.4 | Confirm judgement values: 24-hour sign-up and 60-minute reset links, 60-second cooldown, 5 live tokens per address, 200 tokens an hour | NOT STARTED | P1 | Owner | Each confirmed or changed. **These are token lifetimes and limits, not legal retention periods** |
 | G-05 | 4.0.4 | Emails say "Forge", as the app does | NOT STARTED | P2 | Decision 4 | Matches the chosen name |
 | G-06 | 4.0.4 | Runbook steps: deleting an account also removes its address from the allowlist, or it can sign up again. A manual email change deletes tokens for both addresses | NOT STARTED | P1 | F-04 | Written in the runbook |
+
+**Final results, on `e82cbd9`, one step at a time. Available memory stayed above 14 GB, against a stop at 4 GB.**
+
+| Check | Result |
+|---|---|
+| Type check, clean production build | PASSED |
+| Vitest, on fakes | PASSED, 1600 of 1600 in 40 files |
+| `account-tokens`, real races | PASSED, 32 of 32 |
+| Other guarded suites | PASSED: `account-data` 26, `nutrition-api` 77, `release-workflow` 8, `provider-protection` 7, `provider-malformed` 4, `provider-config` 1, `production-startup` 17, `production-security` 14, `production-https` 3, `usda-missing-nutrients` 4, `live-identity` 9, `units` 19, `nutrition-targets` 8, `profile-minimization` 7, `profile-nulls` 16, `guard` 51 |
+| Browsers: Chromium, Firefox, WebKit | PASSED: `e2e-smoke`, `e2e-nutrition`, `eligibility`, `nutrition-targets-e2e`, `profile-minimization-e2e`, `account-data-e2e`, `production-security-e2e`, `label-scan`, `label-pdf`, `meal`, `hardening`, three unconfigured checks, `guard-browser` 21 |
+| **`safety-no-marker`, `db-guard-scoped`** | **NOT RUN,** as they need `fitdb_test_other`, T-14 |
+| Unit negative controls | **57 of 57 caught, 0 missed, 0 retired.** 56 on `5b36b6c`. On `e82cbd9`, the 13 near that change, with one new |
+| Database negative controls | **15 of 15 caught by an assertion, none by a timeout alone,** on `8057d59`: reusable token, expired token, wrong purpose, session surviving reset, four stale authorizations, an overwritten account, a duplicate address, cross-account export, enumeration, three unsafe targets. **Then 5 on `5b36b6c`:** reusable token, stale login, export not at one point in time, no lock limit, link not tied to its address. **The lock limit again on `e82cbd9`** |
+| `A7` from 4.0.3 | **Stays RETIRED,** and isn't counted as passed |
+
+**Security controls, and what checks each:** authentication, reset and sessions, `account-tokens`. Deletion and export, `account-data` and `account-tokens`. Startup, `production-startup`. Registration limits, `production-security` and `account-tokens`. Database targets, `guard` and `guard-browser`. Logging, the log test in `account-tokens` and `production-security`. Headers, `production-security`, `production-https` and `production-security-e2e`. Validation and rate limits, Vitest and those suites. **All of this is on a local server, so none is operationally verified.**
+
+**The lock limit, measured.** With the row held 9 seconds: the first request in the queue answered 503 at 4,019 ms, and the second at 8,029 ms. A password change alone answered 503 at about 4,080 ms. **So "4 seconds" is per lock, and a queued request can take about 8.** An earlier version answered 500 there, as Prisma's 5-second limit expired first, which a later run found. Sign-in transactions now allow 10 seconds. The response names no database detail, nothing changes, the link isn't spent, sessions stand, the server recovers, no connection is left idle in a transaction, and the setting ends with its transaction. **Deletion and export set no lock limit:** deletion waits on the row, and export takes no lock.
+
+**Two infrastructure failures, each once in 6 runs, both in the run that was later stopped for low memory:**
+
+- **Firefox, `guard-browser`:** `Browser.removeBrowserContext` failed with `_maybeDontRestoreTabs` undefined, in a browser-only control with no application. The message is from the browser's session code, so it's test infrastructure and not an application defect. **No assertion failed, and none was changed.** It passed 5 other times.
+- **Chromium, `production-security-e2e`:** `ERR_PROXY_CONNECTION_FAILED` on `/account`, on the test guard's local proxy. **Cause not established.** Memory was low around that run, which is circumstantial. It passed 5 other times, and if it recurs the proxy should be investigated.
+
+**Database cleanup, 2026-11-06.** 44 rows were removed from `AccountToken` on `fitdb_test`, after a query showed 22 `PASSWORD_RESET` and 22 `SIGNUP`, all at `test.dev`. **The table was verified empty straight after MIG-03.** The three `account-data` runs that seeded links before the cleanup was added left 7, 8 and 7 seeded users (19:39, 19:45 and 19:59 UTC), so 22 users with 2 links each is exactly 44. The rows were gone before this accounting, so it's reasoned from those counts, and no row-by-row record exists. No other table was touched. The suite now removes its own links, and the table has held 0 rows after each later run. Pre-migration backup: section 4.
 
 ## 3. Tests: run, failed, blocked
 
@@ -364,8 +389,9 @@ So code from before this migration **fails for those people, and never reads a n
 | T-16 | 4.0.3 | A real production start: preflight passing, against a database that isn't a test one | BLOCKED | P0 | R-07 | Observed once on the rehearsal server |
 | T-17 | 4.0.3 | The design's forged-header test, TLS, HSTS, body limit and the database's closed port, through the deployed proxy | BLOCKED | P0 | R-07 | Each recorded |
 | T-18 | 4.0.3 | A real page-render failure, showing the console guard works on what Next.js logs itself | NOT STARTED | P2 | None | Only unit-tested so far. Observed once |
-| T-19 | 4.0.4 | **NEVER RUN:** `account-tokens`, for real races, lock order, backdated expiry and revocation on a real database. Fakes can't prove these | BLOCKED | P0 | G-02 | Passes on the final code, with no 500 from a deadlock |
-| T-20 | 4.0.4 | **NEVER RUN since being moved to the real flow:** every suite that registers, and all three browsers. Only syntax-checked. They were rewritten without being executed, so failures in the scripts themselves are likely | BLOCKED | P0 | G-02 | All pass, or each failure explained |
+| T-19 | 4.0.4 | `account-tokens`, for real races, lock order, backdated expiry, revocation and logs on a real database | COMPLETE | P0 | None | 32 of 32 on `e82cbd9`, on `fitdb_test`, section 2d |
+| T-20 | 4.0.4 | Every suite that registers, moved to the real flow, and all three browsers | COMPLETE | P0 | None | All pass on `e82cbd9`, section 2d. The first real run found two script defects, both fixed. **Excludes T-14's two suites** |
+| T-21 | 4.0.4 | **Not covered by those results:** `live-provider-check.safety`'s tests, moved to the new flow and never run, including its marker refusals. Its SIGTERM test is also skipped on Windows | BLOCKED | P1 | T-14 | Runs when T-14 is authorized |
 | T-09 | 4.0.1b | **Not run:** dropping a CHECK on a live database, to show T38 then fails. The owner's authorization allowed only the approved migration to change the schema | DEFERRED | P2 | Owner, if wanted | **Partly covered:** NC31a and NC31b catch a removed constraint in the migration's text, T38 shows the live constraints refuse every invalid shape, and D5 and D6 show they stop the app's own bad writes |
 | T-10 | 4.0.1b, 4.0.1c | **Not run:** restoring either `fitdb_test` backup, from before 4.0.1b and 4.0.1c. Only their archive listings were read | NOT STARTED | P2 | Owner, for a restore target | Restored into a separately approved database, with row counts compared to the snapshots |
 
@@ -375,9 +401,11 @@ So code from before this migration **fails for those people, and never reads a n
 |---|---|---|---|---|---|---|
 | MIG-01 | 4.0.1b | `20261106120000_nullable_nutrition_targets`, Git blob `62b7459`. **Applied to `fitdb_test` only,** on 2026-11-06, with owner authorization | COMPLETE for `fitdb_test` | P0 | None | `migration-verify` passed. **Not applied to `fitdb`, `fitdb_test_other` or any production database,** which each need separate approval |
 | MIG-02 | 4.0.1c | `20261106130000_nullable_profile_fields`: `sex`, `heightCm`, `currentWeightKg`, `goal`, `activityLevel`, `experience`, `workoutDaysPerWeek`. **Applied to `fitdb_test` only,** on 2026-11-06, with owner authorization | COMPLETE for `fitdb_test` | P1 | None | `profile-migration-verify` passed. **Not applied to `fitdb`, `fitdb_test_other` or any production database,** which each need separate approval. **Rollback is forward-only,** as `fitdb_test` now holds null rows, Annex H6 |
-| MIG-03 | 4.0.4 | `20261106140000_account_tokens`: `AccountToken` and its enum, and nullable `User.termsVersion` and `termsAcceptedAt`. Additive, generated offline. **File only, applied nowhere** | IN PROGRESS | P0 | G-02 | Applied to `fitdb_test` with separate approval. **`fitdb` needs its own decision and backup, after B-07 and C-08** |
+| MIG-03 | 4.0.4 | `20261106140000_account_tokens`, blob `8c1e6ca`: `AccountToken` and its enum, and nullable `User.termsVersion` and `termsAcceptedAt`. Additive. **Applied to `fitdb_test` only,** on 2026-11-06, with owner authorization | COMPLETE for `fitdb_test` | P0 | None | Preflight, backup and verification passed, section 2d. **Not applied to `fitdb` or anywhere else. `fitdb` needs its own decision and backup, after B-07 and C-08** |
 
 **Backup taken before applying:** `C:\Users\Aseel\FitWorkoutFoodTracker-backups\fitdb_test-pre-4.0.1b-20261106T060140Z.dump`, custom format, 859,762 bytes. `pg_dump` exited 0, and `pg_restore --list` read it. **It hasn't been restored,** so the restore itself is untested (T-10).
+
+**Backup before MIG-03:** `C:\Users\Aseel\FitWorkoutFoodTracker-backups\fitdb_test-pre-4.0.4-20261106T192540Z.dump`, custom format, 11,711,870 bytes. `pg_dump` exited 0, and `pg_restore --list` read every table and `_prisma_migrations`. **It hasn't been restored,** T-10.
 
 **Rollback:** forward-only, Annex H6. `fitdb_test` now holds real null rows from the suites.
 
@@ -434,10 +462,13 @@ The merged documents hold **recommendations.** Stage A's authorization covered i
 | S-16 | 4.0.3 | **New.** Until 4.0.4's email proof, anyone who guesses an invited, unused address can claim it, with a password of their own | IN PROGRESS | P0 | M-12 | **Closed in code on `feature/phase-4-program`, unmerged,** as no account exists until the link is used. Until G-01 is merged and T-19 passes, a small list, added just before inviting and removed once used |
 | S-17 | 4.0.3 | **New.** A restart resets in-memory password limits, and a database outage at startup causes a restart loop, so an outage could also reset them | DEFERRED | P2 | S-02 | A shared store, or accepted for the beta |
 | S-18 | 4.0.3 | **New.** No CSP report endpoint exists, so a violation for a real person goes unseen. `next dev` isn't checked by the preflight, so it must never serve real traffic | DEFERRED | P3 | None | Decided at 4.0.6 |
-| S-19 | 4.0.4 | Export doesn't re-check the verified hash, as login, change password and deletion now do. A stolen session with the old password could finish an export in the moments after a reset commits. Low, as it could have exported earlier anyway | DEFERRED | P3 | None | Accepted, or the same check added |
-| S-20 | 4.0.3, 4.0.4 | A loopback database named `fitdb_test` skips preflight's identity check, including with open registration. Needs a deliberate misconfiguration. Low | DEFERRED | P3 | None | Accepted, or the test marker required when the flag is set |
-| S-21 | 4.0.4 | Default transaction limits (2 s to start, 5 s to run). A login or reset waiting on a long deletion should return 500 and change nothing. **Reasoned, and not observed** | NOT STARTED | P2 | T-19 | Observed, or limits raised |
-| S-22 | 4.0.4 | An abandoned sign-up token holds its address until it expires and the next token is issued, as no background job exists | BLOCKED | P2 | R-06 | Covered by the retention rule. **No period is invented here** |
+| S-19 | 4.0.4 | Export didn't re-check the verified hash, as login, change password and deletion do | IN PROGRESS | P2 | Source review, merge | **Fixed at `3e65a51`:** compared in the snapshot and again after it, with no lock, so it can't delay a reset. A real race, in a known order, gets 409 with no data. **Accepted limit:** a response already past the last check is still sent, with data from before the reset |
+| S-20 | 4.0.3, 4.0.4 | A loopback database named `fitdb_test` skips preflight's identity check, including with open registration. Needs a deliberate misconfiguration. Low | DEFERRED | P3 | None | A `host=` redirect is now refused, at `ae5e10e`. **Left:** the marker isn't required when the flag is set. Accepted, or required |
+| S-21 | 4.0.4 | Prisma's transaction limit doesn't interrupt a query waiting on a lock, so a held row could hold login, reset and change password as long | IN PROGRESS | P2 | Source review, merge | **Fixed at `ae5e10e` and `e82cbd9`:** a lock limit, answering 503. Measured in section 2d: about 4 seconds, or about 8 for a queued request. **Left:** pool exhaustion under a long schema change is unmeasured, and deletion's own wait isn't limited |
+| S-22 | 4.0.4 | An abandoned sign-up token holds its address until it expires and the next token is issued, as no background job exists | BLOCKED | P2 | R-06 | Covered by the retention rule. **No period is invented here.** The review rates this medium before the beta, and notes that purging already-expired rows on a timer needs no new period. Not built, as it adds a background job |
+| S-23 | 4.0.4 | Throttles are in memory. At 50,000 keys, eviction can remove a `reauth:` key, and a restart clears all of them, which resets that guess limit. Low | NOT STARTED | P3 | None | Reauth keys kept apart, or accepted |
+| S-24 | 4.0.4 | Development mail files hold live tokens, and are never aged out. `0o600` may not restrict them on Windows. Suites now remove theirs. Low, development only | NOT STARTED | P3 | None | Aged out, or accepted |
+| S-25 | 4.0.4 | The password-changed notice isn't retried, and is lost on a restart. A full queue no longer drops it. A stalled request can also finish deletion or export after its session ends, if it has the current password, which gives nothing beyond logging in. Low | DEFERRED | P3 | None | Accepted, or fixed with a real provider, G-03 |
 | S-09 | 4.0.1 | Raw field names reach people in forms other than profile and targets (`client/api.ts`) | DEFERRED | P2 | None | Fixed copy per form |
 
 ## 8. Technical debt
