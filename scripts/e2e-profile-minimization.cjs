@@ -225,8 +225,7 @@ async function inBrowser(name, partB) {
     await page.getByText("Saved.").waitFor();
     const saved = await prisma.profile.findUnique({ where: { userId: user.id } });
     assert.equal(saved.name, "Sam Two");
-    assert.equal(saved.sex, null, "T45: a null row re-saved stays null");
-    assert.equal(saved.heightCm, null, "T45: a null row re-saved stays null");
+    for (const f of ["sex", "heightCm", "currentWeightKg", "goalWeightKg", "goal", "activityLevel", "experience", "workoutDaysPerWeek"]) assert.equal(saved[f], null, `T45: a null row re-saved stays null: ${f}`);
     step("T45: a null profile shows no prompts, and re-saving keeps it null");
     await ctx.close();
 

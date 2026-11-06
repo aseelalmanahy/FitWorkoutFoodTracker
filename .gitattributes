@@ -1,0 +1,8 @@
+# Prisma records each migration's SHA-256 when it's applied, so a migration's bytes must never depend on the
+# platform or on Git's line-ending settings. New migrations are LF on every machine.
+prisma/migrations/**/migration.sql text eol=lf
+# These four were applied with CRLF, and their recorded checksums are of those bytes. Their Git blobs stay LF.
+prisma/migrations/20261103155557_init/migration.sql text eol=crlf
+prisma/migrations/20261103155823_profile_timezone/migration.sql text eol=crlf
+prisma/migrations/20261103164718_nutrition/migration.sql text eol=crlf
+prisma/migrations/20261103172723_food_origin/migration.sql text eol=crlf
