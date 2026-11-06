@@ -21,10 +21,10 @@ async function call(method, urlPath, body, cookie) {
   try { json = JSON.parse(text); } catch {}
   return { status: res.status, body: json, text };
 }
-async function newUser(label, { profile = true } = {}) {
+async function newUser(label, { profile = true, birthDate = "1990-01-01" } = {}) {
   const email = `weight${label}${++counter}${SUFFIX}`;
   const { user, token } = await createSignedInUser(prisma, email, { password: PASSWORD });
-  if (profile) await prisma.profile.create({ data: { userId: user.id, name: `Weight ${label}`, birthDate: new Date("1990-01-01T00:00:00Z"), unitSystem: "METRIC", timezone: "UTC" } });
+  if (profile) await prisma.profile.create({ data: { userId: user.id, name: `Weight ${label}`, birthDate: new Date(`${birthDate}T00:00:00Z`), unitSystem: "METRIC", timezone: "UTC" } });
   return { user, email, cookie: `fit_session=${token}` };
 }
 const today = () => new Date().toISOString().slice(0, 10);
@@ -72,6 +72,24 @@ test("one person can't read, delete or overwrite another's entries", async () =>
 test("no session, no entries", async () => {
   assert.equal((await call("GET", "/api/weight")).status, 401);
   assert.equal((await call("PUT", "/api/weight", { date: today(), weightKg: 80 })).status, 401);
+  assert.equal((await call("DELETE", "/api/weight/anything")).status, 401);
+});
+
+test("a restricted account can't read, write or delete, and what's stored stays", async () => {
+  const u = await newUser("restricted", { birthDate: `${new Date().getUTCFullYear() - 10}-01-01` });
+  const row = await prisma.bodyMetric.create({ data: { userId: u.user.id, date: new Date("2026-01-01T00:00:00Z"), value: 70 } });
+  assert.equal((await call("GET", "/api/weight", undefined, u.cookie)).status, 403);
+  assert.equal((await put(u, today(), 80)).status, 403);
+  assert.equal((await call("DELETE", `/api/weight/${row.id}`, undefined, u.cookie)).status, 403);
+  assert.deepEqual((await prisma.bodyMetric.findMany({ where: { userId: u.user.id } })).map((r) => r.value), [70]);
+});
+
+test("saves racing for one date leave one row, and no server error", async () => {
+  const u = await newUser("race");
+  const results = await Promise.all([80, 81, 82, 83].map((kg) => put(u, today(), kg)));
+  for (const r of results) assert.ok(r.status === 200 || r.status === 409, `status ${r.status}`);
+  assert.ok(results.some((r) => r.status === 200));
+  assert.equal(await prisma.bodyMetric.count({ where: { userId: u.user.id } }), 1);
 });
 
 test("a profile-less account is held at the access gate", async () => {

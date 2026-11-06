@@ -11,8 +11,8 @@ type Row = { id: string; userId: string; kind: string; date: Date; value: number
 const f = vi.hoisted(() => ({
   rows: [] as Row[],
   wheres: [] as Record<string, unknown>[],
-  profile: { timezone: "UTC" } as null | { timezone: string },
-  userId: "me",
+  profile: { timezone: "UTC" } as null | { timezone: string; birthDate?: Date },
+  userId: "me" as string | null,
 }));
 vi.mock("@/lib/server/db", () => ({
   prisma: {
@@ -37,7 +37,7 @@ vi.mock("@/lib/server/db", () => ({
     },
   },
 }));
-vi.mock("@/lib/server/auth", () => ({ getCurrentUser: async () => ({ id: f.userId, email: "me@example.com" }) }));
+vi.mock("@/lib/server/auth", () => ({ getCurrentUser: async () => (f.userId ? { id: f.userId, email: "me@example.com" } : null) }));
 
 const ORIGIN = "http://localhost:3000";
 const ctx = (params: object = {}) => ({ params: Promise.resolve(params) }) as never;
@@ -104,13 +104,13 @@ describe("goal progress", () => {
 
   it("no goal asks for one, and invents none", () => expect(of(null)).toEqual({ kind: "choose-goal" }));
   it.each(["FAT_LOSS", "MUSCLE_GAIN"] as const)("%s compares the trend with the goal weight", (goal) => {
-    expect(of(goal, 70)).toEqual({ kind: "weight-goal", goal, trendKg: latest, goalKg: 70, differenceKg: latest - 70 });
+    expect(of(goal, 70)).toEqual({ kind: "weight-goal", goal, trendKg: latest, goalKg: 70, differenceKg: latest - 70, asOf: day(10), entries: 2 });
   });
   it("a weight goal with no goal weight asks for one", () => expect(of("FAT_LOSS").kind).toBe("set-goal-weight"));
   it("a weight goal with no entries asks for one, as logging is optional", () => expect(of("FAT_LOSS", 70, []).kind).toBe("log-weight"));
   it("strength shows records, and needs no weight", () => expect(of("STRENGTH", null, [], 3)).toEqual({ kind: "strength", recentRecords: 3 }));
   it("maintenance is the distance from the first logged weight", () => {
-    expect(of("MAINTENANCE")).toEqual({ kind: "maintenance", startKg: 80, trendKg: latest, differenceKg: latest - 80 });
+    expect(of("MAINTENANCE")).toEqual({ kind: "maintenance", startKg: 80, trendKg: latest, differenceKg: latest - 80, asOf: day(10), entries: 2 });
   });
   it("maintenance needs two entries, as one is its own starting point", () => {
     expect(of("MAINTENANCE", null, weightTrend([{ date: day(0), weightKg: 80 }])).kind).toBe("log-weight");
@@ -142,6 +142,18 @@ describe("the goal card", () => {
   it("shows the trend, and not the latest weigh-in", () => {
     expect(render("FAT_LOSS", 70)).toContain("Trend 78.7 kg");
     expect(render("FAT_LOSS", 70)).not.toContain("78 kg");
+  });
+  it("one entry is a weigh-in, and not a trend", () => {
+    const one = weightTrend([{ date: day(0), weightKg: 80 }]);
+    expect(render("FAT_LOSS", 70, "METRIC", one)).toContain("Logged 80 kg");
+    expect(render("FAT_LOSS", 70, "METRIC", one)).not.toContain("Trend");
+    expect(render("FAT_LOSS", null, "METRIC", one)).toContain("Logged 80 kg");
+  });
+  it.each([["FAT_LOSS", 70], ["FAT_LOSS", null], ["MUSCLE_GAIN", 85], ["MAINTENANCE", null]] as const)("says how old the number is: %s", (goal, gw) => {
+    expect(render(goal, gw)).toContain("As of Jan 11, 2026");
+  });
+  it("claims nothing about training showing muscle", () => {
+    expect(render("MUSCLE_GAIN", 85)).not.toMatch(/training/i);
   });
   it("level with a number isn't called reaching it, and has no direction", () => {
     const html = render("FAT_LOSS", 70, "METRIC", weightTrend([{ date: day(0), weightKg: 70 }]));
@@ -217,6 +229,38 @@ describe("the weight routes", () => {
     await PUT(req("PUT", { date: "2026-01-06", weightKg: 60 }), ctx());
     expect((await DELETE(req("DELETE"), ctx({ id: f.rows[0].id }))).status).toBe(200);
     expect(f.rows).toEqual([]);
+  });
+  it("allows tomorrow, as a profile's time zone can be behind, and no later", async () => {
+    const { PUT } = await routes();
+    const inDays = (n: number) => new Date(Date.now() + n * 86_400_000).toISOString().slice(0, 10);
+    expect((await PUT(req("PUT", { date: inDays(1), weightKg: 80 }), ctx())).status).toBe(200);
+    expect((await PUT(req("PUT", { date: inDays(2), weightKg: 80 }), ctx())).status).toBe(400);
+  });
+  it("needs a session for every method", async () => {
+    const { PUT, GET } = await routes();
+    const { DELETE } = await one();
+    f.userId = null;
+    expect((await GET(req("GET"), ctx())).status).toBe(401);
+    expect((await PUT(req("PUT", { date: "2026-01-05", weightKg: 80 }), ctx())).status).toBe(401);
+    expect((await DELETE(req("DELETE"), ctx({ id: "x" }))).status).toBe(401);
+  });
+  it("a restricted account can't read, write or delete, and what's stored stays", async () => {
+    const { PUT, GET } = await routes();
+    const { DELETE } = await one();
+    await PUT(req("PUT", { date: "2026-01-05", weightKg: 80 }), ctx());
+    const id = f.rows[0].id;
+    f.profile = { timezone: "UTC", birthDate: new Date(Date.UTC(new Date().getUTCFullYear() - 10, 0, 1)) };
+    expect((await GET(req("GET"), ctx())).status).toBe(403);
+    expect((await PUT(req("PUT", { date: "2026-01-05", weightKg: 70 }), ctx())).status).toBe(403);
+    expect((await DELETE(req("DELETE"), ctx({ id }))).status).toBe(403);
+    expect(f.rows.map((r) => r.value)).toEqual([80]);
+  });
+  it("no profile is held at the gate on every method", async () => {
+    const { GET } = await routes();
+    const { DELETE } = await one();
+    f.profile = null;
+    expect((await GET(req("GET"), ctx())).status).toBe(409);
+    expect((await DELETE(req("DELETE"), ctx({ id: "x" }))).status).toBe(409);
   });
   it("every query names the owner", async () => {
     const { PUT, GET } = await routes();

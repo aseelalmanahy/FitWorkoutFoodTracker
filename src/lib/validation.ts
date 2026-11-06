@@ -32,7 +32,8 @@ const isValidTimeZone = (tz: string) => {
 };
 
 // Omitted leaves a stored value alone, and null clears it. Neither supplies a default, as a value here
-// has to be one the person chose. These fields are stored only: nothing in the product reads them.
+// has to be one the person chose. Most of these are stored only, and nothing in the product reads them. The goal card
+// reads goal and goalWeightKg.
 const clearable = <T extends z.ZodType>(field: T) => field.nullable().optional();
 
 export const profileSchema = z.object({

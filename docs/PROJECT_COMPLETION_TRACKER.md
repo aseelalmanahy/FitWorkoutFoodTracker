@@ -190,14 +190,14 @@
 |---|---|
 | **IMPLEMENTED** | Yes, unmerged: dated weight entries, a smoothed trend, change over time, a chart, entries with paging, a goal card, and the goal selectable on the profile |
 | **TESTED** | **Partly.** Vitest on in-memory fakes, deliberate defects, type check and build. **No database or browser test has run** |
-| **REVIEWED** | **Partly.** A read-only security agent. **Independent source review is pending** |
+| **REVIEWED** | **Partly.** A read-only security agent read `a56110e`, and its findings are addressed in the next commit, which no agent has re-read. **Independent source review is pending** |
 | **MERGED** | No |
 | **OPERATIONALLY VERIFIED** | No |
 
 | ID | Phase | Description | Status | Priority | Dependency | Acceptance Criteria |
 |---|---|---|---|---|---|---|
 | J-01 | 4.1 | Weight log and goal card | IN PROGRESS | P1 | J-02, T-24, review, merge approval | All suites pass on the final code, then the owner's approval |
-| J-02 | 4.1 | Back up `fitdb_test`, and apply MIG-04 to it. **This code can't run on any database without it** | BLOCKED | P1 | Owner, separate authorization | Applied with a backup, `migrate status` clean |
+| J-02 | 4.1 | Back up `fitdb_test`, and apply MIG-04 to it. **Before it's applied to a database, this code breaks the dashboard, account deletion and export there, for everyone.** Any deployment has to apply it first | BLOCKED | P1 | Owner, separate authorization | Applied with a backup, `migrate status` clean |
 | J-03 | 4.1 | Merging after 4.0.5: classify `BodyMetric` in the data inventory, and add the weight log to the draft notice | NOT STARTED | P1 | H-01 | 4.0.5's inventory tests pass on the merged code |
 | J-04 | 4.1 | Whether a goal must be chosen (Decision 21). Built as optional | NOT STARTED | P2 | Owner | Recorded |
 | J-05 | 4.1 | Confirm the 10-day smoothing constant, 28-day change window and 7-day minimum, which are judgements | NOT STARTED | P2 | Owner | Confirmed or changed |

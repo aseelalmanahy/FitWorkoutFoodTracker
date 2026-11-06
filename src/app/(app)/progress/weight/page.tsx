@@ -35,27 +35,27 @@ export default async function WeightPage({ searchParams }: { searchParams: Promi
   return (
     <>
       <PageHeader title="Weight" subtitle="Optional. Log it if it helps, and skip any day" back="/progress" />
-      <WeightLogForm today={today} units={units} />
+      <WeightLogForm today={today} units={units} logged={Object.fromEntries(entries.map((e) => [e.date, e.weightKg]))} />
 
       {!latest ? (
-        <div className="mt-4"><EmptyState title="No weight logged yet" body="Once you've logged a few days, a smoothed trend appears here." /></div>
+        <div className="mt-4"><EmptyState title="No weight logged yet" body="Once you've logged more than one day, a smoothed trend appears here." /></div>
       ) : (
         <>
-          <SectionTitle>Trend</SectionTitle>
+          <SectionTitle>{trend.length > 1 ? "Trend" : "Logged"}</SectionTitle>
           <Card className="p-4">
             <div className="grid grid-cols-2 gap-4">
-              <Stat label="Trend" value={formatMass(latest.trendKg, units)} />
-              <Stat label="Change" value={change ? signed(change.changeKg) : "—"} sub={change ? `About, since ${fmtDate(change.fromDate)}` : "Needs a week or more of entries"} />
+              <Stat label={trend.length > 1 ? "Trend" : "Logged"} value={formatMass(latest.trendKg, units)} />
+              <Stat label="Change" value={change ? signed(change.changeKg) : "—"} sub={change ? `About, since ${fmtDate(change.fromDate)}` : "Needs entries at least a week apart"} />
             </div>
             {trend.length > 1 && (
               <div className="mt-4 border-t border-line pt-3">
                 <WeightChart
                   unit={massUnit(units)}
-                  data={trend.map((p) => ({ label: fmtDate(p.date), weight: toDisplayMass(p.weightKg, units), trend: toDisplayMass(p.trendKg, units) }))}
+                  data={trend.map((p) => ({ date: p.date, weight: toDisplayMass(p.weightKg, units), trend: toDisplayMass(p.trendKg, units) }))}
                 />
               </div>
             )}
-            <p className="mt-3 text-xs text-muted">Daily weight moves with water and food, so the trend is a smoothed average, and days you didn&apos;t log are simply left out. It doesn&apos;t show body composition, or predict anything.</p>
+            <p className="mt-3 text-xs text-muted">Daily weight moves with water and food, so the trend is a smoothed average. It lags behind recent changes, so change here can read smaller than it is. Days you didn&apos;t log aren&apos;t counted as zero, and the first entry after a long gap moves the trend further. It doesn&apos;t show body composition, or predict anything.</p>
           </Card>
 
           <SectionTitle>Entries</SectionTitle>
@@ -64,7 +64,7 @@ export default async function WeightPage({ searchParams }: { searchParams: Promi
               <div key={p.date} className="flex items-center justify-between gap-3 px-4 py-3">
                 <span className="min-w-0">
                   <span className="block text-sm font-semibold">{fmtDate(p.date)}</span>
-                  <span className="num text-xs text-muted">Trend {formatMass(p.trendKg, units)}</span>
+                  {trend.length > 1 && <span className="num text-xs text-muted">Trend {formatMass(p.trendKg, units)}</span>}
                 </span>
                 <span className="flex items-center gap-3">
                   <span className="num font-semibold">{formatMass(p.weightKg, units)}</span>

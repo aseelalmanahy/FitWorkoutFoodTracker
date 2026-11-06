@@ -22,7 +22,7 @@ export default async function AccountRestrictedPage() {
         <h1 className="text-3xl font-bold tracking-tight">Your account is restricted</h1>
         <p className="mt-1 text-muted">This app isn&apos;t available with the date of birth on this account. If that date is wrong, you can correct it below. Your data hasn&apos;t been deleted.</p>
       </header>
-      <ProfileForm initial={profileToValues(profile!)} submitLabel="Save changes" redirectTo="/dashboard" />
+      <ProfileForm initial={profileToValues(profile!)} submitLabel="Save changes" redirectTo="/dashboard" hideGoals />
       <Link href="/account" className="mt-4 block text-center text-sm font-semibold text-accent-ink">Download or delete your data</Link>
       <LogoutButton className="mt-3 w-full" />
     </main>

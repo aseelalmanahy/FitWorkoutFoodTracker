@@ -12,6 +12,7 @@ export function GoalCard({ progress, units }: { progress: GoalProgress; units: U
       {copy.headline && <p className="num mt-1 text-xl font-bold">{copy.headline}</p>}
       {copy.detail && <p className="num mt-1 text-sm text-muted">{copy.detail}</p>}
       {copy.note && <p className="mt-1 text-xs text-muted">{copy.note}</p>}
+      {copy.asOf && <p className="mt-1 text-xs text-muted">{copy.asOf}</p>}
       <Link href={copy.link.href} className="mt-2 inline-block text-sm font-medium text-accent-ink">{copy.link.label}</Link>
     </Card>
   );
