@@ -180,6 +180,18 @@ test("a token only does what it was made for", async () => {
   assert.equal(sessionCookie(refusedComplete), undefined);
 });
 
+test("purpose is checked by itself, on rows that no other rule would refuse", async () => {
+  const nobody = emailFor("purposec");
+  const resetRow = await mint("PASSWORD_RESET", nobody); // no user, so nothing else stops it making an account
+  assert.equal((await complete(resetRow, PASSWORD)).status, 400);
+  assert.equal(await users(nobody), 0, "a reset token made no account");
+  const u = await newUser("purposed");
+  const signupRow = await mint("SIGNUP", u.email, { userId: u.user.id }); // a user, so nothing else stops a reset
+  assert.equal((await reset(signupRow, NEW_PASSWORD)).status, 400);
+  assert.equal((await login(u.email, PASSWORD)).status, 200, "a sign-up token changed no password");
+  assert.equal((await login(u.email, NEW_PASSWORD)).status, 401);
+});
+
 test("a made-up or malformed token is refused the same way", async () => {
   const made = Buffer.alloc(32, 7).toString("base64url");
   for (const [label, token] of [["unknown", made], ["too short", "abc"], ["wrong characters", "!".repeat(43)]]) {
@@ -382,13 +394,21 @@ test("S-19: without a reset, an export reads a consistent snapshot, for this per
   assert.ok(!/passwordHash|argon2/.test(res.text));
 });
 
-test("S-21: a row held past the transaction limit: login and reset refuse, change nothing, and recover", async () => {
+test("S-21: a row held past the transaction limit: login and reset refuse, change nothing, and recover", async (t) => {
   const u = await newUser("limit");
   await prisma.session.deleteMany({ where: { userId: u.user.id } });
   const token = await mint("PASSWORD_RESET", u.email, { userId: u.user.id });
   const release = await holdUserRow(u.user.id);
-  const [l, r] = await Promise.all([login(u.email, PASSWORD), reset(token, NEW_PASSWORD)]);
+  const started = Date.now();
+  const settledAt = {};
+  const timed = (name, p) => p.then((res) => { settledAt[name] = Date.now() - started; return res; });
+  const waiting = [timed("login", login(u.email, PASSWORD)), timed("reset", reset(token, NEW_PASSWORD))];
+  await waitForBlocked(2, "login and reset");
+  await sleep(6500); // past Prisma's 5-second transaction limit
+  const stillWaitingAtLimit = Object.keys(settledAt).length === 0;
   await release();
+  const [l, r] = await Promise.all(waiting);
+  t.diagnostic(`S-21: still waiting after 6.5 s: ${stillWaitingAtLimit}. Settled at ${JSON.stringify(settledAt)} ms, statuses login ${l.status}, reset ${r.status}`);
   assert.equal(l.status, 500, "login past the limit");
   assert.equal(r.status, 500, "reset past the limit");
   assert.ok(!/passwordHash|Prisma|\$queryRaw/.test(l.text + r.text), "and says nothing about why");

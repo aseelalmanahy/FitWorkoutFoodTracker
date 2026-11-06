@@ -91,15 +91,22 @@ async function seed({ user, tag }) {
   await target("2026-01-03", { proteinG: null, carbsG: null, fatG: null });
   await target("2026-01-04", { kcal: null, proteinG: null, carbsG: null, fatG: null });
   await addSession(prisma, id);
+  // A pending reset link, and a sign-up link for the same address, which only the address ties to this person.
+  const later = new Date(Date.now() + 3_600_000);
+  const tokenId = () => require("node:crypto").randomBytes(32).toString("hex");
+  await prisma.accountToken.create({ data: { id: tokenId(), purpose: "PASSWORD_RESET", email: user.email, userId: id, expiresAt: later } });
+  await prisma.accountToken.create({ data: { id: tokenId(), purpose: "SIGNUP", email: user.email, expiresAt: later } });
   return { unused, inPlan, inSession, inBoth, inProgress, template, slot, done, open, food };
 }
 
 /** Everything that belongs to this person, by model, through every relation. Each list must be non-empty after seeding. */
 async function ownedIds(id) {
   const ids = async (delegate, where) => (await delegate.findMany({ where, select: { id: true } })).map((r) => r.id);
+  const email = (await prisma.user.findUnique({ where: { id }, select: { email: true } }))?.email;
   return {
     User: [id],
     Session: await ids(prisma.session, { userId: id }),
+    AccountToken: await ids(prisma.accountToken, { OR: [{ userId: id }, ...(email ? [{ email }] : [])] }),
     Profile: (await prisma.profile.findMany({ where: { userId: id }, select: { userId: true } })).map((r) => r.userId),
     Exercise: await ids(prisma.exercise, { userId: id }),
     WorkoutTemplate: await ids(prisma.workoutTemplate, { userId: id }),

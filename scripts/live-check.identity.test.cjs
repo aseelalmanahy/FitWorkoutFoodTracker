@@ -46,7 +46,7 @@ const identityOnly = (status, body, headers) => (_req, res) => send(res, status,
 
 function runLiveCheck(baseUrl) {
   const report = path.join(os.tmpdir(), `lpc-identity-${process.pid}-${Date.now()}.json`);
-  const env = { ...process.env, BASE_URL: baseUrl, DATABASE_URL: DB, REPORT_FILE: report, LIVE_CHECK_USDA_ORACLE: "off", FDC_API_KEY: "", LIVE_CHECK_REQUEST_TIMEOUT_MS: "2000", LIVE_CHECK_CLEANUP_GRACE_MS: "100" };
+  const env = { ...process.env, BASE_URL: baseUrl, DATABASE_URL: DB, REPORT_FILE: report, MAIL_STUB_DIR: path.join(os.tmpdir(), `lpc-identity-mail-${process.pid}`), LIVE_CHECK_USDA_ORACLE: "off", FDC_API_KEY: "", LIVE_CHECK_REQUEST_TIMEOUT_MS: "2000", LIVE_CHECK_CLEANUP_GRACE_MS: "100" };
   delete env.NODE_TEST_CONTEXT;
   return new Promise((resolve) => {
     const child = spawn(process.execPath, [SCRIPT], { env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
