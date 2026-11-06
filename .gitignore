@@ -17,5 +17,8 @@ coverage
 # Live provider check output (scripts/live-provider-check.cjs)
 live-provider-report.json
 
+# Development email, which holds live sign-up and reset links.
+.mail-outbox/
+
 # The production environment file, kept on the server only
 deploy/production.env

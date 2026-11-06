@@ -20,7 +20,7 @@ const SAFE_DATABASE_TLS = new Set(["require", "verify-ca", "verify-full"]);
 const PLACEHOLDER_KEY = /^(demo_key|stub|test|fake|changeme|example)/i;
 
 const AI_SETTINGS = ["ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "LABEL_EXTRACTION_MODEL", "LABEL_EXTRACTION_EFFORT", "MEAL_IDENTIFICATION_MODEL", "MEAL_IDENTIFICATION_EFFORT"];
-const STUB_SETTINGS = ["FDC_BASE_URL", "OFF_BASE_URL", "LABEL_STUB_URL", "STUB_LOG_FILE"];
+const STUB_SETTINGS = ["FDC_BASE_URL", "OFF_BASE_URL", "LABEL_STUB_URL", "STUB_LOG_FILE", "MAIL_STUB_DIR"];
 const TEST_SETTINGS = ["FOOD_RATE_LIMIT_MULTIPLIER", "SAFETY_DB_URL", "SAFETY_DB_CONFIRM", "SAFETY_OTHER_DB_URL", "GUARD_SNAPSHOT_SCOPE", "BASE_URL", "SHOTS_DIR", "SERVER_LOG_FILE", "EXPECT_UNCONFIGURED", "NODE_TEST_CONTEXT"];
 
 function parseDatabaseUrl(raw: string | undefined): URL | null {
@@ -51,6 +51,22 @@ export const registrationIsClosed = (env: Env = process.env) =>
 export function registrationAllowed(email: string, env: Env = process.env): boolean {
   if (!registrationIsClosed(env)) return true;
   return allowlistEntries(env).filter((e) => ALLOWLIST_ENTRY.test(e)).includes(email.trim().toLowerCase());
+}
+
+/** The file stub's folder, for development and designated test databases. A real deployment never has one. */
+export function mailStubDir(env: Env = process.env): string | null {
+  if (env.NODE_ENV === "production" && !isLocalTestServer(env)) return null;
+  return env.MAIL_STUB_DIR || (env.NODE_ENV === "production" ? null : ".mail-outbox");
+}
+
+/**
+ * Where emailed links point. Never from a request header, which anyone can forge. Startup requires APP_ORIGIN on a real
+ * deployment. A development or test server gets a fixed value, as its port varies and nothing real receives this mail.
+ */
+export function accountLinkOrigin(env: Env = process.env): string | null {
+  const origin = (env.APP_ORIGIN ?? "").replace(/\/$/, "");
+  if (origin) return origin;
+  return env.NODE_ENV === "production" && !isLocalTestServer(env) ? null : "http://localhost:3000";
 }
 
 function originProblems(env: Env): ConfigProblem[] {

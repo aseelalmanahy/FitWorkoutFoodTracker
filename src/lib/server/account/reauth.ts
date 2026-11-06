@@ -9,9 +9,10 @@ export const reauthKey = (userId: string) => `reauth:${userId}`;
 
 /**
  * The account's own password, entered for this request. Identity comes only from the session. The
- * attempt counts before the slow check, so parallel requests can't all pass the limit.
+ * attempt counts before the slow check, so parallel requests can't all pass the limit. Returns the hash that was
+ * verified, so a caller changing it can tell if it changed in the meantime.
  */
-export async function requireAccountPassword(userId: string, password: string): Promise<void> {
+export async function requireAccountPassword(userId: string, password: string): Promise<string> {
   const key = reauthKey(userId);
   if (isRateLimited(key)) throw new HttpError(429, "Too many attempts. Try again later.", undefined, { "Retry-After": "900" });
   recordAttempt(key);
@@ -21,6 +22,7 @@ export async function requireAccountPassword(userId: string, password: string): 
     const row = await prisma.user.findUnique({ where: { id: userId }, select: { passwordHash: true } });
     if (!row) throw new HttpError(401, "Not authenticated"); // deleted since the session was read
     if (!(await verifyPassword(row.passwordHash, password))) throw new HttpError(403, "That password isn't right.", { reason: "wrong_password" });
+    return row.passwordHash;
   } finally {
     release();
   }

@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { databaseIdentityProblems, isLocalTestServer, productionConfigProblems, registrationAllowed, registrationIsClosed } from "./production-config";
+import { databaseIdentityProblems, isLocalTestServer, productionConfigProblems, registrationAllowed, registrationIsClosed, accountLinkOrigin, mailStubDir } from "./production-config";
 import { preflightProblems } from "./production-preflight";
 
 // Fake values only. example.invalid is reserved and never resolves.
@@ -55,6 +55,7 @@ describe("each condition refuses alone", () => {
     ["stub-provider", { FDC_BASE_URL: "http://127.0.0.1:1/fdc" }, "USDA stub"],
     ["stub-provider", { OFF_BASE_URL: "http://127.0.0.1:1/off" }, "OFF stub"],
     ["stub-provider", { LABEL_STUB_URL: "http://127.0.0.1:1" }, "label stub"],
+    ["stub-provider", { MAIL_STUB_DIR: "/tmp/outbox" }, "mail stub"],
     ["test-setting", { FOOD_RATE_LIMIT_MULTIPLIER: "100" }, "rate multiplier"],
     ["test-setting", { SAFETY_DB_URL: "x" }, "safety"],
     ["test-server-flag", { FIT_LOCAL_TEST_SERVER: "1" }, "test flag on a real database"],
@@ -169,5 +170,24 @@ describe("registration", () => {
     expect(registrationIsClosed({ ...local, DATABASE_URL: url("u:p@db.example.invalid/fitdb_test") })).toBe(true);
     expect(registrationIsClosed({ ...local, DATABASE_URL: url("u:p@localhost:5432/fit_production") })).toBe(true);
     expect(registrationIsClosed({ ...prod, FIT_TEST_OPEN_REGISTRATION: "1", DATABASE_URL: url("u:p@localhost:5432/fitdb_test") })).toBe(true);
+  });
+});
+
+describe("account email settings", () => {
+  const local = { NODE_ENV: "production", FIT_LOCAL_TEST_SERVER: "1", DATABASE_URL: url("u:p@localhost:5432/fitdb_test") };
+  it("a real production server has no stub, even if one is named", () => {
+    expect(mailStubDir({ ...VALID, NODE_ENV: "production", MAIL_STUB_DIR: "/tmp/outbox" })).toBeNull();
+  });
+  it("development gets a default, and a designated test server only what it asks for", () => {
+    expect(mailStubDir({ NODE_ENV: "development" })).toBe(".mail-outbox");
+    expect(mailStubDir({ NODE_ENV: "development", MAIL_STUB_DIR: "/tmp/outbox" })).toBe("/tmp/outbox");
+    expect(mailStubDir(local)).toBeNull();
+    expect(mailStubDir({ ...local, MAIL_STUB_DIR: "/tmp/outbox" })).toBe("/tmp/outbox");
+  });
+  it("links use APP_ORIGIN, and a real server without it gets none", () => {
+    expect(accountLinkOrigin({ APP_ORIGIN: "https://app.example/" })).toBe("https://app.example");
+    expect(accountLinkOrigin({ NODE_ENV: "production" })).toBeNull();
+    expect(accountLinkOrigin({ NODE_ENV: "development" })).toBe("http://localhost:3000");
+    expect(accountLinkOrigin(local)).toBe("http://localhost:3000");
   });
 });

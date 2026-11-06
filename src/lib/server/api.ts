@@ -120,6 +120,8 @@ export function publicRoute(handler: (req: NextRequest) => Promise<Response | un
 
 /** Credentials fit well within this, even with every password character escaped. */
 export const AUTH_BODY_LIMIT_BYTES = 4096;
+/** For sign-in forms: small, and a body that stalls can't hold a request open. */
+export const AUTH_BODY = { maxBytes: AUTH_BODY_LIMIT_BYTES, timeoutMs: 10_000 };
 const tooLarge = () => new HttpError(413, "Request body is too large");
 
 /**
@@ -159,10 +161,10 @@ export async function readLimitedBytes(req: NextRequest, { maxBytes, timeoutMs }
 /** Far beyond any form in this app. Without a limit, one request could fill the server's memory. */
 export const JSON_BODY_LIMIT_BYTES = 256 * 1024;
 
-export async function parseBody<T extends z.ZodType>(req: NextRequest, schema: T, { maxBytes = JSON_BODY_LIMIT_BYTES }: { maxBytes?: number } = {}): Promise<z.infer<T>> {
+export async function parseBody<T extends z.ZodType>(req: NextRequest, schema: T, { maxBytes = JSON_BODY_LIMIT_BYTES, timeoutMs }: { maxBytes?: number; timeoutMs?: number } = {}): Promise<z.infer<T>> {
   let body: unknown;
   try {
-    body = JSON.parse(new TextDecoder().decode(await readLimitedBytes(req, { maxBytes })));
+    body = JSON.parse(new TextDecoder().decode(await readLimitedBytes(req, { maxBytes, timeoutMs })));
   } catch (err) {
     if (err instanceof HttpError) throw err;
     throw new HttpError(400, "Body must be valid JSON");

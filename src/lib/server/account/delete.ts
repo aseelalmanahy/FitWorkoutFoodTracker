@@ -19,7 +19,7 @@ export async function deleteAccount(userId: string): Promise<boolean> {
   try {
     return await prisma.$transaction(async (tx) => {
       // Waits for a concurrent deletion, and blocks any new row that refers to this user until this ends.
-      const locked = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
+      const locked = await tx.$queryRaw<{ id: string; email: string }[]>`SELECT id, email FROM "User" WHERE id = ${userId} FOR UPDATE`;
       if (!locked.length) return false;
       await tx.workoutSession.deleteMany({ where: { userId } });
       await tx.scheduleSlot.deleteMany({ where: { userId } });
@@ -30,6 +30,9 @@ export async function deleteAccount(userId: string): Promise<boolean> {
       await tx.nutritionTarget.deleteMany({ where: { userId } });
       await tx.profile.deleteMany({ where: { userId } });
       await tx.session.deleteMany({ where: { userId } });
+      await tx.accountToken.deleteMany({ where: { userId } });
+      // A sign-up token has no user, so no cascade reaches it, and it holds the address.
+      await tx.accountToken.deleteMany({ where: { email: locked[0].email } });
       await tx.user.delete({ where: { id: userId } });
       return true;
     }, { maxWait: 10_000, timeout: 120_000 });

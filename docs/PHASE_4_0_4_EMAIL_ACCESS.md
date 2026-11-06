@@ -100,7 +100,7 @@ model User { termsVersion String?  termsAcceptedAt DateTime?  accountTokens Acco
 | Mail bombing | Allowlist, client limit, durable cooldown and caps | Unit, DB suite for restart |
 | Mail scanners, CSRF | GET does nothing, POST carries the token, and the Origin check applies | Unit |
 | Host-header poisoning | No request header reaches a link | Unit, with a forged Host |
-| Allowlist bypass | Checked when the link is issued and again when it's used, in the transaction. The old password field on register is ignored | Unit |
+| Allowlist bypass | Checked when the link is issued and again when it's used, before the password is hashed. The old password field on register is ignored | Unit |
 | Pre-registration hijack | No account until the link is used, and the first password is set by whoever holds the mailbox | Closes S-16 in code |
 | A session surviving reset, **through a login already past its password check** | `createSession` for login and change-password runs in a transaction that holds the user row `FOR SHARE` and compares `passwordHash` with what was verified. Reset and change update that row first, so one always sees the other | Unit for the comparison, **DB suite for the real race** |
 | A second account by parallel redemption of two tokens | The unique email refuses it, and the transaction undoes the token's deletion. Other tokens go after commit, as deleting them inside would deadlock two redemptions | Unit, DB suite |

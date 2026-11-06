@@ -21,8 +21,12 @@ model User {
   passwordHash String
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+  /// Filled from Phase 4.0.5. Null means no acceptance is recorded.
+  termsVersion    String?
+  termsAcceptedAt DateTime?
 
   sessions         Session[]
+  accountTokens    AccountToken[]
   profile          Profile?
   exercises        Exercise[]
   templates        WorkoutTemplate[]
@@ -43,6 +47,30 @@ model Session {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
+}
+
+enum AccountTokenPurpose {
+  SIGNUP
+  PASSWORD_RESET
+}
+
+/// A one-time emailed link. `id` is the SHA-256 hash of the token, like Session, so a database leak
+/// exposes nothing usable. Several can be live for one address, and using one removes the rest.
+model AccountToken {
+  id        String              @id
+  purpose   AccountTokenPurpose
+  /// Normalized. For SIGNUP, it's what the account is created with.
+  email     String
+  /// Null for SIGNUP, as no account exists yet. That's why deletion also removes tokens by address.
+  userId    String?
+  expiresAt DateTime
+  createdAt DateTime            @default(now())
+  user      User?               @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([email, purpose])
+  @@index([userId])
+  @@index([expiresAt])
+  @@index([createdAt])
 }
 
 // ─── Profile ────────────────────────────────────────────────────────────────

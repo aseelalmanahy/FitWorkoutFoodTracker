@@ -1,16 +1,16 @@
-// Registration route with its real throttle. The database and cookie store are in-memory fakes:
-// no database is touched, and no network is used.
+// The registration route's request side, with its real throttle. What happens after the response is in
+// src/lib/server/account/access.test.ts. No database is touched, and no network is used.
 import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { _resetLoginThrottle } from "@/lib/server/login-throttle";
 
-const fakes = vi.hoisted(() => ({ findUnique: vi.fn(), create: vi.fn(), sessionCreate: vi.fn(), cookieSet: vi.fn() }));
-vi.mock("@/lib/server/db", () => ({ prisma: { user: { findUnique: fakes.findUnique, create: fakes.create }, session: { create: fakes.sessionCreate } } }));
-vi.mock("next/headers", () => ({ cookies: async () => ({ set: fakes.cookieSet, get: () => undefined, delete: () => {} }) }));
+const fakes = vi.hoisted(() => ({ request: vi.fn() }));
+vi.mock("@/lib/server/account/access", () => ({ requestSignupLink: fakes.request }));
+vi.mock("@/lib/server/db", () => ({ prisma: {} }));
+vi.mock("next/headers", () => ({ cookies: async () => ({ set: () => {}, get: () => undefined, delete: () => {} }) }));
 
 let POST: (req: NextRequest) => Promise<Response>;
 let run = 0;
-const register = (headers: Record<string, string> = {}, body: unknown = { email: `user${++run}@example.com`, password: "correct horse battery" }) =>
+const register = (headers: Record<string, string> = {}, body: unknown = { email: `user${++run}@example.com` }) =>
   POST(new NextRequest("http://localhost:3000/api/auth/register", {
     method: "POST",
     headers: { "Content-Type": "application/json", Origin: "http://localhost:3000", Host: "localhost:3000", ...headers },
@@ -23,46 +23,37 @@ beforeEach(async () => {
   delete process.env.TRUST_PROXY_HOPS;
   vi.resetModules(); // the registration counters live in the auth module
   ({ POST } = await import("./route"));
-  const throttle = await import("@/lib/server/login-throttle");
-  throttle._resetLoginThrottle();
-  fakes.findUnique.mockReset().mockResolvedValue(null);
-  fakes.create.mockReset().mockImplementation(async ({ data }: { data: { email: string } }) => ({ id: `id-${data.email}`, email: data.email }));
-  fakes.sessionCreate.mockReset().mockResolvedValue({});
-  fakes.cookieSet.mockReset();
+  fakes.request.mockReset();
 });
 
 afterEach(() => {
   vi.useRealTimers();
   delete process.env.TRUST_PROXY_HOPS;
-  _resetLoginThrottle();
 });
 
 describe("registration", () => {
-  it("creates the user with a hashed password and a session", async () => {
-    const r = await register({}, { email: "New.User@Example.com", password: "correct horse battery" });
+  it("asks for a link with the normalized address, and sets no cookie", async () => {
+    const r = await register({}, { email: "New.User@Example.com" });
     expect(r.status).toBe(200);
-    const { data } = fakes.create.mock.calls[0][0];
-    expect(data.email).toBe("new.user@example.com");
-    expect(data.passwordHash).toMatch(/^\$argon2id\$/);
-    expect(fakes.sessionCreate).toHaveBeenCalledTimes(1);
-    expect(fakes.cookieSet.mock.calls[0][0]).toBe("fit_session");
+    expect(await r.json()).toEqual({ ok: true });
+    expect(r.headers.get("set-cookie")).toBeNull();
+    expect(fakes.request).toHaveBeenCalledWith("new.user@example.com");
   });
 
   it("keeps its validation", async () => {
-    expect((await register({}, { email: "not-an-email", password: "correct horse battery" })).status).toBe(400);
-    expect((await register({}, { email: "a@example.com", password: "short" })).status).toBe(400);
-    expect(fakes.create).not.toHaveBeenCalled();
+    expect((await register({}, { email: "not-an-email" })).status).toBe(400);
+    expect((await register({}, {})).status).toBe(400);
+    expect(fakes.request).not.toHaveBeenCalled();
   });
 
-  it("keeps the duplicate-email response", async () => {
-    fakes.findUnique.mockResolvedValue({ id: "existing" });
-    expect((await register()).status).toBe(409);
-    expect(fakes.create).not.toHaveBeenCalled();
+  it("passes on nothing but the address, so a password can't be sent this way", async () => {
+    await register({}, { email: "a@example.com", password: "correct horse battery" });
+    expect(fakes.request.mock.calls).toEqual([["a@example.com"]]);
   });
 
   it("rejects a mismatched Origin", async () => {
     expect((await register({ Origin: "https://evil.example" })).status).toBe(403);
-    expect(fakes.create).not.toHaveBeenCalled();
+    expect(fakes.request).not.toHaveBeenCalled();
   });
 });
 
@@ -72,7 +63,7 @@ describe("forged headers without a trusted proxy", () => {
     for (let i = 0; i < 11; i++) statuses.push((await register({ "X-Forwarded-For": `10.0.0.${i}`, "X-Real-IP": `10.1.0.${i}` })).status);
     expect(statuses.slice(0, 10)).toEqual(Array(10).fill(200));
     expect(statuses[10]).toBe(429);
-    expect(fakes.create).toHaveBeenCalledTimes(10);
+    expect(fakes.request).toHaveBeenCalledTimes(10);
   });
 
   it("an invalid TRUST_PROXY_HOPS is treated as no trusted proxy", async () => {
@@ -104,39 +95,14 @@ describe("with a trusted proxy", () => {
 });
 
 describe("resource limits", () => {
-  it("refuses hashing while every password-check slot is busy, then recovers", async () => {
-    process.env.TRUST_PROXY_HOPS = "1";
-    const throttle = await import("@/lib/server/login-throttle");
-    const held = Array.from({ length: 14 }, () => throttle.acquirePasswordCheck());
-    expect(held.every(Boolean)).toBe(true);
-    const r = await register({ "X-Forwarded-For": "203.0.113.1" });
-    expect(r.status).toBe(429);
-    expect(Number(r.headers.get("Retry-After"))).toBeGreaterThan(0);
-    expect(fakes.create).not.toHaveBeenCalled();
-    held.forEach((release) => release!());
-    expect((await register({ "X-Forwarded-For": "203.0.113.1" })).status).toBe(200);
-  });
-
-  it("releases its slot when hashing's follow-up fails", async () => {
-    const throttle = await import("@/lib/server/login-throttle");
-    fakes.create.mockRejectedValue(new Error("db down"));
-    vi.spyOn(console, "error").mockImplementation(() => {});
-    expect((await register()).status).toBe(500);
-    const held = Array.from({ length: 14 }, () => throttle.acquirePasswordCheck());
-    expect(held.every(Boolean)).toBe(true); // no slot leaked
-    held.forEach((release) => release!());
-    vi.restoreAllMocks();
-  });
-
-  it("refuses an oversized body with 413 before any database read", async () => {
+  it("refuses an oversized body with 413 before anything is queued", async () => {
     const r = await POST(new NextRequest("http://localhost:3000/api/auth/register", {
       method: "POST",
       headers: { "Content-Type": "application/json", Origin: "http://localhost:3000", Host: "localhost:3000" },
       body: JSON.stringify({ email: "a@example.com", password: "x".repeat(5_000_000) }),
     }));
     expect(r.status).toBe(413);
-    expect(fakes.findUnique).not.toHaveBeenCalled();
-    expect(fakes.create).not.toHaveBeenCalled();
+    expect(fakes.request).not.toHaveBeenCalled();
   });
 });
 

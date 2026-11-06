@@ -94,8 +94,12 @@ describe("every API route is classified", () => {
     "app/api/profile/route.ts": "accountRoute",
     "app/api/account/delete/route.ts": "accountRoute",
     "app/api/account/export/route.ts": "accountRoute",
+    "app/api/account/password/route.ts": "accountRoute",
     "app/api/auth/login/route.ts": "publicRoute",
     "app/api/auth/register/route.ts": "publicRoute",
+    "app/api/auth/register/complete/route.ts": "publicRoute",
+    "app/api/auth/password/forgot/route.ts": "publicRoute",
+    "app/api/auth/password/reset/route.ts": "publicRoute",
     "app/api/auth/logout/route.ts": "publicRoute",
     "app/api/health/db-identity/route.ts": "none",
     "app/api/health/route.ts": "none",
@@ -119,7 +123,7 @@ describe("every API route is classified", () => {
   });
   it("accountRoute is used only where named", () => {
     const users = source.filter((f) => read(f).includes("accountRoute(") && !f.endsWith(path.join("server", "api.ts"))).map(rel);
-    expect(users.sort()).toEqual(["app/api/account/delete/route.ts", "app/api/account/export/route.ts", "app/api/profile/route.ts"]);
+    expect(users.sort()).toEqual(["app/api/account/delete/route.ts", "app/api/account/export/route.ts", "app/api/account/password/route.ts", "app/api/profile/route.ts"]);
   });
 });
 

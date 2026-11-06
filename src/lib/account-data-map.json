@@ -1,13 +1,18 @@
 {
   "User": {
     "deletion": "Deleted last, after everything it owns",
-    "export": ["email", "createdAt", "updatedAt"],
+    "export": ["email", "createdAt", "updatedAt", "termsVersion", "termsAcceptedAt"],
     "excluded": { "id": "internal identifier", "passwordHash": "credential" }
   },
   "Session": {
     "deletion": "Own rows deleted, on every device",
     "export": [],
     "excluded": { "id": "session secret, as a hash", "userId": "the owner", "expiresAt": "security metadata", "createdAt": "security metadata" }
+  },
+  "AccountToken": {
+    "deletion": "Own rows deleted, and any sign-up token for the address, which no cascade reaches",
+    "export": [],
+    "excluded": { "id": "token secret, as a hash", "purpose": "security metadata", "email": "the address, already in the export", "userId": "the owner", "expiresAt": "security metadata", "createdAt": "security metadata" }
   },
   "Profile": {
     "deletion": "Own row deleted",

@@ -25,7 +25,7 @@ export async function verifyPassword(stored: string, pw: string): Promise<boolea
 let dummyHash: Promise<string> | null = null;
 export const getDummyHash = () => (dummyHash ??= hashPassword(randomBytes(16).toString("hex")));
 
-const hashToken = (token: string) => createHash("sha256").update(token).digest("hex");
+export const hashToken = (token: string) => createHash("sha256").update(token).digest("hex");
 
 // ─── Known-device cookie ────────────────────────────────────────────────────
 // Lets a browser that logged in before skip the per-account spacing (login-throttle.ts), so an
@@ -64,18 +64,37 @@ export async function setDeviceCookie(user: DeviceUser): Promise<void> {
   });
 }
 
-export async function createSession(userId: string): Promise<void> {
+/** A session's values, for the caller to store in its own transaction. Only the hash goes in the database. */
+export function newSessionRow() {
   const token = randomBytes(32).toString("base64url");
-  const expiresAt = new Date(Date.now() + SESSION_TTL_MS);
-  await prisma.session.create({ data: { id: hashToken(token), userId, expiresAt } });
-  const jar = await cookies();
-  jar.set(SESSION_COOKIE, token, {
+  return { token, id: hashToken(token), expiresAt: new Date(Date.now() + SESSION_TTL_MS) };
+}
+
+export async function setSessionCookie(token: string, expiresAt: Date): Promise<void> {
+  (await cookies()).set(SESSION_COOKIE, token, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
     sameSite: "lax",
     path: "/",
     expires: expiresAt,
   });
+}
+
+/**
+ * After a password check, which is slow. A reset can commit in that time, so the row is held FOR SHARE while the
+ * hash is compared with the one verified, and the session stored. A reset updates that row before deleting sessions,
+ * so it either waits and deletes this one, or this sees the new hash and refuses. Returns false if it changed.
+ */
+export async function createSessionForVerifiedPassword(userId: string, verifiedHash: string): Promise<boolean> {
+  const session = newSessionRow();
+  const stored = await prisma.$transaction(async (tx) => {
+    const rows = await tx.$queryRaw<{ passwordHash: string }[]>`SELECT "passwordHash" FROM "User" WHERE id = ${userId} FOR SHARE`;
+    if (rows[0]?.passwordHash !== verifiedHash) return false;
+    await tx.session.create({ data: { id: session.id, userId, expiresAt: session.expiresAt } });
+    return true;
+  });
+  if (stored) await setSessionCookie(session.token, session.expiresAt);
+  return stored;
 }
 
 export async function destroySession(): Promise<void> {

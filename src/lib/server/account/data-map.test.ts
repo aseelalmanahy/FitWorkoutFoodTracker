@@ -24,6 +24,7 @@ describe("every model and field is classified", () => {
   it("never exports a credential or session", () => {
     expect(map.User.export).not.toContain("passwordHash");
     expect(map.Session.export).toEqual([]);
+    expect(map.AccountToken.export).toEqual([]);
     for (const [name, entry] of Object.entries(map)) expect(entry.export, name).not.toContain("userId");
   });
   it("every relation to a user or a shared parent has a stated deletion rule", () => {
@@ -40,6 +41,11 @@ describe("every model and field is classified", () => {
       const accessor = m[0].toLowerCase() + m.slice(1);
       expect(code, m).toMatch(new RegExp(`tx\\.${accessor}\\.deleteMany\\(\\{ where: \\{ userId \\} \\}\\)`));
     }
+  });
+  it("deletion removes sign-up tokens by address, as they have no user for a cascade to follow", () => {
+    const code = readFileSync(path.join(SRC, "lib/server/account/delete.ts"), "utf8");
+    expect(code).toMatch(/tx\.accountToken\.deleteMany\(\{ where: \{ email: locked\[0\]\.email \} \}\)/);
+    expect(code).toMatch(/SELECT id, email FROM "User"/);
   });
   it("deletion goes through sessions and templates before exercises", () => {
     const code = readFileSync(path.join(SRC, "lib/server/account/delete.ts"), "utf8");

@@ -11,8 +11,14 @@ const fakes = vi.hoisted(() => ({
   sessionCreate: vi.fn(),
   cookieSet: vi.fn(),
   cookies: new Map<string, string>(),
+  /** What the row holds when the session is stored. Differs from what was read only if it changed meanwhile. */
+  storedHash: "",
 }));
-vi.mock("@/lib/server/db", () => ({ prisma: { user: { findUnique: fakes.findUnique }, session: { create: fakes.sessionCreate } } }));
+vi.mock("@/lib/server/db", () => {
+  const session = { create: fakes.sessionCreate };
+  const tx = { $queryRaw: async () => [{ passwordHash: fakes.storedHash }], session };
+  return { prisma: { user: { findUnique: fakes.findUnique }, session, $transaction: (fn: (t: typeof tx) => unknown) => fn(tx) } };
+});
 vi.mock("next/headers", () => ({
   cookies: async () => ({
     set: fakes.cookieSet,
@@ -52,6 +58,7 @@ const rememberDevice = async (ip: string) => {
 };
 
 beforeAll(async () => { passwordHash = await hashPassword(RIGHT); });
+beforeEach(() => { fakes.storedHash = passwordHash; });
 
 beforeEach(() => {
   vi.useFakeTimers({ toFake: ["Date"] });
@@ -76,6 +83,13 @@ afterEach(() => {
 });
 
 describe("credentials and sessions", () => {
+  it("a password changed during the check counts for nothing: no session, no cookie", async () => {
+    fakes.storedHash = "changed by a reset";
+    expect((await login(VICTIM, RIGHT)).status).toBe(401);
+    expect(fakes.sessionCreate).not.toHaveBeenCalled();
+    expect(fakes.cookieSet).not.toHaveBeenCalled();
+  });
+
   it("valid credentials log in and create a server-side session with a secure cookie", async () => {
     const r = await login(VICTIM, RIGHT, from("203.0.113.1"));
     expect(r.status).toBe(200);

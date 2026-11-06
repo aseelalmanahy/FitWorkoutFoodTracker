@@ -6,11 +6,21 @@ export { EQUIPMENT, MUSCLE_GROUPS };
 
 // Shared between client forms and server routes. Server is authoritative.
 
-export const credentialsSchema = z.object({
-  email: z.string().trim().toLowerCase().pipe(z.email("Enter a valid email").max(254)),
-  // NIST SP 800-63B: minimum 8, allow long passphrases.
-  password: z.string().min(8, "Password must be at least 8 characters").max(256),
+const emailField = z.string().trim().toLowerCase().pipe(z.email("Enter a valid email").max(254));
+// NIST SP 800-63B: minimum 8, allow long passphrases.
+const newPasswordField = z.string().min(8, "Password must be at least 8 characters").max(256);
+
+export const credentialsSchema = z.object({ email: emailField, password: newPasswordField });
+
+/** Sign-up and recovery start with an address alone. Anything else sent is dropped. */
+export const emailRequestSchema = z.object({ email: emailField });
+/** 32 random bytes, in base64url. The same message for any malformed one, as it says nothing about real tokens. */
+export const redeemTokenSchema = z.object({
+  token: z.string().regex(/^[A-Za-z0-9_-]{43}$/, "This link isn't valid or has expired. Request a new one."),
+  password: newPasswordField,
 });
+// The current password is length-checked only, as a wrong one has to reach the rate-limited comparison.
+export const changePasswordSchema = z.object({ currentPassword: z.string().min(1).max(256), newPassword: newPasswordField });
 
 const isValidTimeZone = (tz: string) => {
   try {
