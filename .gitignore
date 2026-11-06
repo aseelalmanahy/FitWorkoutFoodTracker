@@ -16,3 +16,6 @@ coverage
 
 # Live provider check output (scripts/live-provider-check.cjs)
 live-provider-report.json
+
+# The production environment file, kept on the server only
+deploy/production.env

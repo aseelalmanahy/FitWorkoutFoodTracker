@@ -28,6 +28,8 @@ const secrets = [...urlSecrets(DB), DB, OTHER];
 const scrub = (s) => { let o = String(s); for (const x of secrets) o = o.split(x).join("<redacted>"); return o.replace(/(postgres(?:ql)?:\/\/)[^@\s]+@/g, "$1***@"); };
 const script = (f) => path.join(ROOT, "scripts", f);
 const nodeTest = (f, ...flags) => ["--test", ...flags, script(f)];
+// A production build refuses all of this unless it's a designated test database on this machine. See production-config.ts.
+const LOCAL_TEST_SERVER = { FIT_LOCAL_TEST_SERVER: "1", FIT_TEST_OPEN_REGISTRATION: "1" };
 const AI_OFF = { ANTHROPIC_API_KEY: "", ANTHROPIC_BASE_URL: "", LABEL_EXTRACTION_MODEL: "", MEAL_IDENTIFICATION_MODEL: "" };
 
 async function withApp(name, { appEnv = {}, stubLog = false }, run) {
@@ -36,7 +38,7 @@ async function withApp(name, { appEnv = {}, stubLog = false }, run) {
   const stub = await startStub(stubLog ? { STUB_LOG_FILE: stubLogFile } : {});
   const port = await freePort();
   const app = spawnNode([NEXT_BIN, "start", "-p", String(port)], {
-    DATABASE_URL: DB, FDC_BASE_URL: `${stub.url}/fdc/v1`, OFF_BASE_URL: `${stub.url}/off`, FDC_API_KEY: "stub", EXPOSE_DB_IDENTITY: "1", ...AI_OFF, ...appEnv,
+    DATABASE_URL: DB, FDC_BASE_URL: `${stub.url}/fdc/v1`, OFF_BASE_URL: `${stub.url}/off`, FDC_API_KEY: "stub", EXPOSE_DB_IDENTITY: "1", ...LOCAL_TEST_SERVER, ...AI_OFF, ...appEnv,
   }, { capture: true });
   const out = fs.createWriteStream(serverLog);
   app.stdout.on("data", (d) => out.write(scrub(d)));
@@ -109,6 +111,13 @@ const SUITES = {
   "profile-migration-verify": () => withApp("profile-migration-verify", {}, ({ url }) => runNode([script("profile-migration-check.cjs"), "verify"], { BASE_URL: url }, 60_000)),
   "account-data": () => withApp("account-data", {}, ({ url }) => runNode(nodeTest("account-data.test.cjs"), { BASE_URL: url }, 590_000)),
   "account-data-e2e": () => withApp("account-data-e2e", {}, ({ url }) => runNode([script("e2e-account-data.cjs")], { BASE_URL: url }, 590_000)),
+  "production-startup": () => runNode(nodeTest("production-startup.test.cjs"), { DATABASE_URL: "" }, 590_000),
+  "production-security": () => {
+    const allowed = `invited${Date.now()}@test.dev`;
+    return withApp("production-security", { appEnv: { FIT_TEST_OPEN_REGISTRATION: "", REGISTRATION_ALLOWLIST: allowed } }, ({ url, serverLog }) => runNode(nodeTest("production-security.test.cjs"), { BASE_URL: url, ALLOWED_EMAIL: allowed, SERVER_LOG_FILE: serverLog }, 300_000));
+  },
+  "production-https": () => withApp("production-https", { appEnv: { APP_ORIGIN: "https://app.example.invalid", TRUST_PROXY_HOPS: "1" } }, ({ url }) => runNode(nodeTest("production-security.test.cjs"), { BASE_URL: url, HTTPS_ORIGIN: "https://app.example.invalid" }, 120_000)),
+  "production-security-e2e": () => withApp("production-security-e2e", { appEnv: { FIT_TEST_OPEN_REGISTRATION: "" } }, ({ url }) => runNode([script("e2e-production-security.cjs")], { BASE_URL: url }, 590_000)),
   "label-scan": e2e("label-scan", "e2e-label-scan.cjs", LABEL),
   "label-pdf": e2e("label-pdf", "e2e-label-pdf.cjs", LABEL),
   meal: e2e("meal", "e2e-meal.cjs", MEAL),

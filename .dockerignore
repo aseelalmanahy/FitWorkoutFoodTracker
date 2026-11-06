@@ -1,0 +1,12 @@
+# Secrets and developer state must never reach an image. Next.js would load a .env file at startup.
+.env
+.env.*
+!.env.example
+.git
+.next
+node_modules
+*.tsbuildinfo
+.claude
+.idea
+docs
+live-provider-report.json

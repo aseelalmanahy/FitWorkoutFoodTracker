@@ -1,17 +1,15 @@
 import type { NextConfig } from "next";
-
-const securityHeaders = [
-  { key: "X-Frame-Options", value: "DENY" },
-  { key: "X-Content-Type-Options", value: "nosniff" },
-  { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
-  { key: "Permissions-Policy", value: "camera=(self), microphone=(), geolocation=()" },
-];
+import { API_HEADERS, BASE_SECURITY_HEADERS } from "./src/lib/security-headers";
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
   serverExternalPackages: ["@node-rs/argon2"],
   async headers() {
-    return [{ source: "/(.*)", headers: securityHeaders }];
+    // The page policy and HSTS are in middleware.ts, as they depend on the request and the running environment.
+    return [
+      { source: "/(.*)", headers: BASE_SECURITY_HEADERS },
+      { source: "/api/(.*)", headers: API_HEADERS },
+    ];
   },
 };
 

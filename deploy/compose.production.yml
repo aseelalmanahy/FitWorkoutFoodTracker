@@ -1,0 +1,86 @@
+# TEMPLATE, not deployed. One app instance behind one proxy, as rate limits are per process (tracker S-02).
+# The database is managed and external, which is the design's recommendation, pending owner decision 5,
+# so there's deliberately no database service, volume or port here.
+#
+#   docker compose -f deploy/compose.production.yml --env-file deploy/production.env up -d
+#   docker compose -f deploy/compose.production.yml --env-file deploy/production.env --profile migrate run --rm migrate
+name: fitworkoutfoodtracker
+
+services:
+  app:
+    build:
+      context: ..
+      target: runner
+    image: fitworkoutfoodtracker:${APP_IMAGE_TAG:?set APP_IMAGE_TAG}
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+      APP_ORIGIN: ${APP_ORIGIN:?set APP_ORIGIN}
+      DATABASE_URL: ${APP_DATABASE_URL:?set APP_DATABASE_URL}
+      TRUST_PROXY_HOPS: "1"
+      REGISTRATION_ALLOWLIST: ${REGISTRATION_ALLOWLIST:-}
+      FDC_API_KEY: ${FDC_API_KEY:-}
+      OFF_CONTACT: ${OFF_CONTACT:-}
+    # Reached only by the proxy. Never published on the host.
+    expose:
+      - "3000"
+    networks: [internal]
+    read_only: true
+    tmpfs:
+      - /tmp
+      - /app/.next/cache
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    mem_limit: 1536m
+    cpus: 1.5
+    pids_limit: 256
+    logging:
+      driver: json-file
+      options:
+        # A size bound only. The log retention period is a legal decision (tracker S-14).
+        max-size: "20m"
+        max-file: "5"
+
+  proxy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      APP_DOMAIN: ${APP_DOMAIN:?set APP_DOMAIN}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks: [internal]
+    mem_limit: 256m
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+  # Runs only when asked for, as a separate step with its own credential, after a backup. See the runbook.
+  migrate:
+    profiles: [migrate]
+    build:
+      context: ..
+      target: migrate
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: ${MIGRATION_DATABASE_URL:?set MIGRATION_DATABASE_URL}
+    networks: [internal]
+    restart: "no"
+
+networks:
+  internal:
+
+volumes:
+  caddy_data:
+  caddy_config:

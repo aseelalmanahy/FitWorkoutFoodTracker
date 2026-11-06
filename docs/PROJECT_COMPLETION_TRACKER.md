@@ -1,6 +1,6 @@
 # Project Completion Tracker
 
-**The single source of truth for what's done and what isn't.** Last updated 2026-11-06, on `main`, after Phase 4.0.2 merged at `b79331d`.
+**The single source of truth for what's done and what isn't.** Last updated 2026-11-06, on `main`, after Phase 4.0.3 merged at `de4607f`.
 
 **Rules:**
 
@@ -23,7 +23,7 @@
 | M-08 | 4.0.1b | Nullable targets, calories-only, stopping a target | COMPLETE for development | Merged at `38c4a37`, and verified on `fitdb_test`, section 3. **The migration is on `fitdb_test` only, so `fitdb` can't run this yet (B-07).** Not for real users on its own |
 | M-09 | 4.0.1c | Profile data minimization | COMPLETE for development | Merged at `899e54c`, and verified on `fitdb_test`, section 3. **The migration is on `fitdb_test` only, so `fitdb` can't run this yet (C-08, B-07).** `safety-no-marker` and `db-guard-scoped` weren't run on the final code (T-14). Not for real users on its own |
 | M-10 | 4.0.2 | Account deletion and export | COMPLETE for development | Merged at `b79331d`, and verified on `fitdb_test`, sections 2b and 3. **Not for real users on its own:** real-device testing (T-15), backup and log retention (S-14) and legal decisions (E-06) stay open. `safety-no-marker` and `db-guard-scoped` weren't run (T-14) |
-| M-11 | 4.0.3 | Production foundation | NOT STARTED | Needs decisions 4, 5 and 14 |
+| M-11 | 4.0.3 | Production foundation | **IN PROGRESS** | Code and templates merged at `de4607f`, section 2c, with the development code independently source-reviewed. **Operational verification is incomplete: nothing is deployed, and no infrastructure exists. Not COMPLETE until the infrastructure items are done.** Needs decisions 4, 5 and 14 |
 | M-12 | 4.0.4 | Email-proven access | NOT STARTED | Needs 4.0.3 and decisions 8, 10, 11. Has a migration |
 | M-13 | 4.0.5 | Notice, acceptance, retention | NOT STARTED | Needs legal review. Shares 4.0.4's migration |
 | M-14 | 4.0.6 | Device testing and beta go/no-go | NOT STARTED | Needs everything above |
@@ -112,8 +112,67 @@
 | Set null | `FoodEntry.food`, `WorkoutSession.template` | Another person's entry would keep its own copy |
 | External assets | **None.** No model holds a file, and nothing in `src/` writes one | Uploads stay in memory for the request |
 | In memory | Login throttle records with the email, and password and age-refusal attempts, are cleared. Upload, label-scan and food-search limiter entries hold an id only, and expire | S-11 |
+## 2c. Phase 4.0.3 detail
+
+**Migration: none.** No schema change. **No infrastructure was created, and nothing was deployed.**
+
+**Merged at `de4607f`, by fast-forward, after independent source review of the development code. That covers the code only.** M-11 stays IN PROGRESS, and every unresolved infrastructure and security blocker stays open, each at the status shown in this tracker.
+
+| ID | Phase | Description | Status | Priority | Dependency | Acceptance Criteria |
+|---|---|---|---|---|---|---|
+| F-01 | 4.0.3 | Startup preflight: `production-config.ts`, `production-preflight.ts`, `instrumentation.ts` | IN PROGRESS | P0 | F-08 | **Verified locally:** every condition refuses alone, in unit tests and the real server. **The successful start is only tested with a stand-in database,** T-16 |
+| F-02 | 4.0.3 | Closed registration | IN PROGRESS | P0 | F-08 | See R-09 |
+| F-03 | 4.0.3 | Headers, a nonce-based CSP, HSTS, API headers, cookies checked, `/api/health`, image validation off while AI is off, Node pin | IN PROGRESS | P0 | F-08 | **Verified locally,** in 3 browsers and by header. **HTTPS itself hasn't been exercised,** T-17 |
+| F-04 | 4.0.3 | Deployment templates and runbook | IN PROGRESS | P0 | Decisions 4, 5, 14 | **Prepared, never run.** Only `docker compose config` was run, offline, and the templates were read by tests |
+| F-05 | 4.0.3 | Backup, recovery and deletion ledger design | IN PROGRESS | P0 | Owner, R-01 | **Design only.** Objectives and periods are proposals |
+| F-06 | 4.0.3 | A real backup, with a timed restore into a named target | BLOCKED | P0 | R-07, authorization for the exact database | Written record of the date, duration and result. Includes T-10 |
+| F-07 | 4.0.3 | Clean `npm ci`, image build, and all suites on Linux | BLOCKED | P0 | A running Docker daemon or a Linux host | Recorded results. Includes whether `next.config.ts` loads without dev dependencies |
+| F-08 | 4.0.3 | Independent review, then the owner's merge approval | NOT STARTED | P0 | ChatGPT review, owner | A specific reviewed commit is approved |
+| F-09 | 4.0.3 | Least-privilege database roles, rehearsed | BLOCKED | P1 | Decision 5 | App and migration both work under `deploy/database-roles.sql`, or it's corrected |
+| F-10 | 4.0.3 | A release and a rollback rehearsed, monitoring and alerts in operation, a named person for patching | BLOCKED | P0 | R-07, owner | Each done once, and written down |
+| F-11 | 4.0.3 | 3 high `npm audit` findings, in `deepmerge-ts` through Prisma. The fix is a breaking move to Prisma 7 | BLOCKED | P1 | Owner decision | Upgraded, or accepted in writing |
+
+**Owner decisions still needed:** 4 (name and domain), 5 (host, database, ceiling), 12 (backup retention), 14 (production data access), the recovery objectives, the deletion ledger including whether deletion may depend on it, and F-11.
 
 ## 3. Tests: run, failed, blocked
+
+### Phase 4.0.3, on `fitdb_test` and with fake settings, with no schema change
+
+| Test | Result | Limit |
+|---|---|---|
+| Authorized regression | **PASSED, 31 of 31 suites** | Includes all form, account, label, meal and hardening suites. Run before one small console-guard correction, after which the affected suites were rerun |
+| After that correction | PASSED | Unit tests 1,507, type check, build, `guard` 51, `production-startup` 17, `production-security` 13, `production-https` 3, `production-security-e2e` in 3 browsers |
+| **`safety-no-marker`, `db-guard-scoped`** | **NOT RUN** | They need `fitdb_test_other`, which isn't authorized, T-14. The first needed a settings change for this phase, **which hasn't been run** |
+| **A real production start** | **BLOCKED** | Needs a database that isn't a test one. The refusals run on the real server, but success only with a stand-in |
+| **Docker build, proxy, TLS, restore, Linux** | **BLOCKED** | No Docker daemon was running, and no infrastructure exists. F-06, F-07, T-16, T-17 |
+
+**Negative controls, final: 42 caught, 0 missed, 0 blocked, 0 not run, and 1 retired, of 43 defined.** Each ran one defect at a time, with every file restored and hash-checked, and each failed on its intended assertion, checked in the logs. **So not 43 of 43.**
+
+| Control | Defect | Fails on |
+|---|---|---|
+| U1 to U14 | Each preflight rule removed | That rule's own named test |
+| U15 | The exemption ignores where the database is | The local test exemption |
+| U16, U17 | A wildcard opens sign-up, or it's open by default | Their named tests |
+| U18, U19 | A test marker ignored, or an unreachable database passes | Their named tests |
+| U20 | A problem message includes the value | Never includes a value |
+| U21 | Prisma's log on in production | Off outside development |
+| **U22** | `logServerError` prints the whole error | `expected 'PrismaClientUnknownRequestError: Inva…' not to contain` the row id. **First reported as missed: a real weakness in the test,** as `JSON.stringify` drops an error's message, so it could never see a leak. The test is corrected |
+| U23, U26 | The console guard does nothing, or misses an ordinary error repeating Prisma's text | The row id reaches the output. U26 covers a gap found in review, now fixed |
+| U24, U25 | CSP allows inline script, or the Node pin drifts | Their named tests |
+| **S1** | The preflight never runs | `the server should have stopped. Served: true`, on 17 of 17 tests. **The first run was only a harness timeout, and didn't count.** The test's wait was cut from 45 to 20 seconds, on a refusal that takes about 3 |
+| **S2** | The preflight doesn't stop the process | The same, on 17 of 17 |
+| S3 | The output prints the database URL | No password in the output |
+| A1 to A5 | Anyone registers, a different answer for existing accounts, no hash on refusal, health reveals the database, no fresh nonce | Their named assertions |
+| **A6** | The nonce doesn't reach the page | `inline script without the nonce`. **First reported as missed:** removing one header changed nothing, as Next.js has another source. The stronger defect removes the request headers and changes the response's nonce |
+| **A8** | Prisma's log on **and** the console guard off | `no row id in the log`. **First reported as missed:** either layer alone hides the other's removal, so this removes both |
+| A9 | Image validation stays on with AI off | `415 !== 404` |
+| H1, H3 | No HSTS, or cookies not Secure | Their named assertions |
+| H2 | Host believed over `APP_ORIGIN` | `a forged forwarded host`. It first failed on a different assertion, so the test's order changed and it was rerun |
+| B1, B2 | The theme script has no nonce, or there's no policy | No violation, and an injected script doesn't run |
+
+**A7, RETIRED, and not counted as passed.** It removed middleware's early redirect for signed-out requests. That had no observable effect, as pages redirect by themselves through `requireUser`. The requirement stays, covered by `signed-out redirects keep their policy` and the existing suites.
+
+**Found by running it:** the nonce's reach, a Zod eval probe the policy now blocks harmlessly, and a Windows WebKit build that won't send a `Secure` cookie over plain `http://localhost`, so **its login can't complete locally,** and it uses a directly set session after the login request (T-15). **A real full login in WebKit hasn't been observed under this policy.**
 
 ### Phase 4.0.2, on `fitdb_test`, with no schema change
 
@@ -281,6 +340,9 @@ So code from before this migration **fails for those people, and never reads a n
 | T-13 | 4.0.1c | Whether `migrate status` and `migrate diff` stay clean after this migration | COMPLETE | P2 | None | Both clean, after real null rows. `migrate dev` not observed |
 | T-14 | 4.0.1c, 4.0.2 | **NOT RUN:** `safety-no-marker` and `db-guard-scoped`, as both connect to `fitdb_test_other`, which wasn't authorized. They last passed before the 4.0.1c migration | BLOCKED | P1 | Owner, to authorize that access | Both pass on the final code, or the owner accepts the gap |
 | T-15 | 4.0.2 | Download and deletion on a real iPhone and Android phone | NOT STARTED | P0 | M-14 | Recorded pass or fail per device, including a file save on iOS |
+| T-16 | 4.0.3 | A real production start: preflight passing, against a database that isn't a test one | BLOCKED | P0 | R-07 | Observed once on the rehearsal server |
+| T-17 | 4.0.3 | The design's forged-header test, TLS, HSTS, body limit and the database's closed port, through the deployed proxy | BLOCKED | P0 | R-07 | Each recorded |
+| T-18 | 4.0.3 | A real page-render failure, showing the console guard works on what Next.js logs itself | NOT STARTED | P2 | None | Only unit-tested so far. Observed once |
 | T-09 | 4.0.1b | **Not run:** dropping a CHECK on a live database, to show T38 then fails. The owner's authorization allowed only the approved migration to change the schema | DEFERRED | P2 | Owner, if wanted | **Partly covered:** NC31a and NC31b catch a removed constraint in the migration's text, T38 shows the live constraints refuse every invalid shape, and D5 and D6 show they stop the app's own bad writes |
 | T-10 | 4.0.1b, 4.0.1c | **Not run:** restoring either `fitdb_test` backup, from before 4.0.1b and 4.0.1c. Only their archive listings were read | NOT STARTED | P2 | Owner, for a restore target | Restored into a separately approved database, with row counts compared to the snapshots |
 
@@ -318,34 +380,37 @@ The merged documents hold **recommendations.** Stage A's authorization covered i
 | R-04 | 4.0.2 | Self-service deletion, including from refusal and restricted screens | IN PROGRESS | P0 | T-15, S-14, E-06 | Merged at `b79331d`. A plain delete was observed to be refused by the foreign key, and the ordered deletion works. **Left before the beta:** real phones, and backup and log retention |
 | R-05 | 4.0.2 | Self-service export | IN PROGRESS | P0 | T-15, E-06 | Merged at `b79331d`, with stopped rows and nulls as null, including cleared profile fields. **Left before the beta:** a real iPhone download, and the export policy decision |
 | R-06 | 4.0.5 | Retention rule for refused and abandoned accounts. Their email and password hash persist until then | BLOCKED | P0 | R-01 | Rule stated in the notice, and applied |
-| R-07 | 4.0.3 | Deployment, HTTPS, one instance, backups with a tested restore | NOT STARTED | P0 | Decisions 4, 5 | Design section 12 |
+| R-07 | 4.0.3 | Deployment, HTTPS, one instance, backups with a tested restore | IN PROGRESS | P0 | Decisions 4, 5, 12, 14 | **Templates only,** never run: `Dockerfile`, `deploy/`, and the two `PHASE_4_0_3` documents. **Left:** everything real, section 2c |
 | R-08 | 4.0.3 | Read-only check that production starts empty. **Currently an untested assumption** | NOT STARTED | P0 | R-07 | Counts recorded, and 4.0.6's reset done. Otherwise return to Decisions 27 and 30 |
-| R-09 | 4.0.3 | Closed registration, by allowlist | NOT STARTED | P0 | R-07 | Non-listed address refused |
+| R-09 | 4.0.3 | Closed registration, by allowlist | IN PROGRESS | P0 | F-08, S-16 | Built, and tested on a local production build. **Not on any deployed server.** Non-listed address refused, with the same answer as an existing account |
 | R-10 | 4.0.4 | Password recovery, change password, email verification | NOT STARTED | P0 | R-07 | Design section 8 |
 | R-11 | 4.0.5 | Privacy notice and terms. None exists | BLOCKED | P0 | R-01 | Matches the data-flow inventory |
 | R-12 | 4.0.6 | Help resource for eating concerns | BLOCKED | P0 | R-02 | Reviewed, and reachable |
 | R-13 | 4.0.6 | Core flows on a real iPhone and Android phone | NOT STARTED | P0 | M-11 to M-13 | Each flow recorded pass or fail |
 | R-14 | 3 | AI spending limit, model choice, cost, prompt injection. AI stays off until done | DEFERRED | P1, if AI is wanted | Decision on Track A | Readiness items 1 to 4 |
-| R-15 | 3 | Readiness items 8 to 15: instances, proxy and TLS, memory on Linux, monitoring, security headers, Node pin, dependency findings, ESLint | NOT STARTED | P0 for beta, except ESLint | M-11 | `PHASE_3_PRODUCTION_READINESS.md` |
+| R-15 | 3 | Readiness items 8 to 15: instances, proxy and TLS, memory on Linux, monitoring, security headers, Node pin, dependency findings, ESLint | IN PROGRESS | P0 for beta, except ESLint | M-11 | **Done locally:** security headers, Node pin. **Prepared, untested:** one instance, proxy and TLS, monitoring plan. **Open:** memory on Linux (S-13), monitoring in operation, 3 high `npm audit` findings needing a Prisma 7 decision (F-11), ESLint |
 
 ## 7. Known bugs and security risks
 
 | ID | Phase | Description | Status | Priority | Dependency | Acceptance Criteria |
 |---|---|---|---|---|---|---|
-| S-01 | 4.0 | `APP_ORIGIN` falls back to request headers, a hazard for reset links | NOT STARTED | P0 | M-11 | Mandatory in production |
+| S-01 | 4.0 | `APP_ORIGIN` falls back to request headers, a hazard for reset links | IN PROGRESS | P0 | F-08 | A production server now refuses to start without an HTTPS `APP_ORIGIN`, tested. The fallback stays for development and the suites. **Left:** review and merge, and a test through a real proxy (T-17) |
 | S-02 | 3 | Rate limits are in memory, per process, and reset on restart | DEFERRED | P1 | One instance at beta | Shared store before scaling |
-| S-03 | 4.0 | Register's 409 and timing reveal whether an email exists | NOT STARTED | P0 | M-12 | Link-first sign-up closes it |
+| S-03 | 4.0 | Register's 409 and timing reveal whether an email exists | IN PROGRESS | P0 | M-12 | **Closed in production mode at `de4607f`:** one 403 and matching timing, tested. A successful sign-up still shows an invited address is unused, S-16. Link-first sign-up closes that. Development keeps the 409 |
 | S-04 | 4.0 | Declared age can be false. Accepted, and never called verification | DEFERRED | P2 | R-01 | Legal confirms |
 | S-05 | 4.0.1 | Legacy `SUGGESTED` rows stay in force, possibly with defective values, until replaced or stopped | DEFERRED | P1 | R-08 | Empty production database |
 | S-06 | 4.0.1 | Legacy zeros can't be told from deliberate ones, and aren't rewritten | DEFERRED | P2 | R-08 | Empty production database |
 | S-07 | 4.0 | `POST .../sets` has no idempotency key, so a lost response could log a set twice | NOT STARTED | P1 | M-14 | Decided in 4.0.6 |
 | S-08 | 4.0 | Light-theme contrast defects, from the design's review | NOT STARTED | P2 | None | Contrast checked, and fixed |
-| S-10 | 4.0.2 | **New.** `db.ts` passes `log: ["error"]`, so Prisma prints its own error text in production, past `safe-log`. A RESTRICT violation printed the row's id and the constraint. It wasn't changed here, as it covers every route | NOT STARTED | P1 | M-11 | Only type and code logged in production, with a test |
+| S-10 | 4.0.2, 4.0.3 | `db.ts` passed `log: ["error"]`, so Prisma printed its own error text in production, past `safe-log`. A RESTRICT violation printed the row's id and the constraint | IN PROGRESS | P1 | F-08 | **Fixed on this branch:** Prisma's log is off outside development, and a console guard covers what Next.js logs itself. Verified by unit tests and live on a local production build, controls U21 to U23, U26 and A8. **Left:** review and merge, and a real page-render failure, which wasn't triggered (T-18) |
 | S-11 | 4.0.2 | **New.** After a deletion, upload, label-scan and food-search limiters keep the user id in memory until they expire, up to 24 hours. An id only, with no name or email | DEFERRED | P3 | None | Accepted, or cleared with them |
 | S-12 | 4.0.2 | **New.** If another person's plan or session ever referred to someone's custom exercise, that person couldn't delete their account: they get 409, and nothing changes. The API refuses such references, so only direct database writes could make one | DEFERRED | P2 | None | Accepted, or a support path once one exists |
-| S-13 | 4.0.2 | **New.** An export is held in memory, up to 128 MiB, with 2 at once per process. 250,000 rows is judgement. Memory on the real server hasn't been measured | NOT STARTED | P2 | M-11, R-15 | Measured on the deployed instance |
-| S-14 | 4.0.2 | **New.** Deletion can't reach backups or logs, and no list exists to re-apply deletions after a restore. No written policy yet | BLOCKED | P0 | R-01, R-07 | Policy stated in the notice, and the list exists |
+| S-13 | 4.0.2, 4.0.3 | An export is held in memory, up to 128 MiB, with 2 at once per process. 250,000 rows is judgement | IN PROGRESS | P2 | M-11, R-15 | **Measured locally:** 249,000 rows, 82 MiB, peak about 700 MB, on Windows. So two at once approach the 1.5 GB limit. **Left: measurement on the deployed Linux instance** |
+| S-14 | 4.0.2, 4.0.3 | Deletion can't reach backups or logs. **A restore can bring deleted accounts back,** with their old password working. No written policy yet | BLOCKED | P0 | R-01, R-07, Decision 12, owner approval of F-05 | **A design only,** `PHASE_4_0_3_BACKUP_RECOVERY.md`: an HMAC ledger outside the database and its backups, written in two steps. **Not built, and not operational.** Needs storage, a key and a real restore test |
 | S-15 | 4.0.2 | **New.** A deletion leaves no record, as anything kept would identify the person. So nothing can show that it happened | DEFERRED | P2 | R-01 | Legal says whether a record is needed |
+| S-16 | 4.0.3 | **New.** Until 4.0.4's email proof, anyone who guesses an invited, unused address can claim it, with a password of their own | DEFERRED | P0 | M-12 | Link-first sign-up. Until then, a small list, added just before inviting and removed once used |
+| S-17 | 4.0.3 | **New.** A restart resets in-memory password limits, and a database outage at startup causes a restart loop, so an outage could also reset them | DEFERRED | P2 | S-02 | A shared store, or accepted for the beta |
+| S-18 | 4.0.3 | **New.** No CSP report endpoint exists, so a violation for a real person goes unseen. `next dev` isn't checked by the preflight, so it must never serve real traffic | DEFERRED | P3 | None | Decided at 4.0.6 |
 | S-09 | 4.0.1 | Raw field names reach people in forms other than profile and targets (`client/api.ts`) | DEFERRED | P2 | None | Fixed copy per form |
 
 ## 8. Technical debt
@@ -364,6 +429,8 @@ The merged documents hold **recommendations.** Stage A's authorization covered i
 | TD-11 | 4.0.1c | Every profile save overwrites the stored time zone with the browser's. Existing behaviour, not changed here | DEFERRED | P3 | None | Decide whether it should only follow a choice |
 | TD-12 | 4.0.1c | A cleared detail can't be entered again from the app, as nothing asks for unset ones (Annex H4) | DEFERRED | P3 | M-15 | 4.1 adds what it reads, including a state for no goal |
 | TD-14 | 4.0.2 | `account-data` leaves one shared food row in `fitdb_test` per run, as shared rows must outlive the deletions it tests | DEFERRED | P3 | None | Test database only |
+| TD-15 | 4.0.3 | Every page now renders per request, as the nonce must be fresh, so pages that were static no longer are. Effect on the server unmeasured | DEFERRED | P3 | R-15 | Measured with S-13 |
+| TD-16 | 4.0.3 | No `__Host-` cookie prefix, as the suites run over plain HTTP | DEFERRED | P3 | None | Considered with 4.0.4's auth work |
 | TD-13 | Docs | `ARCHITECTURE.md`'s Profile summary doesn't say these fields are nullable | NOT STARTED | P3 | Merge of 4.0.1c | Updated |
 | TD-08 | Tests | `npm run test:e2e` and `test:api` cover only some suites. `test:suites` is the complete run | DEFERRED | P3 | None | Named clearly in the README |
 
