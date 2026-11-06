@@ -31,10 +31,16 @@ export function PasswordForm({ endpoint, doneUrl, heading, button, note, retryHr
   const [busy, setBusy] = useState(false);
 
   useEffect(() => {
-    const match = TOKEN_HASH.exec(window.location.hash);
-    if (match) setToken(match[1]);
-    if (window.location.hash) window.history.replaceState(null, "", window.location.pathname);
+    const readFragment = () => {
+      const match = TOKEN_HASH.exec(window.location.hash);
+      if (match) setToken(match[1]);
+      if (window.location.hash) window.history.replaceState(null, "", window.location.pathname);
+    };
+    readFragment();
     setReady(true);
+    // A link opened in a tab already on this page doesn't reload it, and must not leave the token in the address bar.
+    window.addEventListener("hashchange", readFragment);
+    return () => window.removeEventListener("hashchange", readFragment);
   }, []);
 
   async function onSubmit(e: React.FormEvent<HTMLFormElement>) {
