@@ -164,7 +164,7 @@ async function inBrowser(name) {
     await page.getByText("Targets are optional, and you can track food without one.").waitFor();
 
     puts.length = 0;
-    await calories.fill("2000"); // so the only thing wrong is the blank macros
+    // Calories stay blank: they're the one required value. 4.0.1b lets macros be blank.
     await page.getByRole("button", { name: "Save targets" }).click();
     await page.getByText(/Enter each target as a plain number|Saved\. New targets/).waitFor();
     assert.deepEqual(puts, [], "T30: blank sends nothing");

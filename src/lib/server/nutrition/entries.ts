@@ -5,7 +5,7 @@ import { HttpError, notFound } from "../api";
 import { idempotencyConflict, idempotentId, isUniqueViolation } from "../idempotency";
 import { dec, getLoggableFood, getVisibleFood, isTrustedFood, per100Of, toNum } from "../foods/service";
 import {
-  addDays, dateRange, entryNutrients, MAX_ENTRY_AMOUNT, fromIsoDate, MEAL_TYPES, progress, remaining, round, sumNutrients, summarizePeriod,
+  addDays, dateRange, entryNutrients, macroAgainstTarget, MAX_ENTRY_AMOUNT, fromIsoDate, MEAL_TYPES, progress, remaining, round, sumNutrients, summarizePeriod,
   targetForDate, toIsoDate, type DaySummary, type MealType, type Nutrients,
 } from "@/lib/nutrition";
 import { getTargets, localToday } from "./targets";
@@ -181,9 +181,9 @@ export async function daySummary(userId: string, profile: Profile, date: string)
     calories: target ? { ...remaining(target.kcal, totals.kcal), ...progress(totals.kcal, target.kcal) } : null,
     macros: target
       ? {
-          protein: { target: target.proteinG, ...remaining(target.proteinG, totals.protein), ...progress(totals.protein, target.proteinG) },
-          carbs: { target: target.carbsG, ...remaining(target.carbsG, totals.carbs), ...progress(totals.carbs, target.carbsG) },
-          fat: { target: target.fatG, ...remaining(target.fatG, totals.fat), ...progress(totals.fat, target.fatG) },
+          protein: macroAgainstTarget(target.proteinG, totals.protein),
+          carbs: macroAgainstTarget(target.carbsG, totals.carbs),
+          fat: macroAgainstTarget(target.fatG, totals.fat),
         }
       : null,
   };

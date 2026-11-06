@@ -1032,11 +1032,13 @@ test("T29: earlier rows survive reads, a profile edit and a save, and past days 
   assert.equal((await on(today())).kcal, 1900);
 });
 
-test("T30: omitted macros are refused, and never become 0", async () => {
+test("T30: omitted macros and a null kcal are refused, and never become 0", async () => {
   const { c, user } = await newUser("t30");
   assert.equal((await c.put("/api/nutrition/targets", { kcal: 2000 })).status, 400);
   assert.equal((await c.put("/api/nutrition/targets", { kcal: 2000, proteinG: 100 })).status, 400);
-  assert.equal((await c.put("/api/nutrition/targets", { kcal: 2000, proteinG: null, fatG: null })).status, 400, "nullable macros are 4.0.1b");
+  assert.equal((await c.put("/api/nutrition/targets", { kcal: 2000, fatG: null })).status, 400, "the key has to be sent, even as null");
+  assert.equal((await c.put("/api/nutrition/targets", { kcal: null, proteinG: null, fatG: null })).status, 400, "stopping has its own route");
+  assert.equal((await c.put("/api/nutrition/targets", { proteinG: 100, fatG: 50 })).status, 400);
   assert.equal(await prisma.nutritionTarget.count({ where: { userId: user.id } }), 0);
 });
 
@@ -1046,4 +1048,49 @@ test("existing workouts still work for an eligible person", async () => {
   assert.equal((await c.get("/api/templates")).status, 200);
   assert.equal((await c.get("/api/schedule")).status, 200);
   assert.equal((await c.get("/api/sessions")).status, 200);
+});
+
+// ─── Phase 4.0.1b, needing no null column. The rest is in nutrition-targets.test.cjs ───
+test("T41: explicit zero stays zero, as the person's own value", async () => {
+  const { c, user } = await newUser("zero");
+  const r = await c.put("/api/nutrition/targets", { kcal: 2000, proteinG: 0, fatG: 0 });
+  assert.equal(r.status, 200);
+  assert.deepEqual([r.body.target.proteinG, r.body.target.carbsG, r.body.target.fatG], [0, 500, 0]);
+  const rows = await targetRows(user.id);
+  assert.deepEqual([rows[0].proteinG, rows[0].carbsG, rows[0].fatG], [0, 500, 0]);
+  const m = (await c.get(`/api/nutrition/day?date=${today()}`)).body.macros;
+  assert.deepEqual([m.protein.target, m.fat.target], [0, 0], "a target of 0 is still a target");
+});
+
+test("T40: stopping with no target writes nothing, and repeating it is harmless", async () => {
+  const { c, user } = await newUser("stopnone");
+  for (let i = 0; i < 2; i++) {
+    const r = await c.post("/api/nutrition/targets/stop");
+    assert.equal(r.status, 200);
+    assert.deepEqual(r.body, { stopped: false });
+  }
+  assert.equal(await prisma.nutritionTarget.count({ where: { userId: user.id } }), 0);
+});
+
+test("the stop route keeps sign-in, the Origin check and the access gate", async () => {
+  assert.equal((await anon.post("/api/nutrition/targets/stop")).status, 401);
+  const { c, user } = await newUser("stopauth");
+  await prisma.nutritionTarget.create({ data: { userId: user.id, effectiveFrom: dbDate(addDays(today(), -3)), kcal: 2000, proteinG: 100, carbsG: 275, fatG: 50, source: "MANUAL" } });
+  const before = await targetRows(user.id);
+  assert.equal((await c.call("POST", "/api/nutrition/targets/stop", undefined, { Origin: "https://evil.example" })).status, 403);
+  assert.equal((await c.get("/api/nutrition/targets/stop")).status, 405, "reading can't stop a target");
+  assert.deepEqual(await targetRows(user.id), before);
+  const none = await newUser("stopnp", { withProfile: false });
+  assert.equal((await none.c.post("/api/nutrition/targets/stop")).status, 409);
+  const restricted = await restrictedUser("stopr");
+  assert.equal((await restricted.c.post("/api/nutrition/targets/stop")).status, 403);
+});
+
+test("a legacy automatic row keeps its label and values through the new readers", async () => {
+  const { c, user } = await newUser("legacyread");
+  await prisma.nutritionTarget.create({ data: { userId: user.id, effectiveFrom: dbDate(addDays(today(), -2)), kcal: 1110, proteinG: 80, carbsG: 100, fatG: 20, source: "SUGGESTED" } });
+  const g = (await c.get("/api/nutrition/targets")).body;
+  assert.deepEqual([g.current.kcal, g.current.proteinG, g.current.carbsG, g.current.fatG, g.current.source], [1110, 80, 100, 20, "SUGGESTED"]);
+  const d = (await c.get(`/api/nutrition/day?date=${today()}`)).body;
+  assert.equal(d.macros.carbs.target, 100);
 });

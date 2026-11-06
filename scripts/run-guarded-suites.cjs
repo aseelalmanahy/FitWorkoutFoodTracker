@@ -83,6 +83,8 @@ async function withoutMarkerWrite(run) {
   return result;
 }
 
+// Only when asked for by name: these bracket applying a migration, which needs the owner's approval.
+const ON_DEMAND = new Set(["migration-snapshot", "migration-verify"]);
 const SUITES = {
   guard: () => runNode(nodeTest("test-target-guard.test.cjs"), { DATABASE_URL: "" }, 300_000),
   "guard-browser": () => runNode(nodeTest("test-target-guard.browser.test.cjs"), { DATABASE_URL: "" }, 300_000),
@@ -96,6 +98,10 @@ const SUITES = {
   "e2e-smoke": () => withApp("e2e-smoke", { appEnv: MANY }, ({ url }) => runNode([script("e2e-smoke.cjs")], { BASE_URL: url, SHOTS_DIR: LOGS }, 300_000)),
   "e2e-nutrition": () => withApp("e2e-nutrition", { appEnv: MANY }, ({ url }) => runNode([script("e2e-nutrition.cjs")], { BASE_URL: url, SHOTS_DIR: LOGS }, 300_000)),
   eligibility: () => withApp("eligibility", { appEnv: MANY }, ({ url }) => runNode([script("e2e-eligibility.cjs")], { BASE_URL: url, SHOTS_DIR: LOGS }, 590_000)),
+  "nutrition-targets": () => withApp("nutrition-targets", { appEnv: MANY }, ({ url }) => runNode(nodeTest("nutrition-targets.test.cjs"), { BASE_URL: url }, 300_000)),
+  "nutrition-targets-e2e": () => withApp("nutrition-targets-e2e", { appEnv: MANY }, ({ url }) => runNode([script("e2e-nutrition-targets.cjs")], { BASE_URL: url }, 590_000)),
+  "migration-snapshot": () => withApp("migration-snapshot", {}, ({ url }) => runNode([script("nutrition-target-migration-check.cjs"), "snapshot"], { BASE_URL: url }, 60_000)),
+  "migration-verify": () => withApp("migration-verify", {}, ({ url }) => runNode([script("nutrition-target-migration-check.cjs"), "verify"], { BASE_URL: url }, 60_000)),
   "label-scan": e2e("label-scan", "e2e-label-scan.cjs", LABEL),
   "label-pdf": e2e("label-pdf", "e2e-label-pdf.cjs", LABEL),
   meal: e2e("meal", "e2e-meal.cjs", MEAL),
@@ -123,7 +129,7 @@ function report(name, r, ms) {
   const unknown = asked.filter((n) => !SUITES[n]);
   if (unknown.length) throw new Error(`unknown suite: ${unknown.join(", ")}. Known: ${Object.keys(SUITES).join(", ")}`);
   let ok = true;
-  for (const name of asked.length ? asked : Object.keys(SUITES)) {
+  for (const name of asked.length ? asked : Object.keys(SUITES).filter((n) => !ON_DEMAND.has(n))) {
     const t0 = Date.now();
     try { ok = report(name, await SUITES[name](), Date.now() - t0) && ok; } catch (e) {
       ok = false;

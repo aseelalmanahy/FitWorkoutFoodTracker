@@ -29,8 +29,17 @@ describe("nutritionTargetSchema", () => {
     for (const kcal of [800, 8000]) expect(nutritionTargetSchema.safeParse({ kcal, proteinG: 0, fatG: 0 }).success).toBe(true);
     for (const kcal of [799, 8001]) expect(nutritionTargetSchema.safeParse({ kcal, proteinG: 0, fatG: 0 }).success).toBe(false);
   });
-  it("T30: a missing macro is refused, and never becomes 0", () => {
+  it("T30: an omitted macro key is refused, and never becomes 0", () => {
     expect(nutritionTargetSchema.safeParse({ kcal: 2000, proteinG: 100 }).success).toBe(false);
     expect(nutritionTargetSchema.safeParse({ kcal: 2000, fatG: 50 }).success).toBe(false);
+    expect(nutritionTargetSchema.safeParse({ kcal: 2000 }).success).toBe(false);
+  });
+  it("T41: null means not set, and zero stays zero", () => {
+    expect(nutritionTargetSchema.parse({ kcal: 2000, proteinG: null, fatG: null })).toEqual({ kcal: 2000, proteinG: null, fatG: null });
+    expect(nutritionTargetSchema.parse({ kcal: 2000, proteinG: 0, fatG: null })).toEqual({ kcal: 2000, proteinG: 0, fatG: null });
+  });
+  it("T41: calories can't be null, so a form or client bug can't stop a target", () => {
+    expect(nutritionTargetSchema.safeParse({ kcal: null, proteinG: null, fatG: null }).success).toBe(false);
+    expect(nutritionTargetSchema.safeParse({ proteinG: null, fatG: null }).success).toBe(false);
   });
 });

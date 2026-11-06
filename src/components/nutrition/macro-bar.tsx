@@ -1,7 +1,7 @@
 import { cx } from "@/components/ui";
 import { fmtG, fmtKcal } from "@/lib/nutrition";
 
-/** Consumed vs target. The bar is capped at 100 %; exceeding it is stated in neutral colour. With no target: text only. */
+/** Consumed vs target. The bar is capped at 100 %; exceeding it is stated in neutral colour. With no target: text only, never a 0. */
 export function MacroBar({ label, consumed, target, unit = "g", incomplete, color = "bg-accent" }: {
   label: string; consumed: number; target: number | null; unit?: "g" | "kcal"; incomplete?: boolean; color?: string;
 }) {
@@ -14,7 +14,7 @@ export function MacroBar({ label, consumed, target, unit = "g", incomplete, colo
         <span className="font-medium">{label}</span>
         <span className="num text-muted">
           <span className="font-semibold text-fg">{fmt(consumed)}</span>
-          {target != null && <> / {fmt(target)}</>} {unit}
+          {target != null && <> / {fmt(target)}</>} {unit}{target == null && <span className="font-normal"> · Not set</span>}
           {incomplete && <span title="Some foods don't report this nutrient" className="ml-1 text-xs">*</span>}
         </span>
       </div>

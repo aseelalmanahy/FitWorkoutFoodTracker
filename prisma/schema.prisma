@@ -383,14 +383,18 @@ model FoodEntry {
 
 /// Effective-dated targets. The target for date D is the row with the latest
 /// effectiveFrom <= D, so changing a target never rewrites past days.
+/// A null macro means "not set", and zero stays zero. A null kcal means "no target from this date":
+/// the person stopped using one, and every macro is null too.
+/// The migration adds two CHECK constraints this file can't express: NutritionTarget_stop_shape and
+/// NutritionTarget_carbs_derived. Carbs are stored only when protein and fat both are.
 model NutritionTarget {
   id            String       @id @default(cuid())
   userId        String
   effectiveFrom DateTime     @db.Date
-  kcal          Int
-  proteinG      Int
-  carbsG        Int
-  fatG          Int
+  kcal          Int?
+  proteinG      Int?
+  carbsG        Int?
+  fatG          Int?
   source        TargetSource
   createdAt     DateTime     @default(now())
   updatedAt     DateTime     @updatedAt

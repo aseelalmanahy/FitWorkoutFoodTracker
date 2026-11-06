@@ -23,8 +23,8 @@ plan for Phases 2–4 are in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
 
 ## Phase 2 features
 
-- **Targets:** optional, and always your own: the app never suggests or creates one. Older automatic rows are labelled "Set automatically earlier".
-  Carbohydrate is calculated from the remaining energy, so 4P + 4C + 9F always matches the calorie target. Targets are effective-dated: changing them never alters past days.
+- **Targets:** optional, and always your own: the app never suggests or creates one. Older automatic rows are labelled "Set automatically earlier". Calories alone are enough, and any macro left blank reads "Not set". Stopping a target keeps past targets and the food log.
+  With protein and fat both set, carbohydrate is calculated from the remaining energy, so 4P + 4C + 9F matches the calorie target. Targets are effective-dated: changing them never alters past days.
   Manual targets are never overwritten by profile changes.
 - **Food search:** your custom foods, **USDA FoodData Central** (generic foods) and **Open Food Facts** (packaged foods), searched in parallel.
   Results show per-100 g/ml values and serving sizes. Missing values are shown as "—" and are never assumed to be 0. An 8–14 digit query does a barcode lookup.

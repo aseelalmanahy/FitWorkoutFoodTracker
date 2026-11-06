@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   addDays, carbsFromRemainder, entryNutrients, isIsoDate, macroKcal, mondayOf, progress, remaining,
-  scaleNutrients, sumNutrients, summarizePeriod, targetForDate, type DaySummary, type Nutrients,
+  fmtMacroTarget, macroAgainstTarget, scaleNutrients, sumNutrients, summarizePeriod, targetForDate, type DaySummary, type Nutrients,
 } from "./nutrition";
 
 const per100: Nutrients = { kcal: 200, protein: 10, carbs: 25, fat: 7.5, fiber: null };
@@ -60,6 +60,17 @@ describe("macro targets", () => {
   });
 });
 
+describe("null macro targets", () => {
+  it("NC30: not set compares with nothing, and is never treated as 0", () => {
+    expect(macroAgainstTarget(null, 50)).toBeNull();
+    expect(fmtMacroTarget(null)).toBe("Not set");
+  });
+  it("zero is a real target", () => {
+    expect(macroAgainstTarget(0, 50)).toMatchObject({ target: 0, over: 50, remaining: 0 });
+    expect(fmtMacroTarget(0)).toBe("0 g");
+  });
+});
+
 describe("targets by date", () => {
   const targets = [
     { effectiveFrom: "2026-10-01", kcal: 2400 },
@@ -72,6 +83,17 @@ describe("targets by date", () => {
   });
   it("returns null before the first target", () => {
     expect(targetForDate(targets, "2026-09-30")).toBeNull();
+  });
+  it("NC29: a stopped row means no target from its date, and earlier days keep theirs", () => {
+    const rows = [...targets, { effectiveFrom: "2026-11-01", kcal: null }];
+    expect(targetForDate(rows, "2026-10-31")?.kcal).toBe(2200);
+    expect(targetForDate(rows, "2026-11-01")).toBeNull();
+    expect(targetForDate(rows, "2026-12-01")).toBeNull();
+  });
+  it("a new target after a stop takes over", () => {
+    const rows = [...targets, { effectiveFrom: "2026-11-01", kcal: null }, { effectiveFrom: "2026-11-10", kcal: 1900 }];
+    expect(targetForDate(rows, "2026-11-05")).toBeNull();
+    expect(targetForDate(rows, "2026-11-10")?.kcal).toBe(1900);
   });
 });
 
@@ -93,7 +115,7 @@ describe("calendar dates", () => {
 });
 
 describe("period summary", () => {
-  const T = (kcal: number, proteinG: number) => ({ effectiveFrom: "2026-01-01", kcal, proteinG, carbsG: 0, fatG: 0, source: "MANUAL" as const });
+  const T = (kcal: number, proteinG: number | null) => ({ effectiveFrom: "2026-01-01", kcal, proteinG, carbsG: 0, fatG: 0, source: "MANUAL" as const });
   const day = (date: string, kcal: number, protein: number, entries = 1, target = T(2000, 150)): DaySummary => ({
     date, entries, target, totals: { kcal, protein, carbs: 0, fat: 0, fiber: 0, incomplete: [] },
   });
@@ -151,5 +173,18 @@ describe("plausibility limits", () => {
   });
   it("rejects negative values", () => {
     expect(implausibleNutrients({ kcal: -1, protein: null, carbs: null, fat: null, fiber: null }, "G")).toEqual(["kcal"]);
+  });
+});
+
+describe("summarizePeriod with a macro not set", () => {
+  const day = (date: string, protein: number, proteinG: number | null): DaySummary => ({
+    date, entries: 1, totals: { kcal: 2000, protein, carbs: 0, fat: 0, fiber: 0, incomplete: [] },
+    target: { effectiveFrom: "2026-01-01", kcal: 2000, proteinG, carbsG: null, fatG: null, source: "MANUAL" },
+  });
+  it("leaves days with no protein target out of protein consistency, and keeps their calories", () => {
+    const s = summarizePeriod([day("2026-01-02", 90, null), day("2026-01-03", 90, 100), day("2026-01-04", 50, 100)]);
+    expect(s.proteinDaysWithTarget).toBe(2);
+    expect(s.proteinOnTargetDays).toBe(1);
+    expect(s.avgTargetKcal).toBe(2000);
   });
 });

@@ -108,23 +108,41 @@ export function mondayOf(s: string): string {
 
 // ─── Targets ────────────────────────────────────────────────────────────────
 
-export interface DatedTarget {
+/** A stored row. A null kcal means the person stopped using a target from this date. */
+export interface TargetRow {
   effectiveFrom: string;
-  kcal: number;
-  proteinG: number;
-  carbsG: number;
-  fatG: number;
+  kcal: number | null;
+  /** Null means "not set", and never 0. */
+  proteinG: number | null;
+  carbsG: number | null;
+  fatG: number | null;
   source: "SUGGESTED" | "MANUAL";
 }
 
-/** The target in force on `date`: latest effectiveFrom <= date. */
-export function targetForDate<T extends { effectiveFrom: string }>(targets: T[], date: string): T | null {
+/** A target actually in force: it always has calories, and any macro may be "not set". */
+export interface DatedTarget extends TargetRow {
+  kcal: number;
+}
+
+/**
+ * The target in force on `date`: latest effectiveFrom <= date. A stopped row wins like any other and
+ * means no target, so every caller's existing no-target handling covers stopped days.
+ */
+export function targetForDate<T extends { effectiveFrom: string; kcal: number | null }>(targets: T[], date: string): (T & { kcal: number }) | null {
   let best: T | null = null;
   for (const t of targets) {
     if (t.effectiveFrom <= date && (!best || t.effectiveFrom > best.effectiveFrom)) best = t;
   }
-  return best;
+  return best && best.kcal !== null ? (best as T & { kcal: number }) : null;
 }
+
+/** Comparison for one macro. Null when it isn't set, which is different from a target of 0. */
+export function macroAgainstTarget(target: number | null, consumed: number) {
+  return target === null ? null : { target, ...remaining(target, consumed), ...progress(consumed, target) };
+}
+
+/** How a macro target reads anywhere it's shown. A null is never displayed as 0. */
+export const fmtMacroTarget = (grams: number | null) => (grams === null ? "Not set" : `${grams} g`);
 
 /**
  * Carbohydrate grams from an energy target after protein and fat.
@@ -161,14 +179,14 @@ export const PROTEIN_ON_TARGET_THRESHOLD = 0.9;
 export function summarizePeriod(days: DaySummary[]): PeriodSummary {
   const logged = days.filter((d) => d.entries > 0);
   const avgOf = (k: "kcal" | "protein" | "carbs" | "fat") => round(logged.reduce((s, d) => s + d.totals[k], 0) / logged.length, 1);
-  const withTarget = logged.filter((d) => d.target && d.target.proteinG > 0);
+  const withTarget = logged.filter((d) => d.target && d.target.proteinG !== null && d.target.proteinG > 0);
   const targeted = logged.filter((d) => d.target);
   return {
     days: days.length,
     daysLogged: logged.length,
     avg: logged.length ? { kcal: avgOf("kcal"), protein: avgOf("protein"), carbs: avgOf("carbs"), fat: avgOf("fat") } : null,
     avgTargetKcal: targeted.length ? Math.round(targeted.reduce((s, d) => s + d.target!.kcal, 0) / targeted.length) : null,
-    proteinOnTargetDays: withTarget.filter((d) => d.totals.protein >= PROTEIN_ON_TARGET_THRESHOLD * d.target!.proteinG).length,
+    proteinOnTargetDays: withTarget.filter((d) => d.totals.protein >= PROTEIN_ON_TARGET_THRESHOLD * d.target!.proteinG!).length,
     proteinDaysWithTarget: withTarget.length,
   };
 }

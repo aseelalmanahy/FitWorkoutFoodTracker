@@ -62,8 +62,8 @@ export default async function NutritionHistoryPage({ searchParams }: { searchPar
       <Card className="divide-y divide-line">
         {[...weekDays].reverse().filter((d) => d.date <= today).map((d) => {
           // The weekly summary already leaves out a protein target of 0, as any intake would "reach" it.
-          const hasProteinTarget = !!d.target && d.target.proteinG > 0;
-          const proteinOk = hasProteinTarget && d.entries > 0 && d.totals.protein >= PROTEIN_ON_TARGET_THRESHOLD * d.target!.proteinG;
+          const hasProteinTarget = !!d.target && d.target.proteinG !== null && d.target.proteinG > 0;
+          const proteinOk = hasProteinTarget && d.entries > 0 && d.totals.protein >= PROTEIN_ON_TARGET_THRESHOLD * d.target!.proteinG!;
           return (
             <Link key={d.date} href={d.date === today ? "/nutrition" : `/nutrition?date=${d.date}`} className="flex items-center justify-between gap-3 px-4 py-3">
               <span>

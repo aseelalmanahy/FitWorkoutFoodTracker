@@ -16,4 +16,10 @@ async function createSignedInUser(prisma, email) {
   return { user, token };
 }
 
-module.exports = { createSignedInUser };
+/** Read-only. False until the Phase 4.0.1b migration is applied to this database. */
+async function targetMigrationApplied(prisma) {
+  const rows = await prisma.$queryRawUnsafe(`SELECT column_name, is_nullable FROM information_schema.columns WHERE table_schema = current_schema() AND table_name = 'NutritionTarget' AND column_name IN ('kcal', 'proteinG', 'carbsG', 'fatG')`);
+  return rows.length === 4 && rows.every((r) => r.is_nullable === "YES");
+}
+
+module.exports = { createSignedInUser, targetMigrationApplied };

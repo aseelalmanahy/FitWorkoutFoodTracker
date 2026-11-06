@@ -178,6 +178,7 @@ export const updateFoodEntrySchema = z
 
 export const nutritionTargetSchema = z.object({
   kcal: z.number().int().min(800).max(8000),
-  proteinG: z.number().int().min(0).max(600),
-  fatG: z.number().int().min(0).max(400),
+  // Each key is required, and null means "not set", so a missing value can never become 0 by accident.
+  proteinG: z.number().int().min(0).max(600).nullable(),
+  fatG: z.number().int().min(0).max(400).nullable(),
 });
