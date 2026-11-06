@@ -92,7 +92,10 @@ export function inventoryProblems(inv: Inventory, facts: InventoryFacts): string
   const transports: string[] = [];
   for (const s of facts.sources) {
     for (const line of withoutComments(s.text).split("\n")) {
-      if (MAIL_IMPLEMENTATION.test(line)) transports.push(/(?:const|let)\s+(\w+)/.exec(line)?.[1] ?? line.trim());
+      if (MAIL_IMPLEMENTATION.test(line)) {
+        const name = /(?:const|let|function)\s+(\w+)/.exec(line)?.[1] ?? line.trim();
+        if (name !== "mailTransport") transports.push(name); // the factory hands one out, and isn't one
+      }
       MAIL_IMPLEMENTATION.lastIndex = 0;
     }
     for (const m of withoutComments(s.text).matchAll(/class\s+(\w+)\s+implements\s+MailTransport\b/g)) transports.push(m[1]);
