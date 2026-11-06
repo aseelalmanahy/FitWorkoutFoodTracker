@@ -1,0 +1,442 @@
+// Phase 4.0.4 against the real database: emailed sign-up and password-reset links, and changing a password.
+// Tokens are placed directly in the database for most cases (their id is the SHA-256 of the token, as
+// Session's is), so these tests don't spend sign-up's limit of 10 per 15 minutes per client, or wait for mail.
+// The few that follow the real flow read the mail stub's files from MAIL_STUB_DIR.
+//
+// The server must have been started with MAIL_STUB_DIR set, and with TRUST_PROXY_HOPS=1. Each request here
+// then names its own client in X-Forwarded-For, so a case needing 10 attempts or fewer isn't stopped by an
+// earlier one. Sign-up is open on the test server, which is what FIT_TEST_OPEN_REGISTRATION does.
+//   BASE_URL=http://localhost:3000 DATABASE_URL=<local test database> MAIL_STUB_DIR=<the server's> node --test scripts/account-tokens.test.cjs
+//
+// Not covered here: a server restart, as this suite doesn't own the server. The cooldown is read from the
+// token rows (createdAt), which is what a restart would leave, so the rows are what is changed and checked.
+// A request at exactly the expiry instant can't be made over HTTP, so expiry is checked 1 ms before now,
+// and at a moment safely ahead of it.
+const { test, before, after } = require("node:test");
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const path = require("node:path");
+const { createHash, randomBytes } = require("node:crypto");
+const { PrismaClient } = require("@prisma/client");
+const { createSignedInUser, addSession } = require("./lib/test-users.cjs");
+const { mailFiles, readMailLink } = require("./lib/signup.cjs");
+const target = require("./lib/test-target-guard.cjs").requireSafeTarget();
+
+const BASE = target.baseUrl;
+const ORIGIN = new URL(BASE).origin;
+const prisma = new PrismaClient({ datasources: { db: { url: target.databaseUrl } } });
+const run = Date.now();
+const SUFFIX = `x${run}@test.dev`;
+const PASSWORD = "correct horse battery staple";
+const NEW_PASSWORD = "a different long passphrase";
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const sha256 = (s) => createHash("sha256").update(s).digest("hex");
+
+let counter = 0, clients = 0;
+const created = [];
+
+/** A client address nobody else in this run uses, as the trusted proxy would append it. */
+const newIp = () => { const n = ++clients; return `198.51.${100 + (n >> 8)}.${n & 255}`; };
+
+async function call(method, urlPath, body, { ip = newIp(), cookie, headers = {} } = {}) {
+  const res = await fetch(BASE + urlPath, {
+    method,
+    headers: { ...(body !== undefined ? { "Content-Type": "application/json" } : {}), Origin: ORIGIN, "X-Forwarded-For": ip, ...(cookie ? { Cookie: cookie } : {}), ...headers },
+    body: body !== undefined ? JSON.stringify(body) : undefined,
+    redirect: "manual",
+  });
+  const text = await res.text();
+  let json = null;
+  try { json = JSON.parse(text); } catch {}
+  return { status: res.status, body: json, text, headers: res.headers };
+}
+const sessionCookie = (res) => res.headers.getSetCookie().find((c) => c.startsWith("fit_session="))?.split(";")[0];
+const register = (email, opts) => call("POST", "/api/auth/register", { email }, opts);
+const complete = (token, password, opts) => call("POST", "/api/auth/register/complete", { token, password }, opts);
+const forgot = (email, opts) => call("POST", "/api/auth/password/forgot", { email }, opts);
+const reset = (token, password, opts) => call("POST", "/api/auth/password/reset", { token, password }, opts);
+const login = (email, password, opts) => call("POST", "/api/auth/login", { email, password }, opts);
+const changePassword = (cookie, currentPassword, newPassword, opts) => call("POST", "/api/account/password", { currentPassword, newPassword }, { ...opts, cookie });
+const deleteAccount = (cookie, password) => call("POST", "/api/account/delete", { password, confirmation: "DELETE" }, { cookie });
+const profileStatus = async (cookie) => (await call("GET", "/api/profile", undefined, { cookie })).status;
+
+function emailFor(label) {
+  const email = `tok${label}${++counter}${SUFFIX}`;
+  created.push(email);
+  return email;
+}
+async function newUser(label, { password = PASSWORD } = {}) {
+  const email = emailFor(label);
+  const { user, token } = await createSignedInUser(prisma, email, { password });
+  return { user, email, cookie: `fit_session=${token}`, token };
+}
+/** A live token for this address, with its row written directly. Returns the token, which is what an email would carry. */
+async function mint(purpose, email, { userId = null, expiresAt = new Date(Date.now() + 3_600_000), createdAt } = {}) {
+  const token = randomBytes(32).toString("base64url");
+  await prisma.accountToken.create({ data: { id: sha256(token), purpose, email, userId, expiresAt, ...(createdAt ? { createdAt } : {}) } });
+  return token;
+}
+const rowOf = (token) => prisma.accountToken.findUnique({ where: { id: sha256(token) } });
+const users = (email) => prisma.user.count({ where: { email } });
+const statuses = (results) => results.map((r) => r.status).sort();
+const countOf = (results, status) => results.filter((r) => r.status === status).length;
+
+/** Mail written since `seen`, to this address. */
+function mailSince(email, seen) {
+  const dir = process.env.MAIL_STUB_DIR;
+  return [...mailFiles(dir)].filter((f) => !seen.has(f)).map((f) => {
+    try { return JSON.parse(fs.readFileSync(path.join(dir, f), "utf8")); } catch { return null; }
+  }).filter((m) => m && String(m.to).trim().toLowerCase() === email);
+}
+/** Mail is written by a job shortly after the answer, so absence only means something after a wait. */
+async function assertNoMailSince(email, seen, label = email) {
+  await sleep(1500);
+  assert.deepEqual(mailSince(email, seen).map((m) => m.kind), [], `no mail for ${label}`);
+}
+async function waitForKind(email, kind, seen, timeoutMs = 10_000) {
+  for (const deadline = Date.now() + timeoutMs; Date.now() < deadline; await sleep(100)) {
+    const found = mailSince(email, seen).filter((m) => m.kind === kind);
+    if (found.length) return found;
+  }
+  throw new Error(`no '${kind}' mail for ${email} arrived in ${timeoutMs} ms`);
+}
+
+before(async () => {
+  await target.verifyServer();
+  mailFiles(process.env.MAIL_STUB_DIR); // fails clearly when MAIL_STUB_DIR isn't set
+});
+after(async () => {
+  const mine = { OR: [{ email: { in: created } }, { email: { endsWith: SUFFIX } }] };
+  await prisma.accountToken.deleteMany({ where: mine });
+  const ids = (await prisma.user.findMany({ where: mine, select: { id: true } })).map((u) => u.id);
+  await prisma.accountToken.deleteMany({ where: { userId: { in: ids } } });
+  await prisma.session.deleteMany({ where: { userId: { in: ids } } });
+  await prisma.profile.deleteMany({ where: { userId: { in: ids } } });
+  await prisma.user.deleteMany({ where: { id: { in: ids } } });
+  await prisma.$disconnect();
+});
+
+// ─── A token's life ─────────────────────────────────────────────────────────
+
+test("a sign-up token works up to its expiry and not after, and no account comes from an expired one", async () => {
+  const live = emailFor("expl"), dead = emailFor("expd");
+  const liveToken = await mint("SIGNUP", live), deadToken = await mint("SIGNUP", dead);
+  await prisma.accountToken.update({ where: { id: sha256(deadToken) }, data: { expiresAt: new Date(Date.now() - 1) } });
+  await prisma.accountToken.update({ where: { id: sha256(liveToken) }, data: { expiresAt: new Date(Date.now() + 5_000) } });
+  const refused = await complete(deadToken, PASSWORD);
+  assert.equal(refused.status, 400, "1 ms past expiry");
+  assert.equal(await users(dead), 0);
+  assert.equal(sessionCookie(refused), undefined);
+  assert.equal((await complete(liveToken, PASSWORD)).status, 200, "not yet expired");
+  assert.equal(await users(live), 1);
+});
+
+test("a reset token works up to its expiry and not after, and the password stays as it was", async () => {
+  const dead = await newUser("rexpd"), live = await newUser("rexpl");
+  const deadToken = await mint("PASSWORD_RESET", dead.email, { userId: dead.user.id });
+  const liveToken = await mint("PASSWORD_RESET", live.email, { userId: live.user.id });
+  await prisma.accountToken.update({ where: { id: sha256(deadToken) }, data: { expiresAt: new Date(Date.now() - 1) } });
+  await prisma.accountToken.update({ where: { id: sha256(liveToken) }, data: { expiresAt: new Date(Date.now() + 5_000) } });
+  assert.equal((await reset(deadToken, NEW_PASSWORD)).status, 400, "1 ms past expiry");
+  assert.equal((await login(dead.email, PASSWORD)).status, 200, "the old password still works");
+  assert.equal((await login(dead.email, NEW_PASSWORD)).status, 401);
+  assert.equal(await profileStatus(dead.cookie), 200, "and its session is still there");
+  assert.equal((await reset(liveToken, NEW_PASSWORD)).status, 200, "not yet expired");
+  assert.equal((await login(live.email, NEW_PASSWORD)).status, 200);
+});
+
+test("a token works once", async () => {
+  const email = emailFor("reuse");
+  const signup = await mint("SIGNUP", email);
+  assert.equal((await complete(signup, PASSWORD)).status, 200);
+  assert.equal((await complete(signup, "another long passphrase")).status, 400, "the same sign-up link again");
+  assert.equal(await users(email), 1);
+  assert.equal((await login(email, PASSWORD)).status, 200, "the first password stands");
+  assert.equal((await login(email, "another long passphrase")).status, 401);
+
+  const u = await newUser("reuse2");
+  const token = await mint("PASSWORD_RESET", u.email, { userId: u.user.id });
+  assert.equal((await reset(token, NEW_PASSWORD)).status, 200);
+  assert.equal((await reset(token, "yet another long passphrase")).status, 400, "the same reset link again");
+  assert.equal((await login(u.email, NEW_PASSWORD)).status, 200);
+  assert.equal((await login(u.email, "yet another long passphrase")).status, 401);
+});
+
+test("a token only does what it was made for", async () => {
+  const u = await newUser("purpose");
+  const resetToken = await mint("PASSWORD_RESET", u.email, { userId: u.user.id });
+  const refusedComplete = await complete(resetToken, NEW_PASSWORD);
+  assert.equal(refusedComplete.status, 400, "a reset token on complete");
+  assert.equal((await login(u.email, NEW_PASSWORD)).status, 401, "so it changed nothing");
+  assert.equal((await login(u.email, PASSWORD)).status, 200);
+
+  const email = emailFor("purposeb");
+  const signupToken = await mint("SIGNUP", email);
+  assert.equal((await reset(signupToken, NEW_PASSWORD)).status, 400, "a sign-up token on reset");
+  assert.equal(await users(email), 0, "so it created nothing");
+  assert.equal(sessionCookie(refusedComplete), undefined);
+});
+
+test("a made-up or malformed token is refused the same way", async () => {
+  const made = Buffer.alloc(32, 7).toString("base64url");
+  for (const [label, token] of [["unknown", made], ["too short", "abc"], ["wrong characters", "!".repeat(43)]]) {
+    const a = await complete(token, PASSWORD), b = await reset(token, PASSWORD);
+    assert.equal(a.status, 400, `complete: ${label}`);
+    assert.equal(b.status, 400, `reset: ${label}`);
+    assert.equal(sessionCookie(a), undefined);
+  }
+});
+
+// ─── Races ──────────────────────────────────────────────────────────────────
+
+test("8 parallel completes of one token: one account, one success, no limit hit", async () => {
+  const email = emailFor("par8");
+  const token = await mint("SIGNUP", email);
+  const ip = newIp();
+  const results = await Promise.all(Array.from({ length: 8 }, (_, i) => complete(token, `${PASSWORD} ${i}`, { ip })));
+  assert.equal(countOf(results, 200), 1, `exactly one succeeded: ${statuses(results)}`);
+  assert.equal(countOf(results, 429), 0, "none was limited");
+  assert.ok(results.every((r) => r.status === 200 || r.status === 400), `the rest were refused cleanly: ${statuses(results)}`);
+  assert.equal(await users(email), 1);
+  const winner = results.findIndex((r) => r.status === 200);
+  assert.equal((await login(email, `${PASSWORD} ${winner}`)).status, 200, "the winner's password is the one set");
+});
+
+test("two live tokens for one address redeemed together: one account, no server error", async () => {
+  const email = emailFor("twosign");
+  const [a, b] = [await mint("SIGNUP", email), await mint("SIGNUP", email)];
+  const ip = newIp();
+  const results = await Promise.all([complete(a, `${PASSWORD} A`, { ip }), complete(b, `${PASSWORD} B`, { ip })]);
+  assert.ok(results.every((r) => r.status < 500), `no server error: ${statuses(results)}`);
+  assert.equal(countOf(results, 200), 1, `exactly one succeeded: ${statuses(results)}`);
+  assert.equal(countOf(results, 400), 1);
+  assert.equal(await users(email), 1);
+  const winner = results[0].status === 200 ? "A" : "B";
+  assert.equal((await login(email, `${PASSWORD} ${winner}`)).status, 200);
+  assert.equal(await prisma.accountToken.count({ where: { email } }), 0, "and the other link is gone");
+});
+
+test("5 parallel resets of one token: one success", async () => {
+  const u = await newUser("par5");
+  const token = await mint("PASSWORD_RESET", u.email, { userId: u.user.id });
+  const ip = newIp();
+  const results = await Promise.all(Array.from({ length: 5 }, (_, i) => reset(token, `${NEW_PASSWORD} ${i}`, { ip })));
+  assert.equal(countOf(results, 200), 1, `exactly one succeeded: ${statuses(results)}`);
+  assert.ok(results.every((r) => r.status === 200 || r.status === 400), `the rest were refused cleanly: ${statuses(results)}`);
+  const winner = results.findIndex((r) => r.status === 200);
+  assert.equal((await login(u.email, `${NEW_PASSWORD} ${winner}`)).status, 200);
+  assert.equal((await login(u.email, PASSWORD)).status, 401, "the old password is gone");
+});
+
+test("two reset tokens used together: one success, no server error", async () => {
+  const u = await newUser("twores");
+  const [a, b] = [await mint("PASSWORD_RESET", u.email, { userId: u.user.id }), await mint("PASSWORD_RESET", u.email, { userId: u.user.id })];
+  const ip = newIp();
+  const results = await Promise.all([reset(a, `${NEW_PASSWORD} A`, { ip }), reset(b, `${NEW_PASSWORD} B`, { ip })]);
+  assert.ok(results.every((r) => r.status < 500), `no server error: ${statuses(results)}`);
+  assert.equal(countOf(results, 200), 1, `exactly one succeeded: ${statuses(results)}`);
+  const winner = results[0].status === 200 ? "A" : "B";
+  assert.equal((await login(u.email, `${NEW_PASSWORD} ${winner}`)).status, 200);
+  assert.equal(await prisma.accountToken.count({ where: { userId: u.user.id } }), 0, "and the other link is gone");
+});
+
+test("a reset racing the account's deletion: no server error, and no account or link left behind", async () => {
+  for (let i = 0; i < 4; i++) {
+    const u = await newUser(`racedel${i}`);
+    const token = await mint("PASSWORD_RESET", u.email, { userId: u.user.id });
+    await mint("SIGNUP", u.email); // a link with no user, which only the address finds
+    const [resetRes, deleteRes] = await Promise.all([
+      reset(token, NEW_PASSWORD),
+      (async () => { await sleep(i * 25); return deleteAccount(u.cookie, PASSWORD); })(),
+    ]);
+    assert.ok(resetRes.status < 500 && deleteRes.status < 500, `no server error: reset ${resetRes.status}, delete ${deleteRes.status}`);
+    assert.ok([200, 400].includes(resetRes.status), `reset: ${resetRes.status}`);
+    assert.ok([200, 401, 403].includes(deleteRes.status), `delete: ${deleteRes.status}`);
+    if (deleteRes.status !== 200) {
+      // The reset won and changed the password and ended the session, so the owner signs in again and deletes.
+      const again = await login(u.email, NEW_PASSWORD);
+      assert.equal(again.status, 200);
+      assert.equal((await deleteAccount(sessionCookie(again), NEW_PASSWORD)).status, 200);
+    }
+    assert.equal(await users(u.email), 0, "no account left behind");
+    assert.equal(await prisma.accountToken.count({ where: { OR: [{ userId: u.user.id }, { email: u.email }] } }), 0, "and no link, by user or by address");
+    assert.equal(await prisma.session.count({ where: { userId: u.user.id } }), 0);
+  }
+});
+
+// ─── Reset and change-password end sessions ─────────────────────────────────
+
+test("a reset ends every session and the old password, and signs nobody in", async () => {
+  const u = await newUser("endall");
+  const others = [`fit_session=${await addSession(prisma, u.user.id)}`, `fit_session=${await addSession(prisma, u.user.id)}`];
+  for (const c of [u.cookie, ...others]) assert.equal(await profileStatus(c), 200, "signed in before");
+  const token = await mint("PASSWORD_RESET", u.email, { userId: u.user.id });
+  const seen = mailFiles();
+  const r = await reset(token, NEW_PASSWORD);
+  assert.equal(r.status, 200);
+  const set = r.headers.getSetCookie().find((c) => c.startsWith("fit_session="));
+  assert.ok(!set || /^fit_session=;/.test(set), "the reset signs nobody in: any session cookie it sets is empty");
+  for (const c of [u.cookie, ...others]) assert.equal(await profileStatus(c), 401, "every old session is ended");
+  assert.equal((await login(u.email, PASSWORD)).status, 401, "the old password fails");
+  assert.equal((await login(u.email, NEW_PASSWORD)).status, 200);
+  assert.equal(await prisma.accountToken.count({ where: { userId: u.user.id } }), 0);
+  assert.equal((await waitForKind(u.email, "password-changed", seen)).length, 1, "and the owner is told");
+});
+
+test("changing the password keeps this session, ends the others and any pending link, and tells the owner", async () => {
+  const u = await newUser("chg");
+  const other = `fit_session=${await addSession(prisma, u.user.id)}`;
+  const pending = await mint("PASSWORD_RESET", u.email, { userId: u.user.id });
+  const seen = mailFiles();
+
+  const wrong = await changePassword(u.cookie, "not the password", NEW_PASSWORD);
+  assert.equal(wrong.status, 403);
+  assert.equal((await login(u.email, PASSWORD)).status, 200, "a wrong current password changes nothing");
+  assert.equal(await profileStatus(other), 200);
+
+  const r = await changePassword(u.cookie, PASSWORD, NEW_PASSWORD);
+  assert.equal(r.status, 200);
+  const current = sessionCookie(r) ?? u.cookie;
+  assert.equal(await profileStatus(current), 200, "this browser stays signed in");
+  assert.equal(await profileStatus(other), 401, "the other device is signed out");
+  assert.equal((await login(u.email, PASSWORD)).status, 401);
+  assert.equal((await login(u.email, NEW_PASSWORD)).status, 200);
+  assert.equal(await rowOf(pending), null, "a pending link is gone");
+  assert.equal((await reset(pending, "yet another long passphrase")).status, 400);
+  assert.equal((await waitForKind(u.email, "password-changed", seen)).length, 1);
+});
+
+test("a change-password request that checked the old password can't overwrite a reset", async () => {
+  for (let i = 0; i < 6; i++) {
+    const u = await newUser(`stale${i}`);
+    const token = await mint("PASSWORD_RESET", u.email, { userId: u.user.id });
+    const changed = `${NEW_PASSWORD} change ${i}`, resetTo = `${NEW_PASSWORD} reset ${i}`;
+    const [change, resetRes] = await Promise.all([
+      changePassword(u.cookie, PASSWORD, changed),
+      (async () => { await sleep(i * 30); return reset(token, resetTo); })(),
+    ]);
+    assert.ok(change.status < 500 && resetRes.status < 500, `no server error: change ${change.status}, reset ${resetRes.status}`);
+    const wins = [[change, changed], [resetRes, resetTo]].filter(([r]) => r.status === 200);
+    assert.equal(wins.length, 1, `exactly one of them took effect (change ${change.status}, reset ${resetRes.status})`);
+    const [[, winning]] = wins;
+    const losing = winning === changed ? resetTo : changed;
+    assert.equal((await login(u.email, winning)).status, 200, "the password is the one that was accepted");
+    assert.equal((await login(u.email, losing)).status, 401, "and not the one that was refused");
+    assert.equal((await login(u.email, PASSWORD)).status, 401, "nor the old one");
+  }
+});
+
+// ─── The same answer, whoever asks ──────────────────────────────────────────
+
+test("forgot-password answers the same for a known and an unknown address, and only the known one gets mail", async () => {
+  const known = await newUser("fgk");
+  const unknown = emailFor("fgu");
+  const seen = mailFiles();
+  const a = await forgot(known.email), b = await forgot(unknown);
+  assert.equal(a.status, 200);
+  assert.equal(b.status, a.status);
+  assert.equal(b.text, a.text, "byte for byte");
+  assert.equal(a.headers.getSetCookie().length + b.headers.getSetCookie().length, 0);
+  const token = await readMailLink(known.email, "password-reset", { ignore: seen });
+  assert.match(token, /^[A-Za-z0-9_-]{43}$/);
+  await assertNoMailSince(unknown, seen, "an unknown address");
+  assert.equal(await prisma.accountToken.count({ where: { email: unknown } }), 0);
+});
+
+test("register answers the same for an existing and a new address, and an existing account gets no link", async () => {
+  const existing = await newUser("rgk");
+  const fresh = emailFor("rgn");
+  const seen = mailFiles();
+  const a = await register(existing.email), b = await register(fresh);
+  assert.equal(a.status, 200);
+  assert.equal(b.status, a.status);
+  assert.equal(b.text, a.text, "byte for byte");
+  assert.equal(a.headers.getSetCookie().length + b.headers.getSetCookie().length, 0, "no session at sign-up");
+  // Sign-up is open on this server, so the new address gets its link. Closed sign-up is covered by production-security.
+  await readMailLink(fresh, "signup", { ignore: seen });
+  await assertNoMailSince(existing.email, seen, "an existing account");
+  assert.equal(await prisma.accountToken.count({ where: { email: existing.email } }), 0);
+  assert.equal(await users(fresh), 0, "and nothing is created until the link is used");
+});
+
+test("a second link for one address within 60 seconds isn't sent, and one is after that, judged from the token rows", async () => {
+  const u = await newUser("cool");
+  const seen = mailFiles();
+  assert.equal((await forgot(u.email)).status, 200);
+  await readMailLink(u.email, "password-reset", { ignore: seen });
+  const second = await forgot(u.email);
+  assert.equal(second.status, 200, "the same answer");
+  await sleep(1500);
+  assert.equal(mailSince(u.email, seen).filter((m) => m.kind === "password-reset").length, 1, "no second mail");
+  assert.equal(await prisma.accountToken.count({ where: { email: u.email, purpose: "PASSWORD_RESET" } }), 1, "and no second row");
+
+  // What a restart would leave is the rows, so age the row instead.
+  await prisma.accountToken.updateMany({ where: { email: u.email, purpose: "PASSWORD_RESET" }, data: { createdAt: new Date(Date.now() - 61_000) } });
+  assert.equal((await forgot(u.email)).status, 200);
+  for (let i = 0; i < 100 && mailSince(u.email, seen).filter((m) => m.kind === "password-reset").length < 2; i++) await sleep(100);
+  assert.equal(mailSince(u.email, seen).filter((m) => m.kind === "password-reset").length, 2, "after the cooldown, a new mail");
+  assert.equal(await prisma.accountToken.count({ where: { email: u.email, purpose: "PASSWORD_RESET" } }), 2, "and a new row");
+});
+
+test("only hashes are stored: no row's id is a token that was emailed", async () => {
+  const email = emailFor("hash"), user = await newUser("hashu");
+  const seen = mailFiles();
+  await register(email);
+  await forgot(user.email);
+  const signup = await readMailLink(email, "signup", { ignore: seen });
+  const resetToken = await readMailLink(user.email, "password-reset", { ignore: seen });
+  for (const token of [signup, resetToken]) {
+    assert.equal(await prisma.accountToken.count({ where: { id: token } }), 0, "no row's id is the token");
+    assert.equal(await prisma.accountToken.count({ where: { id: sha256(token) } }), 1, "the row is its SHA-256");
+    const [{ n }] = await prisma.$queryRawUnsafe(`SELECT count(*)::int AS n FROM "AccountToken" t WHERE t::text LIKE $1`, `%${token}%`);
+    assert.equal(n, 0, "and the token appears nowhere in any column");
+  }
+  for (const row of await prisma.accountToken.findMany({ where: { email: { in: [email, user.email] } } })) {
+    assert.match(row.id, /^[0-9a-f]{64}$/, "a hash, not a 43-character token");
+  }
+});
+
+// ─── Accounts with no profile ───────────────────────────────────────────────
+
+test("a profile-less account can log in, reset, change its password, export and delete", async () => {
+  const u = await newUser("noprof");
+  assert.equal(await prisma.profile.count({ where: { userId: u.user.id } }), 0);
+  const first = await login(u.email, PASSWORD);
+  assert.equal(first.status, 200, "log in");
+  assert.ok(sessionCookie(first));
+
+  const token = await mint("PASSWORD_RESET", u.email, { userId: u.user.id });
+  assert.equal((await reset(token, NEW_PASSWORD)).status, 200, "reset");
+  const second = await login(u.email, NEW_PASSWORD);
+  assert.equal(second.status, 200);
+
+  const third = "yet another long passphrase";
+  const changed = await changePassword(sessionCookie(second), NEW_PASSWORD, third);
+  assert.equal(changed.status, 200, "change password");
+  const cookie = sessionCookie(changed) ?? sessionCookie(second);
+  assert.equal(await profileStatus(cookie), 200);
+
+  const exported = await call("POST", "/api/account/export", { password: third }, { cookie });
+  assert.equal(exported.status, 200, "export");
+  assert.equal(exported.body.account.email, u.email);
+  assert.equal(exported.body.profile, null, "no profile is null, with nothing invented");
+
+  assert.equal((await deleteAccount(cookie, third)).status, 200, "delete");
+  assert.equal(await users(u.email), 0);
+});
+
+// ─── Deletion ───────────────────────────────────────────────────────────────
+
+test("deleting an account removes its links by user and by address, and only its own", async () => {
+  const u = await newUser("delt"), bystander = await newUser("deltb");
+  const byUser = await mint("PASSWORD_RESET", u.email, { userId: u.user.id });
+  const byAddress = await mint("SIGNUP", u.email); // no user, so no cascade reaches it
+  const other = await mint("PASSWORD_RESET", bystander.email, { userId: bystander.user.id });
+  assert.equal((await deleteAccount(u.cookie, PASSWORD)).status, 200);
+  assert.equal(await rowOf(byUser), null, "the link tied to the user");
+  assert.equal(await rowOf(byAddress), null, "the link tied only to the address");
+  assert.equal(await prisma.accountToken.count({ where: { OR: [{ userId: u.user.id }, { email: u.email }] } }), 0);
+  assert.notEqual(await rowOf(other), null, "someone else's link is untouched");
+  assert.equal((await complete(byAddress, PASSWORD)).status, 400, "so the address can't be revived with an old link");
+  assert.equal(await users(u.email), 0);
+});

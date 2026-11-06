@@ -34,6 +34,8 @@ const OTHER = process.env.SAFETY_OTHER_DB_URL;
 const SCRIPT = path.join(ROOT, "scripts", "live-provider-check.cjs");
 const MARK = path.join(ROOT, "scripts", "mark-test-database.cjs");
 const reports = [];
+// Every app this suite starts writes its mail here, and the script reads its sign-up links from here.
+const MAIL = fs.mkdtempSync(path.join(os.tmpdir(), "lpc-safety-mail-"));
 let dbs = null, stub = null, serverDbName = null;
 
 /** Static validation of the whole configuration. Returns a list of problems (empty = OK). */
@@ -79,20 +81,20 @@ const readMarker = async () =>
 
 /** Every row the script could create, in a database. */
 async function counts(db) {
-  const [users, sessions, entries, targets, customFoods] = await Promise.all([
-    db.user.count(), db.session.count(), db.foodEntry.count(), db.nutritionTarget.count(), db.food.count({ where: { userId: { not: null } } }),
+  const [users, sessions, entries, targets, customFoods, accountTokens] = await Promise.all([
+    db.user.count(), db.session.count(), db.foodEntry.count(), db.nutritionTarget.count(), db.food.count({ where: { userId: { not: null } } }), db.accountToken.count(),
   ]);
-  return { users, sessions, entries, targets, customFoods };
+  return { users, sessions, entries, targets, customFoods, accountTokens };
 }
 const snapshot = async () => ({ server: await counts(dbs.server), other: await counts(dbs.other) });
 
 const appEnv = (extra = {}) => ({
-  DATABASE_URL: DB, FDC_BASE_URL: `${stub.url}/fdc/v1`, OFF_BASE_URL: `${stub.url}/off`, FDC_API_KEY: "stub", ...extra,
+  DATABASE_URL: DB, FDC_BASE_URL: `${stub.url}/fdc/v1`, OFF_BASE_URL: `${stub.url}/off`, FDC_API_KEY: "stub", MAIL_STUB_DIR: MAIL, ...extra,
 });
 function runScript(env, timeoutMs = 240_000) {
   const report = path.join(os.tmpdir(), `lpc-safety-${process.pid}-${Date.now()}-${reports.length}.json`);
   reports.push(report);
-  const e = { REPORT_FILE: report, LIVE_CHECK_USDA_ORACLE: "off", ...env };
+  const e = { REPORT_FILE: report, LIVE_CHECK_USDA_ORACLE: "off", MAIL_STUB_DIR: MAIL, ...env };
   return runNode([SCRIPT], { ...e, FDC_API_KEY: "" }, timeoutMs);
 }
 
@@ -114,6 +116,7 @@ after(async () => {
   try { if (dbs && !configProblems().problems.length) await ensureMarked(); } catch {} // leave the test DB validly marked
   await killAll();
   for (const r of reports) fs.rmSync(r, { force: true });
+  fs.rmSync(MAIL, { recursive: true, force: true });
   if (dbs) { await dbs.server.$disconnect(); await dbs.other.$disconnect(); }
 });
 
@@ -236,9 +239,10 @@ for (const [label, value] of [
 // ─── Cleanup after interrupted HTTP requests ────────────────────────────────
 
 /**
- * HTTP proxy to the app that holds `POST /api/auth/register` for `delayMs` BEFORE forwarding it.
- * The request body is buffered as soon as it arrives, so the delayed sign-up still reaches the app
- * (and writes) even after the client has aborted, which is exactly the late write cleanup must catch.
+ * HTTP proxy to the app that holds `POST /api/auth/register/complete` for `delayMs` BEFORE forwarding it.
+ * That is the request that creates the user, since `/api/auth/register` only mails a link. The request
+ * body is buffered as soon as it arrives, so the delayed completion still reaches the app (and writes)
+ * even after the client has aborted, which is exactly the late write cleanup must catch.
  */
 async function delayingProxy(appUrl, delayMs) {
   const target = new URL(appUrl);
@@ -257,7 +261,7 @@ async function delayingProxy(appUrl, delayMs) {
         up.on("error", () => { try { res.destroy(); } catch {} });
         up.end(body);
       };
-      if (req.method === "POST" && req.url === "/api/auth/register") setTimeout(forward, delayMs);
+      if (req.method === "POST" && req.url === "/api/auth/register/complete") setTimeout(forward, delayMs);
       else forward();
     });
   });
@@ -287,8 +291,8 @@ test("SIGTERM during a hung request: aborts it, waits for the late write, remove
     const report = path.join(os.tmpdir(), `lpc-safety-sigterm-${process.pid}.json`);
     reports.push(report);
     const pending = runNode([SCRIPT], { BASE_URL: proxy.url, DATABASE_URL: DB, REPORT_FILE: report, LIVE_CHECK_USDA_ORACLE: "off",
-      LIVE_CHECK_CLEANUP_GRACE_MS: "6000", FDC_API_KEY: "" }, 120_000);
-    await new Promise((r) => setTimeout(r, 1_500)); // the first sign-up is now held by the proxy
+      LIVE_CHECK_CLEANUP_GRACE_MS: "6000", FDC_API_KEY: "", MAIL_STUB_DIR: MAIL }, 120_000);
+    await new Promise((r) => setTimeout(r, 1_500)); // the first sign-up's completion is now held by the proxy
     const { children } = require("./lib/test-servers.cjs");
     const scriptChild = [...children].find((c) => c.spawnargs.includes(SCRIPT));
     assert.ok(scriptChild, "script process found");

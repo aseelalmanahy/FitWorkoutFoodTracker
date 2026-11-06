@@ -7,6 +7,7 @@ const { PrismaClient } = require("@prisma/client");
 const { createSignedInUser, addSession } = require("./lib/test-users.cjs");
 const dataMap = require("../src/lib/account-data-map.json");
 const target = require("./lib/test-target-guard.cjs").requireSafeTarget();
+const { signUpWithApi } = require("./lib/signup.cjs");
 
 const BASE = target.baseUrl;
 const ORIGIN = new URL(BASE).origin;
@@ -290,8 +291,10 @@ test("deletion ends every session, clears cookies, and frees the email", async (
   const login = await client(null).post("/api/auth/login", { email: u.email, password: PASSWORD });
   assert.equal(login.status, 401, "the old password doesn't sign in");
   assert.equal(login.body.error, "Incorrect email or password", "the same answer as for an email that never existed");
-  const again = await client(null).post("/api/auth/register", { email: u.email, password: PASSWORD });
-  assert.equal(again.status < 300, true, "the email can register again");
+  // The whole flow: a link is mailed, the password is set from it, and the new account can sign in. It throws unless each step answered 200.
+  const anon = client(null);
+  const again = await signUpWithApi(BASE, u.email, PASSWORD, { post: (p, b) => anon.post(p, b) });
+  assert.ok(again.value, "the email can register again, and sign in");
   const fresh = await prisma.user.findUnique({ where: { email: u.email } });
   assert.notEqual(fresh.id, u.user.id);
   assert.equal(await prisma.profile.count({ where: { userId: fresh.id } }), 0, "nothing came back");

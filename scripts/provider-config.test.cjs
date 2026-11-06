@@ -5,6 +5,7 @@ const { test, before } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const target = require("./lib/test-target-guard.cjs").requireSafeTarget();
+const { signUpWithApi } = require("./lib/signup.cjs");
 before(() => target.verifyServer());
 const BASE = target.baseUrl;
 const ORIGIN = new URL(BASE).origin;
@@ -17,7 +18,7 @@ test("missing USDA key: generic client message, detail only in server log", asyn
     if (set && set.startsWith("fit_session=")) cookie = set.split(";")[0];
     return { status: res.status, text: await res.text() };
   };
-  assert.equal((await call("POST", "/api/auth/register", { email: `cfg${Date.now()}@test.dev`, password: "long password 123" })).status, 200);
+  cookie = (await signUpWithApi(BASE, `cfg${Date.now()}@test.dev`, "long password 123")).cookie;
   assert.equal((await call("PUT", "/api/profile", { name: "T", birthDate: "1990-01-01", sex: "MALE", heightCm: 180, currentWeightKg: 80, goalWeightKg: null, goal: "MAINTENANCE", activityLevel: "MODERATE", experience: "BEGINNER", workoutDaysPerWeek: 3, unitSystem: "METRIC", timezone: "UTC" })).status, 200); // the access gate needs one
   const search = await call("GET", "/api/foods/search?q=banana&sources=USDA");
   assert.equal(search.status, 200);

@@ -10,6 +10,7 @@ const sharp = require("sharp");
 const { fixtures } = require("./lib/pdf-fixtures.cjs");
 
 const { completeOnboarding } = require("./lib/e2e-onboarding.cjs");
+const { signUpWithApi, signUpInBrowser } = require("./lib/signup.cjs");
 const target = require("./lib/test-target-guard.cjs").requireSafeTarget({ labelStub: true });
 const BASE = target.baseUrl;
 const STUB = target.stubUrl;
@@ -22,21 +23,17 @@ const stub = {
   requests: () => fetch(`${STUB}/__requests`).then((r) => r.json()),
 };
 
+const PASSWORD = "correct horse battery";
+
 async function signUp(page) {
   const email = `hard${Date.now()}${Math.floor(Math.random() * 1e6)}@test.dev`;
   if (page.context().browser().browserType().name() === "webkit") {
     // WebKit refuses Secure cookies over http://localhost, which isn't a problem over HTTPS in production.
-    const reg = await fetch(`${BASE}/api/auth/register`, { method: "POST", headers: { Origin: BASE, "Content-Type": "application/json" }, body: JSON.stringify({ email, password: "correct horse battery" }) });
-    assert.equal(reg.ok, true);
-    const [name, value] = reg.headers.getSetCookie().find((c) => c.startsWith("fit_session=")).split(";")[0].split("=");
+    const { name, value } = await signUpWithApi(BASE, email, PASSWORD);
     await page.context().addCookies([{ name, value, url: BASE, httpOnly: true, sameSite: "Lax", secure: false }]);
     await page.goto(`${BASE}/onboarding`);
   } else {
-    await page.goto(`${BASE}/register`);
-    await page.fill("input[name=email]", email);
-    await page.fill("input[name=password]", "correct horse battery");
-    await page.click("button[type=submit]");
-    await page.waitForURL("**/onboarding");
+    await signUpInBrowser(page, BASE, email, PASSWORD);
   }
   await completeOnboarding(page);
 }

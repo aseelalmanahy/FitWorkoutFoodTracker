@@ -6,6 +6,7 @@ const { test, before, after } = require("node:test");
 const assert = require("node:assert/strict");
 const { PrismaClient } = require("@prisma/client");
 const target = require("./lib/test-target-guard.cjs").requireSafeTarget();
+const { signUpWithApi } = require("./lib/signup.cjs");
 
 const BASE = target.baseUrl;
 const ORIGIN = new URL(BASE).origin;
@@ -27,7 +28,7 @@ function client() {
     try { json = await res.json(); } catch {}
     return { status: res.status, body: json };
   };
-  return { cookie: () => cookie, signInWith: (token) => { cookie = `fit_session=${token}`; }, call, get: (p) => call("GET", p), post: (p, b) => call("POST", p, b), put: (p, b) => call("PUT", p, b), patch: (p, b) => call("PATCH", p, b), del: (p) => call("DELETE", p) };
+  return { signUp: async (email, password = "long password 123") => { cookie = (await signUpWithApi(BASE, email, password)).cookie; }, cookie: () => cookie, signInWith: (token) => { cookie = `fit_session=${token}`; }, call, get: (p) => call("GET", p), post: (p, b) => call("POST", p, b), put: (p, b) => call("PUT", p, b), patch: (p, b) => call("PATCH", p, b), del: (p) => call("DELETE", p) };
 }
 
 const profile = (tz = "UTC") => ({
@@ -43,7 +44,7 @@ let userA, banana, banana100, nutella;
 before(async () => {
   await target.verifyServer(); // first: hooks don't wait for each other
   for (const [c, email] of [[A, `a${run}@test.dev`], [B, `b${run}@test.dev`]]) {
-    assert.equal((await c.post("/api/auth/register", { email, password: "long password 123" })).status, 200);
+    await c.signUp(email);
     assert.equal((await c.put("/api/profile", profile())).status, 200);
   }
   userA = await prisma.user.findUnique({ where: { email: `a${run}@test.dev` } });
@@ -284,7 +285,7 @@ test("recent foods list returns only the user's logged foods", async () => {
 
 test("recent foods stay distinct and complete when one food is logged many times", async () => {
   const C = client();
-  await C.post("/api/auth/register", { email: `c${run}@test.dev`, password: "long password 123" });
+  await C.signUp(`c${run}@test.dev`);
   await C.put("/api/profile", profile());
   await C.post("/api/nutrition/entries", { date: today(), mealType: "SNACK", foodId: nutella.id, servingId: null, quantity: 10 });
   for (let i = 0; i < 20; i++) await C.post("/api/nutrition/entries", { date: today(), mealType: "SNACK", foodId: banana.id, servingId: null, quantity: 10 });
@@ -295,7 +296,7 @@ test("recent foods stay distinct and complete when one food is logged many times
 test("T9: concurrent first reads all succeed and write nothing", async () => {
   const D = client();
   const email = `d${run}@test.dev`;
-  await D.post("/api/auth/register", { email, password: "long password 123" });
+  await D.signUp(email);
   await D.put("/api/profile", profile());
   const rs = await Promise.all(Array.from({ length: 8 }, (_, i) => D.get(i % 2 ? "/api/nutrition/targets" : `/api/nutrition/day?date=${today()}`)));
   assert.deepEqual(rs.map((r) => r.status), Array(8).fill(200));
@@ -387,7 +388,7 @@ test("entries can't exceed the per-entry amount limit (prevents total overflow)"
 test("T26: an entry backdated before the first target stays without one, and the target's date doesn't move", async () => {
   const E = client();
   const email = `e${run}@test.dev`;
-  await E.post("/api/auth/register", { email, password: "long password 123" });
+  await E.signUp(email);
   await E.put("/api/profile", profile());
   assert.equal((await E.put("/api/nutrition/targets", { kcal: 2000, proteinG: 150, fatG: 60 })).status, 200);
   const past = addDays(today(), -5);
@@ -762,7 +763,7 @@ function walk(dir, out = []) {
 }
 const SRC = path.join(__dirname, "..", "src", "app");
 const urlOf = (root, file) => "/" + path.relative(root, path.dirname(file)).split(path.sep).join("/").replace(/\[[^\]]+\]/g, "x");
-const EXEMPT = new Set(["/api/profile", "/api/account/delete", "/api/account/export", "/api/auth/login", "/api/auth/register", "/api/auth/logout", "/api/health/db-identity"]);
+const EXEMPT = new Set(["/api/profile", "/api/account/delete", "/api/account/export", "/api/auth/login", "/api/auth/register", "/api/auth/register/complete", "/api/auth/password/forgot", "/api/auth/password/reset", "/api/account/password", "/api/auth/logout", "/api/health/db-identity"]);
 function gatedEndpoints() {
   const root = SRC;
   const found = [];
@@ -900,7 +901,7 @@ test("T33: what a restricted person keeps: profile, correction and logout", asyn
 test("the gate keeps login and the Origin check working", async () => {
   // Through the real sign-up, as this test logs in with the password.
   const email = `gate${run}@test.dev`;
-  assert.equal((await client().post("/api/auth/register", { email, password: "long password 123" })).status, 200);
+  await client().signUp(email); // throws unless register, complete and login each answered 200
   const { id } = await prisma.user.findUnique({ where: { email } });
   await prisma.profile.create({ data: profileRow(id, yearsAgo(17)) });
   const fresh = client();

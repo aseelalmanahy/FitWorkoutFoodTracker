@@ -7,6 +7,7 @@ const assert = require("node:assert/strict");
 const fs = require("node:fs");
 
 const target = require("./lib/test-target-guard.cjs").requireSafeTarget();
+const { signUpWithApi } = require("./lib/signup.cjs");
 const BASE = target.baseUrl;
 const ORIGIN = new URL(BASE).origin;
 const LOG = process.env.STUB_LOG_FILE;
@@ -26,7 +27,7 @@ function client() {
     try { json = await res.json(); } catch {}
     return { status: res.status, body: json };
   };
-  return { get: (p) => call("GET", p), post: (p, b) => call("POST", p, b), put: (p, b) => call("PUT", p, b) };
+  return { signUp: async (email, password = "long password 123") => { cookie = (await signUpWithApi(BASE, email, password)).cookie; }, get: (p) => call("GET", p), post: (p, b) => call("POST", p, b), put: (p, b) => call("PUT", p, b) };
 }
 const U = {};
 before(async () => {
@@ -34,7 +35,7 @@ before(async () => {
   assert.ok(LOG, "STUB_LOG_FILE must be set");
   for (const n of ["usda", "usda2", "detail", "offs", "offp"]) {
     U[n] = client();
-    assert.equal((await U[n].post("/api/auth/register", { email: `mal${n}${run}@test.dev`, password: "long password 123" })).status, 200);
+    await U[n].signUp(`mal${n}${run}@test.dev`);
     assert.equal((await U[n].put("/api/profile", { name: "T", birthDate: "1990-01-01", sex: "MALE", heightCm: 180, currentWeightKg: 80, goalWeightKg: null, goal: "MAINTENANCE", activityLevel: "MODERATE", experience: "BEGINNER", workoutDaysPerWeek: 3, unitSystem: "METRIC", timezone: "UTC" })).status, 200); // the access gate needs one
   }
 });

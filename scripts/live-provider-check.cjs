@@ -7,7 +7,8 @@
 // Usage, with the app running against a dedicated, MARKED test database (see README):
 //   node --env-file=.env.test scripts/live-provider-check.cjs
 // .env.test must hold the same DATABASE_URL the server uses (the test database), and
-// FDC_API_KEY (used only to confirm no response contains it).
+// FDC_API_KEY (used only to confirm no response contains it). Sign-up goes through the emailed link,
+// so MAIL_STUB_DIR must be set to the directory the app writes its mail stub files to.
 // BASE_URL is required. Env options: REPORT_FILE (default live-provider-report.json, git-ignored);
 // LIVE_CHECK_REQUEST_TIMEOUT_MS (default 60000); LIVE_CHECK_CLEANUP_GRACE_MS (default 15000);
 // LIVE_CHECK_USDA_ORACLE=off (skip the independent USDA check; USDA-6 then reports NOT RUN).
@@ -55,6 +56,7 @@ const { createHash } = require("node:crypto");
 const { redact, urlSecrets, TEST_DB_MARKER_PREFIX } = require("./lib/test-db-guard.cjs");
 const { decideVerdict, decideProt1, REAL_HOSTS } = require("./lib/live-verdict.cjs");
 const { compareWithApp } = require("./lib/usda-nutrient-oracle.cjs");
+const { signUpWithApi } = require("./lib/signup.cjs");
 
 const { checkTarget } = require("./lib/test-target-guard.cjs");
 const BASE = process.env.BASE_URL;
@@ -152,6 +154,7 @@ const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 async function sweep(db) {
   const users = await db.user.findMany({ where: { email: { in: createdEmails } }, select: { id: true } });
   const ids = users.map((u) => u.id);
+  await db.accountToken.deleteMany({ where: { email: { in: createdEmails } } }); // a sign-up link not yet used has no user to cascade from
   const del = await db.user.deleteMany({ where: { id: { in: ids } } }); // cascades entries/targets/sessions/custom foods
   return { deleted: del.count, ids };
 }
@@ -244,9 +247,9 @@ function client() {
     bodies.push(text);
     let json = null;
     try { json = JSON.parse(text); } catch {}
-    return { status: res.status, body: json, ms: Date.now() - t0 };
+    return { status: res.status, body: json, ms: Date.now() - t0, headers: res.headers };
   };
-  return { get: (p) => call("GET", p), post: (p, b) => call("POST", p, b), put: (p, b) => call("PUT", p, b), patch: (p, b) => call("PATCH", p, b), del: (p) => call("DELETE", p) };
+  return { signUp: async (email, password) => { cookie = (await signUpWithApi(BASE, email, password, { post: (p, b) => call("POST", p, b) })).cookie; }, get: (p) => call("GET", p), post: (p, b) => call("POST", p, b), put: (p, b) => call("PUT", p, b), patch: (p, b) => call("PATCH", p, b), del: (p) => call("DELETE", p) };
 }
 
 async function check(id, area, description, fn) {
@@ -292,8 +295,7 @@ async function main() {
   for (const [c, n] of [[A, "a"], [B, "b"], [L, "l"]]) {
     const email = `live-check-${n}-${run}@example.test`;
     createdEmails.push(email); // recorded before creation so cleanup also covers half-created state
-    const r = await c.post("/api/auth/register", { email, password: "live check password 123" });
-    if (r.status !== 200) throw new Error(`cannot register test user (HTTP ${r.status}). Is the app running at ${BASE}?`);
+    try { await c.signUp(email, "live check password 123"); } catch (e) { throw new Error(`cannot register test user (${e.message}). Is the app running at ${BASE}, and is MAIL_STUB_DIR its mail directory?`); }
     registered++;
     const p = await c.put("/api/profile", profile);
     if (p.status !== 200) throw new Error(`cannot create the test user's profile (HTTP ${p.status})`);

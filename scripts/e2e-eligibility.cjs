@@ -21,7 +21,7 @@ const today = () => new Date().toISOString().slice(0, 10);
 const dbDate = (iso) => new Date(`${iso}T00:00:00Z`);
 let counter = 0;
 
-/** Created directly, as three browsers would pass sign-up's limit. The cookie is non-Secure, as WebKit refuses Secure cookies over http://localhost. */
+/** Created directly, as three browsers would pass sign-up's limit, and the real flow is covered by every other E2E script and by account-tokens. The cookie is non-Secure, as WebKit refuses Secure cookies over http://localhost. */
 async function signUp(ctx, label) {
   const { user, token } = await createSignedInUser(prisma, `elig${label}${++counter}x${Date.now()}@test.dev`);
   await ctx.addCookies([{ name: "fit_session", value: token, url: BASE, httpOnly: true, sameSite: "Lax", secure: false }]);
@@ -59,6 +59,8 @@ async function inBrowser(name) {
     const { page } = await newPage();
     await page.goto(`${BASE}/register`);
     await page.getByText("For adults 18 and over.").waitFor();
+    assert.equal(await page.locator("input[name=email]").count(), 1, "sign-up asks for an email");
+    assert.equal(await page.locator("input[name=password]").count(), 0, "and no password, as that is set from the emailed link");
     await page.goto(`${BASE}/login`);
     assert.equal(await page.getByText("For adults 18 and over.").count(), 0);
     step("sign-up states the requirement");

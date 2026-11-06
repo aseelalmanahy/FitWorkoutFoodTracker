@@ -4,6 +4,8 @@
 const { test, before, after } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
+const path = require("node:path");
+const { mailFiles, readMailLink } = require("./lib/signup.cjs");
 const { PrismaClient } = require("@prisma/client");
 const { createSignedInUser } = require("./lib/test-users.cjs");
 const target = require("./lib/test-target-guard.cjs").requireSafeTarget();
@@ -25,7 +27,25 @@ const call = async (method, path, body, headers = {}) => {
   try { json = JSON.parse(text); } catch {}
   return { status: res.status, body: json, text, headers: res.headers };
 };
-const register = (email) => call("POST", "/api/auth/register", { email, password: PASSWORD });
+// Sign-up asks for an address only. A link is mailed to an invited address that has no account, and nothing is
+// mailed to any other, with the same answer to all. The mail stub's files are in MAIL_STUB_DIR.
+const register = (email) => call("POST", "/api/auth/register", { email });
+const complete = (token, password = PASSWORD) => call("POST", "/api/auth/register/complete", { token, password });
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+/** Every message mailed to this address so far, whatever its kind. */
+function mailsTo(email) {
+  const dir = process.env.MAIL_STUB_DIR;
+  mailFiles(dir); // throws a clear error if MAIL_STUB_DIR isn't set
+  let names = [];
+  try { names = fs.readdirSync(dir).filter((f) => f.endsWith(".json")); } catch (e) { if (e.code !== "ENOENT") throw e; }
+  return names.map((f) => { try { return JSON.parse(fs.readFileSync(path.join(dir, f), "utf8")); } catch { return null; } })
+    .filter((m) => m && String(m.to).trim().toLowerCase() === email.toLowerCase());
+}
+/** Mail is written by a job shortly after the answer, so absence is only meaningful after a wait. */
+async function assertNoMail(email, label = email) {
+  await sleep(1500);
+  assert.deepEqual(mailsTo(email).map((m) => m.kind), [], `no mail for ${label}`);
+}
 
 before(() => target.verifyServer());
 after(() => prisma.$disconnect());
@@ -69,20 +89,29 @@ if (HTTPS_ORIGIN) {
 } else {
   // ─── Closed registration ──────────────────────────────────────────────────
 
-  test("sign-up is closed: an address that isn't invited gets no account or session", async () => {
+  test("sign-up is closed: an address that isn't invited gets no account, no session, no token and no mail", async () => {
     const email = `stranger${run}@test.dev`;
     const r = await register(email);
-    assert.equal(r.status, 403);
-    assert.match(r.body.error, NEUTRAL);
+    assert.equal(r.status, 200, "the same answer as for an invited address, so nothing says who is invited");
     assert.equal(r.headers.getSetCookie().length, 0, "no session");
     assert.equal(await prisma.user.count({ where: { email } }), 0, "nothing is stored");
+    assert.equal(await prisma.accountToken.count({ where: { email } }), 0, "no link is created for it");
+    await assertNoMail(email);
   });
 
-  test("an invited address can register once, and the app then works for it", async () => {
+  test("an invited address gets a link, sets a password with it, then signs in, and the app works for it", async () => {
     const r = await register(ALLOWED_EMAIL);
     assert.equal(r.status, 200);
-    const cookie = r.headers.getSetCookie().find((c) => c.startsWith("fit_session="));
-    assert.ok(cookie, "signed in");
+    assert.equal(r.headers.getSetCookie().length, 0, "no session at sign-up");
+    const token = await readMailLink(ALLOWED_EMAIL, "signup");
+    const done = await complete(token);
+    assert.equal(done.status, 200);
+    assert.equal(done.headers.getSetCookie().some((c) => c.startsWith("fit_session=")), false, "completing sets no session either");
+    assert.equal(await prisma.user.count({ where: { email: ALLOWED_EMAIL } }), 1, "the account exists now");
+    const login = await call("POST", "/api/auth/login", { email: ALLOWED_EMAIL, password: PASSWORD });
+    assert.equal(login.status, 200);
+    const cookie = login.headers.getSetCookie().find((c) => c.startsWith("fit_session="));
+    assert.ok(cookie, "signed in by login");
     const session = cookie.split(";")[0];
     assert.equal((await call("GET", "/api/profile", undefined, { Cookie: session })).status, 200);
     assert.equal((await call("GET", "/api/sessions", undefined, { Cookie: session })).status, 409, "the eligibility gate still applies");
@@ -92,37 +121,59 @@ if (HTTPS_ORIGIN) {
 
   const timed = async (email) => { const t = Date.now(); const r = await register(email); return { ...r, ms: Date.now() - t }; };
 
-  test("an existing account and an address that isn't invited get the same answer, taking about as long", async () => {
+  test("an existing account and an address that isn't invited get the same answer, taking about as long, and no mail", async () => {
     const existing = await timed(ALLOWED_EMAIL);
     const stranger = await timed(`other${run}@test.dev`);
-    assert.ok(stranger.ms > 5, `the password was hashed for the stranger too: ${stranger.ms} ms`);
     assert.ok(Math.abs(stranger.ms - existing.ms) < Math.max(stranger.ms, existing.ms), `stranger ${stranger.ms} ms, existing ${existing.ms} ms`);
     const { user } = await createSignedInUser(prisma, `unlisted${run}@test.dev`);
     const unlisted = await register(`unlisted${run}@test.dev`);
     for (const r of [existing, stranger, unlisted]) {
-      assert.equal(r.status, 403);
+      assert.equal(r.status, 200);
       assert.equal(r.text, stranger.text, "byte for byte");
       assert.equal(r.headers.getSetCookie().length, 0);
     }
+    await sleep(1500);
+    assert.deepEqual(mailsTo(`other${run}@test.dev`), [], "none for an address that isn't invited");
+    assert.deepEqual(mailsTo(`unlisted${run}@test.dev`), [], "none for an existing account that isn't invited");
+    assert.deepEqual(mailsTo(ALLOWED_EMAIL).map((m) => m.kind), ["signup"], "none for the invited existing account beyond the link it signed up with");
+    assert.equal(await prisma.accountToken.count({ where: { email: { in: [`other${run}@test.dev`, `unlisted${run}@test.dev`] } } }), 0);
     await prisma.session.deleteMany({ where: { userId: user.id } });
     await prisma.user.delete({ where: { id: user.id } });
   });
 
   test("the allowlist can't be bypassed by the form of an address", async () => {
     const [local, domain] = ALLOWED_EMAIL.split("@");
-    for (const variant of [`${local}+x@${domain}`, `x${local}@${domain}`, `${local}@x${domain}`, `${local}@${domain}.evil.invalid`]) {
-      assert.equal((await register(variant)).status, 403, variant);
+    const variants = [`${local}+x@${domain}`, `x${local}@${domain}`, `${local}@x${domain}`, `${local}@${domain}.evil.invalid`];
+    for (const variant of variants) {
+      assert.equal((await register(variant)).status, 200, variant);
       assert.equal(await prisma.user.count({ where: { email: variant } }), 0, variant);
+      assert.equal(await prisma.accountToken.count({ where: { email: variant } }), 0, variant);
     }
     const shouting = await register(ALLOWED_EMAIL.toUpperCase());
-    assert.equal(shouting.status, 403, "the same address in capitals is the existing account");
+    assert.equal(shouting.status, 200, "the same address in capitals is the existing account, and answered the same");
     assert.equal(await prisma.user.count({ where: { email: ALLOWED_EMAIL.toUpperCase() } }), 0);
+    await sleep(1500);
+    for (const variant of variants) assert.deepEqual(mailsTo(variant), [], `no mail for ${variant}`);
+    assert.equal(mailsTo(ALLOWED_EMAIL).length, 1, "and the capitals didn't get the invited account a second link");
   });
 
   test("the registration limit still applies when closed", async () => {
     let limited = false;
     for (let i = 0; i < 12 && !limited; i++) limited = (await register(`limit${i}x${run}@test.dev`)).status === 429;
     assert.ok(limited, "429 reached");
+  });
+
+  test("the completion limit applies too, and a made-up token only ever fails", async () => {
+    // One completion was spent above; 10 are allowed per client per 15 minutes.
+    let limited = false;
+    for (let i = 0; i < 12 && !limited; i++) {
+      const r = await complete(Buffer.alloc(32, i + 1).toString("base64url"));
+      if (r.status === 429) limited = true;
+      else assert.ok(r.status >= 400 && r.status < 500, `a made-up token is refused, not accepted or a server error: ${r.status}`);
+      assert.equal(r.headers.getSetCookie().length, 0, "no session");
+    }
+    assert.ok(limited, "429 reached");
+    assert.equal(await prisma.user.count({ where: { email: { startsWith: "limit", endsWith: `x${run}@test.dev` } } }), 0, "and the uninvited addresses from the limit test have no account");
   });
 
   // ─── Headers ──────────────────────────────────────────────────────────────

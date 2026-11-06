@@ -8,7 +8,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { databaseUrlProblem, environmentProblems, verifyServerIdentity } = require("./lib/test-target-guard.cjs");
 const { urlSecrets } = require("./lib/test-db-guard.cjs");
-const { ROOT, NEXT_BIN, startStub, freePort, spawnNode, waitForChild, killTree, killAll, runNode } = require("./lib/test-servers.cjs");
+const { ROOT, NEXT_BIN, startStub, freePort, spawnNode, waitForChild, killTree, killAll, runNode: runNodeRaw } = require("./lib/test-servers.cjs");
 
 const DB = process.env.DATABASE_URL;
 const unsafe = [databaseUrlProblem(DB), ...environmentProblems(process.env)].filter(Boolean);
@@ -21,9 +21,13 @@ const otherUrl = new URL(DB);
 otherUrl.pathname = "/fitdb_test_other";
 const OTHER = otherUrl.toString();
 // Only stubs and fake keys from here on, including in every child process.
-for (const k of ["FDC_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "BASE_URL", "LABEL_STUB_URL", "NODE_TEST_CONTEXT"]) delete process.env[k];
+for (const k of ["FDC_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "BASE_URL", "LABEL_STUB_URL", "NODE_TEST_CONTEXT", "MAIL_STUB_DIR"]) delete process.env[k];
 
 const LOGS = fs.mkdtempSync(path.join(os.tmpdir(), "fit-suites-"));
+// The running app's mail directory, set by withApp for the time it runs. Whatever runs against the app gets it in its
+// environment, so helpers (scripts/lib/signup.cjs) can read the emailed links. Each app has its own, under LOGS.
+let currentMailDir = null;
+const runNode = (args, env, timeoutMs) => runNodeRaw(args, currentMailDir ? { MAIL_STUB_DIR: currentMailDir, ...env } : env, timeoutMs);
 const secrets = [...urlSecrets(DB), DB, OTHER];
 const scrub = (s) => { let o = String(s); for (const x of secrets) o = o.split(x).join("<redacted>"); return o.replace(/(postgres(?:ql)?:\/\/)[^@\s]+@/g, "$1***@"); };
 const script = (f) => path.join(ROOT, "scripts", f);
@@ -35,20 +39,25 @@ const AI_OFF = { ANTHROPIC_API_KEY: "", ANTHROPIC_BASE_URL: "", LABEL_EXTRACTION
 async function withApp(name, { appEnv = {}, stubLog = false }, run) {
   const stubLogFile = path.join(LOGS, `${name}.stub.log`);
   const serverLog = path.join(LOGS, `${name}.server.log`);
+  const mailDir = path.join(LOGS, `${name}.mail`);
+  fs.mkdirSync(mailDir, { recursive: true });
   const stub = await startStub(stubLog ? { STUB_LOG_FILE: stubLogFile } : {});
   const port = await freePort();
   const app = spawnNode([NEXT_BIN, "start", "-p", String(port)], {
-    DATABASE_URL: DB, FDC_BASE_URL: `${stub.url}/fdc/v1`, OFF_BASE_URL: `${stub.url}/off`, FDC_API_KEY: "stub", EXPOSE_DB_IDENTITY: "1", ...LOCAL_TEST_SERVER, ...AI_OFF, ...appEnv,
+    DATABASE_URL: DB, FDC_BASE_URL: `${stub.url}/fdc/v1`, OFF_BASE_URL: `${stub.url}/off`, FDC_API_KEY: "stub", EXPOSE_DB_IDENTITY: "1", MAIL_STUB_DIR: mailDir, ...LOCAL_TEST_SERVER, ...AI_OFF, ...appEnv,
   }, { capture: true });
   const out = fs.createWriteStream(serverLog);
   app.stdout.on("data", (d) => out.write(scrub(d)));
   app.stderr.on("data", (d) => out.write(scrub(d)));
   const url = `http://localhost:${port}`;
+  const outerMailDir = currentMailDir;
   try {
     await waitForChild(`${url}/login`, app);
     await verifyServerIdentity({ baseUrl: url, databaseUrl: DB });
-    return await run({ url, stubUrl: stub.url, stubLogFile, serverLog });
+    currentMailDir = mailDir;
+    return await run({ url, stubUrl: stub.url, stubLogFile, serverLog, mailDir });
   } finally {
+    currentMailDir = outerMailDir;
     await killTree(app); await killTree(stub.child); out.end();
   }
 }
@@ -110,6 +119,9 @@ const SUITES = {
   "profile-migration-snapshot": () => withApp("profile-migration-snapshot", {}, ({ url }) => runNode([script("profile-migration-check.cjs"), "snapshot"], { BASE_URL: url }, 60_000)),
   "profile-migration-verify": () => withApp("profile-migration-verify", {}, ({ url }) => runNode([script("profile-migration-check.cjs"), "verify"], { BASE_URL: url }, 60_000)),
   "account-data": () => withApp("account-data", {}, ({ url }) => runNode(nodeTest("account-data.test.cjs"), { BASE_URL: url }, 590_000)),
+  // TRUST_PROXY_HOPS lets each request in the suite name its own client in X-Forwarded-For, so the 10-per-15-minutes limits on sign-up and
+  // on redeeming a link apply per case and not to the whole suite. Nothing is loosened: every case stays under the limit.
+  "account-tokens": () => withApp("account-tokens", { appEnv: { TRUST_PROXY_HOPS: "1" } }, ({ url }) => runNode(nodeTest("account-tokens.test.cjs"), { BASE_URL: url }, 590_000)),
   "account-data-e2e": () => withApp("account-data-e2e", {}, ({ url }) => runNode([script("e2e-account-data.cjs")], { BASE_URL: url }, 590_000)),
   "production-startup": () => runNode(nodeTest("production-startup.test.cjs"), { DATABASE_URL: "" }, 590_000),
   "production-security": () => {

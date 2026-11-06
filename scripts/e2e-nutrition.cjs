@@ -4,6 +4,7 @@
 const { chromium } = require("playwright");
 const assert = require("node:assert/strict");
 const { completeOnboarding } = require("./lib/e2e-onboarding.cjs");
+const { signUpInBrowser } = require("./lib/signup.cjs");
 const target = require("./lib/test-target-guard.cjs").requireSafeTarget();
 const BASE = target.baseUrl;
 const SHOTS = (process.env.SHOTS_DIR || require("os").tmpdir()) + "/";
@@ -21,11 +22,7 @@ const SHOTS = (process.env.SHOTS_DIR || require("os").tmpdir()) + "/";
   page.on("dialog", (d) => d.accept());
   const step = (s) => console.log("✓", s);
 
-  await page.goto(BASE + "/register");
-  await page.fill("input[name=email]", `nut${Date.now()}@test.dev`);
-  await page.fill("input[name=password]", "correct horse battery");
-  await page.click("button[type=submit]");
-  await page.waitForURL("**/onboarding");
+  await signUpInBrowser(page, BASE, `nut${Date.now()}@test.dev`, "correct horse battery");
   await completeOnboarding(page);
   step("registered + onboarded");
 

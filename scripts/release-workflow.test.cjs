@@ -7,6 +7,7 @@ const { test, before, after } = require("node:test");
 const assert = require("node:assert/strict");
 const { PrismaClient } = require("@prisma/client");
 const target = require("./lib/test-target-guard.cjs").requireSafeTarget();
+const { signUpWithApi } = require("./lib/signup.cjs");
 
 const BASE = target.baseUrl;
 const ORIGIN = new URL(BASE).origin;
@@ -29,7 +30,7 @@ function client() {
     try { json = await res.json(); } catch {}
     return { status: res.status, body: json };
   };
-  return { get: (p) => call("GET", p), post: (p, b) => call("POST", p, b), put: (p, b) => call("PUT", p, b), patch: (p, b) => call("PATCH", p, b), del: (p) => call("DELETE", p) };
+  return { signUp: async (email, password = "long password 123") => { cookie = (await signUpWithApi(BASE, email, password)).cookie; }, get: (p) => call("GET", p), post: (p, b) => call("POST", p, b), put: (p, b) => call("PUT", p, b), patch: (p, b) => call("PATCH", p, b), del: (p) => call("DELETE", p) };
 }
 const profile = (over = {}) => ({ name: "R", birthDate: "1990-01-01", sex: "MALE", heightCm: 180, currentWeightKg: 80, goalWeightKg: null, goal: "MAINTENANCE",
   activityLevel: "MODERATE", experience: "BEGINNER", workoutDaysPerWeek: 3, unitSystem: "METRIC", timezone: "UTC", calorieTargetOverride: null, ...over });
@@ -42,7 +43,7 @@ const D0 = today(), D1 = addDays(D0, -1), D2 = addDays(D0, -2);
 before(async () => {
   await target.verifyServer(); // first: hooks don't wait for each other
   for (const [c, n] of [[A, "a"], [X, "x"], [S, "s"]]) {
-    assert.equal((await c.post("/api/auth/register", { email: `rel${n}${run}@test.dev`, password: "long password 123" })).status, 200);
+    await c.signUp(`rel${n}${run}@test.dev`);
     assert.equal((await c.put("/api/profile", profile())).status, 200);
   }
 });

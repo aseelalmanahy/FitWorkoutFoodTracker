@@ -20,17 +20,20 @@ const path = require("node:path");
 const { validateTargetUrl } = require("./lib/test-db-guard.cjs");
 const { databaseUrlProblem, environmentProblems, verifyServerIdentity } = require("./lib/test-target-guard.cjs");
 const { ROOT, startApp, startStub, runNode, killAll, killTree, freePort } = require("./lib/test-servers.cjs");
+const { signUpWithApi } = require("./lib/signup.cjs");
 
 const DB = process.env.SAFETY_DB_URL;
 const CONFIRM = process.env.SAFETY_DB_CONFIRM;
 const SCRIPT = path.join(ROOT, "scripts", "live-provider-check.cjs");
 const APP_KEY = "app-key-must-not-reach-the-oracle";
+// Each app this test starts writes its mail here, and sign-up (here and in the script it runs) reads its links from here.
+const MAIL = fs.mkdtempSync(path.join(os.tmpdir(), "usda-nutrients-mail-"));
 let stub, app, oracle, cookie = "";
 const oracleLog = [];
 let oracleMode = "mirror";
 
 const appEnv = () => ({ DATABASE_URL: DB, FDC_BASE_URL: `${stub.url}/fdc/v1`, OFF_BASE_URL: `${stub.url}/off`, FDC_API_KEY: APP_KEY,
-  EXPOSE_DB_IDENTITY: "1", FOOD_RATE_LIMIT_MULTIPLIER: "100" });
+  EXPOSE_DB_IDENTITY: "1", FOOD_RATE_LIMIT_MULTIPLIER: "100", MAIL_STUB_DIR: MAIL });
 /** Each live-check run registers 3 users; the app allows 10 sign-ups per IP per 15 min (in memory), so
  *  tests that run the script repeatedly use a fresh app process. */
 async function freshApp() { if (app) await killTree(app.child); app = await startApp(appEnv()); await verifyServerIdentity({ baseUrl: app.url, databaseUrl: DB }); }
@@ -60,10 +63,8 @@ before(async () => {
   });
   await new Promise((r) => oracle.listen(port, "127.0.0.1", r));
   oracle.url = `http://127.0.0.1:${port}`;
-  const reg = await fetch(`${app.url}/api/auth/register`, { method: "POST", headers: { "Content-Type": "application/json", Origin: app.url },
-    body: JSON.stringify({ email: `missing-nutrients-${Date.now()}@example.test`, password: "long password 123" }) });
-  assert.equal(reg.status, 200);
-  cookie = reg.headers.get("set-cookie").split(";")[0];
+  // Through the real flow: a mailed link, then a password, then a login. It throws unless each step answered 200.
+  cookie = (await signUpWithApi(app.url, `missing-nutrients-${Date.now()}@example.test`, "long password 123", { dir: MAIL })).cookie;
   const prof = await fetch(`${app.url}/api/profile`, { method: "PUT", headers: { "Content-Type": "application/json", Origin: app.url, Cookie: cookie },
     body: JSON.stringify({ name: "Missing nutrients", birthDate: "1990-01-01", sex: "FEMALE", heightCm: 165, currentWeightKg: 60, goalWeightKg: null,
       goal: "MAINTENANCE", activityLevel: "LIGHT", experience: "BEGINNER", workoutDaysPerWeek: 3, unitSystem: "METRIC", timezone: "UTC", calorieTargetOverride: null }) });
@@ -71,10 +72,12 @@ before(async () => {
 });
 after(async () => {
   if (oracle) await new Promise((r) => oracle.close(r));
+  fs.rmSync(MAIL, { recursive: true, force: true });
   // Remove the account this test created (cascade), through a guarded local test-DB connection.
   if (DB && validateTargetUrl(DB, CONFIRM).ok) {
     const { PrismaClient } = require("@prisma/client");
     const db = new PrismaClient({ datasources: { db: { url: DB } } });
+    await db.accountToken.deleteMany({ where: { email: { startsWith: "missing-nutrients-" } } }).catch(() => {});
     await db.user.deleteMany({ where: { email: { startsWith: "missing-nutrients-" } } }).catch(() => {});
     await db.$disconnect();
   }
@@ -111,7 +114,7 @@ test("app API: absent USDA nutrients are null after normalization (search and de
 async function runLiveCheck(env) {
   const report = path.join(os.tmpdir(), `lpc-usda6-${process.pid}-${Date.now()}.json`);
   try {
-    const r = await runNode([SCRIPT], { BASE_URL: app.url, DATABASE_URL: DB, REPORT_FILE: report, FDC_API_KEY: "", ...env }, 240_000);
+    const r = await runNode([SCRIPT], { BASE_URL: app.url, DATABASE_URL: DB, REPORT_FILE: report, FDC_API_KEY: "", MAIL_STUB_DIR: MAIL, ...env }, 240_000);
     const usda6 = (r.out.match(/^(PASS|FAIL|NOT RUN)\s+USDA-6 .*$/m) || [])[0] || "";
     return { ...r, usda6 };
   } finally { fs.rmSync(report, { force: true }); }
