@@ -1,6 +1,6 @@
 # Project Completion Tracker
 
-**The single source of truth for what's done and what isn't.** Last updated 2026-11-06, on branch `feature/phase-4.0.1b-nutrition-targets`, from `main` at `429d961`.
+**The single source of truth for what's done and what isn't.** Last updated 2026-11-06, on `main`, after Phase 4.0.1b merged at `38c4a37`.
 
 **Rules:**
 
@@ -20,7 +20,7 @@
 | M-05 | 4.0 | Phase 4.0 design | COMPLETE as a design | `docs/PHASE_4_0_DESIGN.md`. Its recommendations are pending the owner, section 5 |
 | M-06 | 4.0.0a | Test-target guard | COMPLETE | Merged at `56606ee`. `guard` 51 of 51, `guard-browser` 21 of 21 |
 | M-07 | 4.0.1 | Stage A: eligibility, access gate, automatic targets removed | COMPLETE | Merged at `429d961`. All guarded suites and 26 of 26 negative controls, with independent review. Not for real users on its own |
-| M-08 | 4.0.1b | Nullable targets, calories-only, stopping a target | **IN PROGRESS** | Implemented on this branch, and verified on `fitdb_test`, section 3. **Not COMPLETE until independent review and merge** |
+| M-08 | 4.0.1b | Nullable targets, calories-only, stopping a target | COMPLETE for development | Merged at `38c4a37`, and verified on `fitdb_test`, section 3. **The migration is on `fitdb_test` only, so `fitdb` can't run this yet (B-07).** Not for real users on its own |
 | M-09 | 4.0.1c | Profile data minimization | NOT STARTED | Needs its own migration approval |
 | M-10 | 4.0.2 | Account deletion and export | NOT STARTED | Export follows 4.0.1b |
 | M-11 | 4.0.3 | Production foundation | NOT STARTED | Needs decisions 4, 5 and 14 |
@@ -36,17 +36,17 @@
 
 | ID | Phase | Description | Status | Priority | Dependency | Acceptance Criteria |
 |---|---|---|---|---|---|---|
-| B-01 | 4.0.1b | Migration: 4 nullable columns, 2 CHECK constraints, no row rewritten | IN PROGRESS | P0 | B-06 | **Verified on `fitdb_test`:** `migration-verify` passed. **Left:** review and merge |
-| B-02 | 4.0.1b | Calories-only and partial targets; blank is null, zero is zero | IN PROGRESS | P0 | B-06 | **Verified:** T41, and browser Part B. **Left:** review and merge |
-| B-03 | 4.0.1b | `POST /api/nutrition/targets/stop`, with confirmation | IN PROGRESS | P0 | B-06 | **Verified:** T39, T40, T42, isolation, and 3 browsers. **Left:** review and merge |
-| B-04 | 4.0.1b | Null displays as "Not set", in the editor, history, Nutrition and macro bars | IN PROGRESS | P0 | B-06 | **Verified:** T43, Part B, and controls D9 and D10. **Left:** review and merge |
-| B-05 | 4.0.1b | All readers reviewed for nulls | IN PROGRESS | P1 | B-06 | **Verified:** compiler, T43, and the full regression. **Left:** review and merge |
-| B-06 | 4.0.1b | Independent review, then the owner's merge approval | NOT STARTED | P0 | ChatGPT review, owner | A specific reviewed commit is approved |
+| B-01 | 4.0.1b | Migration: 4 nullable columns, 2 CHECK constraints, no row rewritten | COMPLETE for `fitdb_test` | P0 | None | Merged at `38c4a37`. `migration-verify` passed on `fitdb_test`. **Other databases are open:** B-07 and MIG-01 |
+| B-02 | 4.0.1b | Calories-only and partial targets; blank is null, zero is zero | COMPLETE for development | P0 | None | Merged at `38c4a37`. T41, and browser Part B, on `fitdb_test` |
+| B-03 | 4.0.1b | `POST /api/nutrition/targets/stop`, with confirmation | COMPLETE for development | P0 | None | Merged at `38c4a37`. T39, T40, T42, isolation, and 3 browsers, on `fitdb_test` |
+| B-04 | 4.0.1b | Null displays as "Not set", in the editor, history, Nutrition and macro bars | COMPLETE for development | P0 | None | Merged at `38c4a37`. T43, Part B, and controls D9 and D10 |
+| B-05 | 4.0.1b | All readers reviewed for nulls | COMPLETE for development | P1 | None | Merged at `38c4a37`. Compiler, T43, and the full regression |
+| B-06 | 4.0.1b | Independent review, then the owner's merge approval | COMPLETE | P0 | None | The owner approved `38c4a37` for merge on 2026-11-06, and it was fast-forwarded to `main`. The review's own findings aren't recorded here |
 | B-07 | 4.0.1b | `fitdb`, the development database, doesn't have this migration | BLOCKED | P1 | Separate owner approval | **Calories-only saves and stopping will fail there until it's applied.** Applying it needs its own decision and backup |
 
 ## 3. Tests: run, failed, blocked
 
-**Results for this branch, on `fitdb_test` after the migration. Nothing ran on `fitdb`, and `fitdb_test_other` wasn't migrated.**
+**Results at `38c4a37`, on `fitdb_test` after the migration. Nothing ran on `fitdb`, and `fitdb_test_other` wasn't migrated.**
 
 | Test | Result | Limit |
 |---|---|---|
@@ -90,7 +90,7 @@ So code from before this migration **fails for those people, and never reads a n
 
 | ID | Phase | Description | Status | Priority | Dependency | Acceptance Criteria |
 |---|---|---|---|---|---|---|
-| T-01 | 4.0.1b | `nutrition-targets`, Part B and `migration-verify` | COMPLETE | P0 | None | Results above, at this branch's final commit |
+| T-01 | 4.0.1b | `nutrition-targets`, Part B and `migration-verify` | COMPLETE | P0 | None | Results above, at `38c4a37` |
 | T-02 | 4.0.1b | Database-level negative controls | COMPLETE, except T-09 | P0 | None | D1 to D10 above |
 | T-03 | 4.0.1b | Drift over the raw CHECK constraints | COMPLETE | P1 | None | Findings above. `migrate dev` not observed |
 | T-04 | 4.0.1b | What old code does against a null row | COMPLETE | P2 | None | Findings above |
@@ -99,6 +99,7 @@ So code from before this migration **fails for those people, and never reads a n
 | T-07 | 3 | Real phones and real PDFs | NOT STARTED | P0 | M-14 | Readiness items 6 and 7 |
 | T-08 | 4.0.1 | `T3` exercises only the branch for the UTC hour it runs in, or both between 10:00 and 11:00 | DEFERRED | P3 | None | Accepted limit for now. NC3 was seen to catch one branch (`422 !== 200`), and the other hasn't been seen to fail. A control run at the right UTC hour would close this |
 | T-09 | 4.0.1b | **Not run:** dropping a CHECK on a live database, to show T38 then fails. The owner's authorization allowed only the approved migration to change the schema | DEFERRED | P2 | Owner, if wanted | **Partly covered:** NC31a and NC31b catch a removed constraint in the migration's text, T38 shows the live constraints refuse every invalid shape, and D5 and D6 show they stop the app's own bad writes |
+| T-10 | 4.0.1b | **Not run:** restoring the `fitdb_test` backup taken before the migration. Only its archive listing was read | NOT STARTED | P2 | Owner, for a restore target | Restored into a separately approved database, with row counts compared to the snapshot |
 
 ## 4. Migrations
 
@@ -108,7 +109,7 @@ So code from before this migration **fails for those people, and never reads a n
 | MIG-02 | 4.0.1c | `Profile`: nullable unread fields, separate migration | NOT STARTED | P1 | Owner approval, Decision 9 = A | Annex H4 and T45 |
 | MIG-03 | 4.0.4 | Token table and acceptance fields | NOT STARTED | P0 | Decisions 8, 10, 11 | Design section 8 |
 
-**Backup taken before applying:** `C:\Users\Aseel\FitWorkoutFoodTracker-backups\fitdb_test-pre-4.0.1b-20261106T060140Z.dump`, custom format, 859,762 bytes. `pg_dump` exited 0, and `pg_restore --list` read it. **It hasn't been restored,** so the restore itself is untested.
+**Backup taken before applying:** `C:\Users\Aseel\FitWorkoutFoodTracker-backups\fitdb_test-pre-4.0.1b-20261106T060140Z.dump`, custom format, 859,762 bytes. `pg_dump` exited 0, and `pg_restore --list` read it. **It hasn't been restored,** so the restore itself is untested (T-10).
 
 **Rollback:** forward-only, Annex H6. `fitdb_test` now holds real null rows from the suites.
 
