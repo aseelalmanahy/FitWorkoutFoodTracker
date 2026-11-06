@@ -135,10 +135,9 @@ async function inBrowser(name, partB) {
     await hydrated(page, calories);
     assert.equal(await page.getByLabel("Protein (g)").inputValue(), "", "not set comes back blank, and not as 0");
     await page.goto(`${BASE}/nutrition`);
-    await page.getByText("Not set").first().waitFor();
+    await page.getByText("kcal left").waitFor();
     assert.equal(await page.getByText("Not set").count(), 3, "each macro reads Not set");
     assert.equal(await page.getByRole("progressbar").count(), 0, "no macro bar without a macro target");
-    await page.getByText("kcal left").waitFor();
     step("a calories-only target saves, and its macros read Not set");
 
     await page.goto(`${BASE}/nutrition/targets`);
@@ -152,7 +151,7 @@ async function inBrowser(name, partB) {
     await page.goto(`${BASE}/nutrition`);
     await page.getByRole("link", { name: "Add a target" }).waitFor();
     await page.goto(`${BASE}/nutrition?date=${addDays(past, 1)}`);
-    await page.getByText("2,500 kcal").waitFor();
+    await page.getByText("2,500 kcal").first().waitFor();
     assert.equal(await prisma.nutritionTarget.count({ where: { userId: user.id, effectiveFrom: dbDate(past), kcal: 2500 } }), 1, "the earlier row stays");
     await page.goto(`${BASE}/nutrition/history`);
     await page.getByRole("heading", { name: "Nutrition history" }).or(page.getByText("Days", { exact: true })).first().waitFor();

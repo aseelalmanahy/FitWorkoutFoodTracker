@@ -175,7 +175,7 @@ test("T43: every screen and API loads with each row shape, and never shows a nul
     for (const p of ["/nutrition", "/nutrition/targets", "/nutrition/history"]) {
       const res = await c.page(p);
       assert.equal(res.status, 200, `${p} ${JSON.stringify(shape)}`);
-      const html = await res.text();
+      const html = (await res.text()).replace(/<!-- -->/g, "");
       assert.doesNotMatch(html, /NaN|undefined kcal|null kcal/, `${p} ${JSON.stringify(shape)}`);
       if (p === "/nutrition/targets" && shape.kcal !== null && shape.carbsG === null) assert.match(html, /Not set/, JSON.stringify(shape));
       if (p === "/nutrition/targets" && shape.carbsG === null) assert.doesNotMatch(html, /C 0 g/, JSON.stringify(shape));

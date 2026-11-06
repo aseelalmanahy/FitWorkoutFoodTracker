@@ -20,7 +20,7 @@
 | M-05 | 4.0 | Phase 4.0 design | COMPLETE as a design | `docs/PHASE_4_0_DESIGN.md`. Its recommendations are pending the owner, section 5 |
 | M-06 | 4.0.0a | Test-target guard | COMPLETE | Merged at `56606ee`. `guard` 51 of 51, `guard-browser` 21 of 21 |
 | M-07 | 4.0.1 | Stage A: eligibility, access gate, automatic targets removed | COMPLETE | Merged at `429d961`. All guarded suites and 26 of 26 negative controls, with independent review. Not for real users on its own |
-| M-08 | 4.0.1b | Nullable targets, calories-only, stopping a target | **IN PROGRESS** | Implemented on this branch. **Database-dependent verification BLOCKED,** section 3 |
+| M-08 | 4.0.1b | Nullable targets, calories-only, stopping a target | **IN PROGRESS** | Implemented on this branch, and verified on `fitdb_test`, section 3. **Not COMPLETE until independent review and merge** |
 | M-09 | 4.0.1c | Profile data minimization | NOT STARTED | Needs its own migration approval |
 | M-10 | 4.0.2 | Account deletion and export | NOT STARTED | Export follows 4.0.1b |
 | M-11 | 4.0.3 | Production foundation | NOT STARTED | Needs decisions 4, 5 and 14 |
@@ -36,63 +36,81 @@
 
 | ID | Phase | Description | Status | Priority | Dependency | Acceptance Criteria |
 |---|---|---|---|---|---|---|
-| B-01 | 4.0.1b | Migration written: 4 nullable columns, 2 CHECK constraints, no row rewritten | IN PROGRESS | P0 | MIG-01 | **Done:** static tests, and Prisma's offline schema diff gives the same 4 statements. **Left:** applied to a test database, `migration-verify` passes |
-| B-02 | 4.0.1b | Calories-only and partial targets; blank is null, zero is zero | IN PROGRESS | P0 | MIG-01 | **Done:** unit tests with an in-memory table, API rules, and browser Part A proves what the form sends. **Left:** T41 against real columns |
-| B-03 | 4.0.1b | `POST /api/nutrition/targets/stop`, with confirmation | IN PROGRESS | P0 | MIG-01 | **Done:** rules by unit test, auth, Origin and gate on the real route, no-target case, and the confirmation in 3 browsers with the request intercepted. **Left:** T39, T40, T42 writing a real stopped row |
-| B-04 | 4.0.1b | Null displays as "Not set", in the editor, history, Nutrition and macro bars | IN PROGRESS | P0 | MIG-01 | **Done:** type-checked, and the editor in 3 browsers. **Left:** T43 and browser Part B, as these screens have never rendered a real null row |
-| B-05 | 4.0.1b | All readers reviewed for nulls | IN PROGRESS | P1 | MIG-01 | **Done:** nullable types make the compiler flag each reader. **Left:** T43 |
-| B-06 | 4.0.1b | Independent review, owner migration approval, merge approval | BLOCKED | P0 | MIG-01 | Reviewed commit approved. **Don't merge before the migration is verified:** on a database without it, saving calories only would fail |
+| B-01 | 4.0.1b | Migration: 4 nullable columns, 2 CHECK constraints, no row rewritten | IN PROGRESS | P0 | B-06 | **Verified on `fitdb_test`:** `migration-verify` passed. **Left:** review and merge |
+| B-02 | 4.0.1b | Calories-only and partial targets; blank is null, zero is zero | IN PROGRESS | P0 | B-06 | **Verified:** T41, and browser Part B. **Left:** review and merge |
+| B-03 | 4.0.1b | `POST /api/nutrition/targets/stop`, with confirmation | IN PROGRESS | P0 | B-06 | **Verified:** T39, T40, T42, isolation, and 3 browsers. **Left:** review and merge |
+| B-04 | 4.0.1b | Null displays as "Not set", in the editor, history, Nutrition and macro bars | IN PROGRESS | P0 | B-06 | **Verified:** T43, Part B, and controls D9 and D10. **Left:** review and merge |
+| B-05 | 4.0.1b | All readers reviewed for nulls | IN PROGRESS | P1 | B-06 | **Verified:** compiler, T43, and the full regression. **Left:** review and merge |
+| B-06 | 4.0.1b | Independent review, then the owner's merge approval | NOT STARTED | P0 | ChatGPT review, owner | A specific reviewed commit is approved |
+| B-07 | 4.0.1b | `fitdb`, the development database, doesn't have this migration | BLOCKED | P1 | Separate owner approval | **Calories-only saves and stopping will fail there until it's applied.** Applying it needs its own decision and backup |
 
 ## 3. Tests: run, failed, blocked
 
-**Results for this branch, on the unmigrated `fitdb_test`. Nothing here ran on `fitdb`.**
+**Results for this branch, on `fitdb_test` after the migration. Nothing ran on `fitdb`, and `fitdb_test_other` wasn't migrated.**
 
 | Test | Result | Limit |
 |---|---|---|
-| Unit tests (`vitest`) | PASSED, 1,346 | The target rules use an in-memory table, not PostgreSQL |
-| Type check, build | PASSED | |
-| `prisma validate`, offline schema diff | PASSED | No database involved. Doesn't show PostgreSQL accepts the CHECK constraints |
-| `guard` | PASSED, 51 | |
-| `nutrition-api` | PASSED, 77 | No null column written |
-| `release-workflow` | PASSED, 8 | |
-| `e2e-nutrition`, `eligibility`, `hardening` | PASSED | Eligibility and hardening in 3 browsers |
-| `nutrition-targets-e2e` Part A | PASSED, 3 browsers | Saves are intercepted, so nothing reached the database |
-| `migration-snapshot` | Ran as a dry run | Must be retaken just before applying |
-| **`nutrition-targets`,** T38 to T43 and isolation | **BLOCKED, 8 tests, not passed** | Refuses to run until the migration is applied. Written, never executed against real columns |
-| **`nutrition-targets-e2e` Part B** | **BLOCKED, not passed** | Same. Reports exit 3 |
-| **`migration-verify`,** T44 | **BLOCKED, not passed** | Same |
-| Other guarded suites | Not rerun for this branch | Passed at Stage A. These changes don't touch them. Rerun in full after the migration |
-| Failed | None | Blocked isn't failed, and isn't passed |
+| Unit tests (`vitest`) | PASSED, 1,346 | |
+| Type check, production build | PASSED | Built against the test database |
+| `migration-verify`, T44 | PASSED | 1,229 snapshot rows unchanged. Columns nullable, both constraints present |
+| `nutrition-targets` | PASSED, 8 of 8 | T38, T39, T40, T41, T42, T43, isolation, legacy rows |
+| `nutrition-targets-e2e`, Parts A and B | PASSED, 3 browsers | Chromium, Firefox and WebKit at a phone-sized viewport. No real phone |
+| Rest of the guarded suite | PASSED | `guard` 51, `guard-browser` 21, `units` 19, `live-identity` 9, `nutrition-api` 77, `release-workflow` 8, `provider-protection` 7, `provider-malformed` 4, `provider-config` 1, `usda-missing-nutrients` 4, `db-guard-scoped` 6, `safety-no-marker` 7 with 1 skipped by design, `e2e-smoke`, `e2e-nutrition`, `eligibility`, `label-scan`, `label-pdf`, `meal`, `hardening`, and the 3 unconfigured suites |
+| Failed | None at the final state | The first Part B run failed on a test locator, fixed. Details below |
 
-**Negative controls.** 11 of 11 runnable controls failed on their intended assertion, and files were restored: NC28, NC29, NC30, NC31a, NC31b, NC32, NC37, NC38, NC40, NC41, NC42. **Their limit:** most exercise unit tests or the migration's text.
+**Test corrections made during verification, each a test defect and none weakening a check:** Part B's `2,500 kcal` locator matched two correct elements. T43's HTML check now removes React's comment markers, as it couldn't have seen `C 0 g` otherwise. Part B's "Not set" count now asserts rather than times out.
+
+**Negative controls: 21 of 21 caught, with every file restored and hash-checked.**
+
+| Group | Controls | Fails on |
+|---|---|---|
+| Unit, browser and text (before the migration) | NC28, NC29, NC30, NC31a, NC31b, NC32, NC37, NC38, NC40, NC41, NC42 | Their named assertions |
+| D1 stop deletes earlier rows | Database | T39: earlier rows unchanged |
+| D2 stopped row returned as a target | Database | T39: no target today |
+| D3 null macro compared as 0 | Database | T41 |
+| D4 stop written at the local date only | Database | T42: tomorrow has no target |
+| D5 app sends carbs without both macros | Database | T41: 500, as the app's write is refused |
+| D6 app sends macros on a stopped row | Database | T39: 500. Server log shows PostgreSQL `23514`, a check-constraint violation |
+| D7 repeat stop writes again | Database | T40 |
+| D8 stop reads another person's latest row | Database | T40. The harness first expected only one of T40's two assertions, and was corrected and rerun |
+| D9 null shown as `0 g` | Database | T43 |
+| D10 Nutrition page treats a null macro as 0 | Browser | Part B: each macro reads Not set |
+
+**Drift findings.** `prisma migrate diff` from the live database to `schema.prisma` reports "No difference detected", after real null rows were written. `migrate status` reports up to date. So the raw CHECK constraints don't appear as drift in these commands. **Limit:** `prisma migrate dev`, which uses a shadow database, wasn't run.
+
+**Old-code compatibility, observed.** A client generated from `main`'s schema (`429d961`), reading `fitdb_test` read-only:
+
+| Person | Result |
+|---|---|
+| No null rows | Reads normally |
+| Has a stopped row | Throws `P2032` on `kcal` |
+| Has a partial row | Throws `P2032` on `proteinG` |
+
+So code from before this migration **fails for those people, and never reads a null as 0.** It works for everyone else. **Limit:** this exercised the client, not the old running application. It confirms that rollback is forward-only once nulls exist.
 
 | ID | Phase | Description | Status | Priority | Dependency | Acceptance Criteria |
 |---|---|---|---|---|---|---|
-| T-01 | 4.0.1b | Run `nutrition-targets`, Part B and `migration-verify` | BLOCKED | P0 | MIG-01 | All pass on `fitdb_test`, with no test weakened |
-| T-02 | 4.0.1b | Database-level negative controls: delete on stop, stopped row returned, and a dropped CHECK against T38 and T39 | BLOCKED | P0 | MIG-01 | Each fails on its named assertion |
-| T-03 | 4.0.1b | Whether `prisma migrate` reports drift over the raw CHECK constraints | BLOCKED | P1 | MIG-01 | Observed on a test database, and recorded |
-| T-04 | 4.0.1b | What old code does against a null row | BLOCKED | P2 | MIG-01 | Observed, or the forward-only rollback stands. Assumed unsafe until then |
-| T-05 | 4.0.1b | Full guarded suite on the final commit | BLOCKED | P0 | MIG-01 | Every suite passes |
+| T-01 | 4.0.1b | `nutrition-targets`, Part B and `migration-verify` | COMPLETE | P0 | None | Results above, at this branch's final commit |
+| T-02 | 4.0.1b | Database-level negative controls | COMPLETE, except T-09 | P0 | None | D1 to D10 above |
+| T-03 | 4.0.1b | Drift over the raw CHECK constraints | COMPLETE | P1 | None | Findings above. `migrate dev` not observed |
+| T-04 | 4.0.1b | What old code does against a null row | COMPLETE | P2 | None | Findings above |
+| T-05 | 4.0.1b | Full guarded suite | COMPLETE | P0 | None | Results above |
 | T-06 | 3 | Real models, labels, meals, hostile inputs | BLOCKED | P1, if AI is wanted | Paid-test approval | Readiness items 2 to 4 |
 | T-07 | 3 | Real phones and real PDFs | NOT STARTED | P0 | M-14 | Readiness items 6 and 7 |
 | T-08 | 4.0.1 | `T3` exercises only the branch for the UTC hour it runs in, or both between 10:00 and 11:00 | DEFERRED | P3 | None | Accepted limit for now. NC3 was seen to catch one branch (`422 !== 200`), and the other hasn't been seen to fail. A control run at the right UTC hour would close this |
+| T-09 | 4.0.1b | **Not run:** dropping a CHECK on a live database, to show T38 then fails. The owner's authorization allowed only the approved migration to change the schema | DEFERRED | P2 | Owner, if wanted | **Partly covered:** NC31a and NC31b catch a removed constraint in the migration's text, T38 shows the live constraints refuse every invalid shape, and D5 and D6 show they stop the app's own bad writes |
 
 ## 4. Migrations
 
 | ID | Phase | Description | Status | Priority | Dependency | Acceptance Criteria |
 |---|---|---|---|---|---|---|
-| MIG-01 | 4.0.1b | `20261106120000_nullable_nutrition_targets`. **Written, not applied anywhere** | BLOCKED | P0 | Owner approval | Procedure below completes |
+| MIG-01 | 4.0.1b | `20261106120000_nullable_nutrition_targets`, Git blob `62b7459`. **Applied to `fitdb_test` only,** on 2026-11-06, with owner authorization | COMPLETE for `fitdb_test` | P0 | None | `migration-verify` passed. **Not applied to `fitdb`, `fitdb_test_other` or any production database,** which each need separate approval |
 | MIG-02 | 4.0.1c | `Profile`: nullable unread fields, separate migration | NOT STARTED | P1 | Owner approval, Decision 9 = A | Annex H4 and T45 |
 | MIG-03 | 4.0.4 | Token table and acceptance fields | NOT STARTED | P0 | Decisions 8, 10, 11 | Design section 8 |
 
-**MIG-01 procedure, once approved, and only on designated test databases:**
+**Backup taken before applying:** `C:\Users\Aseel\FitWorkoutFoodTracker-backups\fitdb_test-pre-4.0.1b-20261106T060140Z.dump`, custom format, 859,762 bytes. `pg_dump` exited 0, and `pg_restore --list` read it. **It hasn't been restored,** so the restore itself is untested.
 
-1. `npm run test:suites -- migration-snapshot`
-2. Apply with `prisma migrate deploy`, with `DATABASE_URL` naming `fitdb_test`. The owner decides whether `fitdb_test_other` is included.
-3. `npm run test:suites -- migration-verify nutrition-targets nutrition-targets-e2e`
-4. T-02, then T-05, then type check and build.
-
-**Rollback:** forward-only once any null exists, Annex H6. **`fitdb` and any later production database each need separate approval.**
+**Rollback:** forward-only, Annex H6. `fitdb_test` now holds real null rows from the suites.
 
 ## 5. Owner decisions and approvals
 
