@@ -39,9 +39,12 @@ owner -> main session -> orchestrate.cjs (what may start) -> Agent tool -> worke
 
 | What happens | Result |
 |---|---|
-| Crash, context limit, tool failure, failed tests, or a reply with no readable report | Retried, up to 3 attempts. The third may be on a stronger tier, through the router. Then `FAILED` |
-| Permission denied, or the guard refused | `BLOCKED` for the main session. **Never retried, and never moved to a stronger model** |
-| Model unavailable | Moves up a tier if the router allows it, or `BLOCKED`. Never moves down |
+| Failed tests | One retry, with the failure in the prompt. Then one on a stronger tier, through the router. Then `FAILED`. **The only failure that's evidence more reasoning could help** |
+| Crash or tool failure | One more try, on the same tier, in case it was transient. Then `FAILED`. **Never escalates** |
+| No complete report | The same worker is asked once, as re-running repeats all its work. Then `FAILED` |
+| The same failure twice | `FAILED` at once, as another try has no reason to differ |
+| Permission denied, guard refusal, missing approval, invalid path, unsupported tool, context limit | `BLOCKED` for the main session straight away, also when the error text shows it. **Never retried, and never moved to a stronger model** |
+| Model unavailable | Moves up a tier when planning if the router allows it, or `BLOCKED`. Never moves down |
 | Changed a file it doesn't own | `BLOCKED`. Nothing is reverted |
 | Its dependency failed | `BLOCKED`, naming the dependency, and so on down the chain |
 | A restricted action | `BLOCKED` from the start, and can't be requeued. Once approved, it stays in the main session |
@@ -62,6 +65,39 @@ owner -> main session -> orchestrate.cjs (what may start) -> Agent tool -> worke
 - **Tokens:** Claude Code reported about 8,000 to 9,600 for each of those 9 workers, on one-line tasks, 76,414 in all. **So each worker has a large fixed cost. Parallel work spends the same or more tokens to save time.**
 - **No cost saving is claimed.** The main session's own use wasn't separated out.
 
+## How tokens are kept down
+
+**Measured from those nine transcripts:** each worker used about 15,000 tokens, of which about 500 were its own output. So 139,000 or so in all, and most of it is fixed load, read from or written to the cache (77,934 read, 56,586 written). Claude Code's own notifications gave lower figures, about 8,000 each, and which it counts isn't documented. The transcript's format isn't documented either.
+
+| Mechanism | Effect |
+|---|---|
+| **Not starting a worker** | By far the largest: about 15,000 tokens each, by the figure above |
+| Results reused when inputs are unchanged | Avoids a whole worker, and only for read-only, low-risk work with declared files |
+| A repeated goal held back | Avoids a whole worker |
+| Tests skipped only on exactly the same code | Avoids the run, and never for `required` tests |
+| Asking for a missing report, and bounded retries | Avoids repeating a worker's work |
+| Handing over exact paths and known facts | Avoids exploring. **Not measured on real work** |
+| Shorter prompts | Fixed prompt text went from 910 to 463 characters. **That's roughly 110 tokens by the usual four-characters estimate, under 1 % of a worker's load, so small, and it's an estimate** |
+
+**No overall saving is claimed.** The live runs came before these changes, and no new benchmark was run, to avoid its cost. Repeated reads are visible now: in those runs, `package.json` and `tsconfig.json` were each read by two workers, as the sequential comparison repeated them on purpose.
+
+## Avoiding duplicated work
+
+- **Planning:** the same goal and files runs once. Files several workers would read are listed at creation.
+- **Later:** a result is reused only if the goal matches, its declared files are byte-for-byte the same before and after the earlier worker ran, it ran no tests, and it isn't high-risk. **Everything else runs again.**
+- **Tests:** a pass counts only for the same command on the same commit, uncommitted changes and new files. A failure never counts.
+
+## Reading `reconcile`
+
+| Result | Meaning | Clean? |
+|---|---|---|
+| `sequential` | Two workers reported a file, one after the other | Yes |
+| `simultaneous` | Two workers reported a file while both ran, or their times aren't known | **No** |
+| `unowned` | Changed, and no task owns it | **No** |
+| `unexpected` | Owned but reported by nobody, or reported by a worker that doesn't own it | **No** |
+
+**It works from what workers said and when they ran.** Ownership isn't enforced during a run, so this can't prove who wrote a file.
+
 ## Tested
 
 | Scenario | Mocked | Live |
@@ -79,7 +115,7 @@ owner -> main session -> orchestrate.cjs (what may start) -> Agent tool -> worke
 | 14. Interrupted parent | Yes | **No** |
 | 15. Results collected centrally | Yes | **Yes** |
 
-`node --test .claude/skills/parallel-task-orchestrator/tests/orchestrator.test.cjs`
+`node --test .claude/skills/parallel-task-orchestrator/tests/orchestrator.test.cjs`. Efficiency rules are mocked and simulated, including 25 repeatable random orders, each checking that no more than three run and that no task is lost. **None has been exercised on real work.**
 
 ## Limits you should know
 

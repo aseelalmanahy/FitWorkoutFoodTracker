@@ -10,52 +10,68 @@ argument-hint: "[request to split up]"
 
 `S` below means `node .claude/skills/parallel-task-orchestrator/scripts/orchestrate.cjs`.
 
-## First, decide whether this is worth it
+## First, decide how many workers it deserves
 
-Parallel work costs more tokens, as every worker starts cold, and it only saves time when tasks really are independent. **Do the work yourself, or use one agent, when:**
+**Every worker costs about 15,000 tokens before it does anything, so the biggest saving is not starting one.** Parallel work can save time, but it never saves tokens.
 
-- There's one task, or it's small enough that briefing a worker takes longer than doing it.
-- The tasks depend on each other's results, or need the same files.
-- It needs a restricted action. That stays with you and the owner's explicit approval.
+| Workers | When |
+|---|---|
+| **0** | It's trivial, or one simple file, or you already hold the context, or a cold start would cost more than the work |
+| **1** | One substantial task, or reading that would bloat your context |
+| **2** | Two independent, substantial tasks |
+| **3** | Three independent workstreams that justify the cost. **Never more** |
 
-Never add a worker because capacity exists.
+Size each task. **Risk always outranks size, and length never raises it.**
+
+| `size` | What happens |
+|---|---|
+| `TRIVIAL` | Main session |
+| `SMALL` | Main session. With `contextIsolation`, one Haiku worker, alone, if it changes no code |
+| `MEDIUM` (the default) | One specialist, by the router |
+| `LARGE` | One specialist. Split it only into truly independent subtasks |
+| `HIGH-RISK` (set by any risk signal) | Stronger model, and an independent review is owed |
+
+Never add a worker because capacity exists, or to summarize another worker's result. A restricted action stays with you and the owner's explicit approval.
 
 ## Steps
 
 1. **Split the request** into tasks. For each, decide its dependencies, the exact files it may change (`owns`), and its signals, as defined in the `intelligent-model-router` skill. Read-only tasks own nothing. Write them to a JSON file in the scratchpad:
 
    ```json
-   [{ "id": "A", "title": "Short title", "goal": "Everything the worker needs, as it starts with no context", "signals": {}, "owns": ["src/x.ts"], "dependsOn": [] }]
+   [{ "id": "A", "title": "Short title", "size": "MEDIUM", "goal": "The objective, in a sentence or two", "signals": {}, "files": ["exact/paths/to/read.ts"], "inputs": "Interfaces or facts you already know", "acceptance": "How to tell it's done", "owns": ["src/x.ts"], "dependsOn": [] }]
    ```
 
-2. **Create the run:** `S create <tasks.json> <run-id>`. Each task is routed here. Tasks that overlap on a file are put in order automatically. Show the owner the dashboard if the run is substantial.
+   **Hand over what you already know,** with exact paths and facts, so that the worker doesn't explore or re-read it. Don't paste documents. To review a task, add `"reviews": ["A"]`.
+
+2. **Create the run:** `S create <tasks.json> <run-id>`. It prints how many workers the plan needs, and any files several workers would read. Each task is routed here. Overlapping files are put in order, a repeated goal is held back, and a read-only result is reused if its `files` are byte-for-byte unchanged.
 
 3. **Launch:** `S next <run-id>` returns what may start now. **For each entry, call the Agent tool, with all of them in one message, using its `subagent_type` and `prompt` exactly.** Pass `isolation: "worktree"` only if the entry says so. **Don't pass `model`,** as the agent's definition sets it. Then `S started <run-id> <task> <agentId>`.
 
    If `inMain` lists a task, do it yourself, then `S done-in-main <run-id> <task> "<summary>"`.
 
-4. **While they run,** don't poll. Each result arrives by itself as a notification. Tell the owner what's running from your record. **You can't see a worker's progress until it reports,** so never describe one as further along than that. The owner can see live rows in `/tasks`.
+4. **While they run,** don't poll, and don't post a status for every event. Each result arrives by itself as a notification. **You can't see a worker's progress until it reports,** so never describe one as further along than that. The owner can see live rows in `/tasks`.
 
 5. **When a worker reports:** save its reply to a file, then `S report <run-id> <task> <file>`. Do what the `action` says:
 
    | `action` | Do this |
    |---|---|
    | `collected` | Record its model, then close it |
-   | `retry` | Run `S next` and launch it again. The attempts are bounded, and the router may move it up a tier |
+   | `ask-for-report` | Send that worker one short message through `SendMessage` asking for its `WORKER-REPORT`, rather than re-running it |
+   | `retry` | Run `S next` and launch it again. Its prompt now holds the last failure |
    | `gave-up` | It's FAILED. Tell the owner, with its failure record |
    | `needs-the-main-session` | It's BLOCKED. Read the blockers, and decide or ask the owner |
 
-   A worker that never reports, or whose failure notification arrives: `S fail <run-id> <task> <kind> "<detail>"`, with `crash`, `context-limit`, `tool-failure`, `test-failure`, `missing-report`, `permission-denied`, `conflict`, `model-unavailable` or `needs-approval`.
+   A worker that never reports, or whose failure notification arrives: `S fail <run-id> <task> <kind> "<detail>"`, with `crash`, `tool-failure`, `test-failure`, `context-limit`, `missing-report`, `permission-denied`, `needs-approval`, `conflict`, `model-unavailable`, `invalid-input` or `unsupported-tool`. **Give the real error,** as it decides whether a retry could help.
 
-6. **Record the model used:** `node .claude/skills/intelligent-model-router/scripts/verify-model.cjs <transcript>`, then `S model <run-id> <task> <model>`. Transcripts are under `~/.claude/projects/<project>/<session>/subagents/agent-<agentId>.jsonl`. **Only state a model as used if this verified it.**
+6. **Record what it used:** `S measure <run-id> <task> <transcript>`, for its model, tokens and files read. Transcripts are under `~/.claude/projects/<project>/<session>/subagents/agent-<agentId>.jsonl`. **Only state a model as used if this verified it.**
 
 7. **Close it:** `S close <run-id> <task>`, then `S next` again, as a slot and perhaps a dependency are now free. Finished workers need no further stopping.
 
 8. **To cancel:** stop the worker with the `TaskStop` tool, then `S cancel <run-id> <task> "<reason>"`. Its partial changes stay on disk, for you to review.
 
-9. **Integrate.** List what changed, with `git status --porcelain`, and run `S reconcile <run-id> <files...>`. **Stop on any conflict: keep both workers' changes, report it, and resolve it without deleting unrelated work.** Run the relevant tests yourself. A worker's "passed" is a report, not your evidence.
+9. **Integrate.** List what changed, with `git status --porcelain`, and run `S reconcile <run-id> <files...>`. `sequential` is fine. **On `simultaneous`, `unowned` or `unexpected`, stop: keep both workers' changes, report it, and resolve it without deleting unrelated work.** Run the relevant tests yourself, as a worker's "passed" is a report, not your evidence. Before each, `S test-check <run-id> "<command>"`, then `S test-done <run-id> "<command>" passed|failed`. Add `required` to the check for security and data-integrity tests, which always run.
 
-10. **Finish:** `S dashboard <run-id>` and `S finish <run-id>`. Report the result to the owner, including anything failed, blocked or unverified.
+10. **Finish:** `S dashboard <run-id>` and `S finish <run-id>`. Report the result to the owner, including anything failed, blocked or unverified. `reviewsOutstanding` lists high-risk changes with no finished review. Run it, or tell the owner it's still owed.
 
 ## If the session was interrupted
 
