@@ -2,7 +2,7 @@ import "server-only";
 import { Prisma, type AccountTokenPurpose } from "@prisma/client";
 import { randomBytes } from "node:crypto";
 import { HttpError } from "../api";
-import { hashPassword, hashToken, newSessionRow, setDeviceCookie, setSessionCookie } from "../auth";
+import { hashPassword, hashToken, limitLockWait, newSessionRow, setDeviceCookie, setSessionCookie } from "../auth";
 import { prisma } from "../db";
 import { acquirePasswordCheck } from "../login-throttle";
 import { MailRejected, mailTransport, type MailMessage } from "../mail/transport";
@@ -99,7 +99,7 @@ function notifyPasswordChanged(to: string): void {
       subject: `Your ${APP_NAME} password was changed`,
       text: `Your password was just changed, and your other devices were signed out.\n\nIf this wasn't you, reset your password now: ${origin}/forgot-password\n`,
     }, signal);
-  });
+  }, { always: true });
 }
 
 /** Argon2 is slow and memory-hungry, so it runs in one of the limited slots, before any transaction opens. */
@@ -150,9 +150,11 @@ export async function resetPassword(token: string, password: string): Promise<vo
   const userId = row.userId;
   const passwordHash = await hashNewPassword(password);
   const email = await prisma.$transaction(async (tx) => {
+    await limitLockWait(tx);
     const locked = await tx.$queryRaw<{ email: string }[]>`SELECT email FROM "User" WHERE id = ${userId} FOR UPDATE`;
     if (!locked.length) throw invalidLink();
-    const used = await tx.accountToken.deleteMany({ where: live(id, "PASSWORD_RESET") });
+    // For the address it was sent to, so a link in an old mailbox stops working if the address changes.
+    const used = await tx.accountToken.deleteMany({ where: { ...live(id, "PASSWORD_RESET"), email: locked[0].email } });
     if (used.count !== 1) throw invalidLink();
     await tx.user.update({ where: { id: userId }, data: { passwordHash } });
     await tx.session.deleteMany({ where: { userId } });
@@ -171,6 +173,7 @@ export async function changePassword(user: { id: string; email: string }, curren
   const passwordHash = await hashNewPassword(newPassword);
   const session = newSessionRow();
   await prisma.$transaction(async (tx) => {
+    await limitLockWait(tx);
     const updated = await tx.user.updateMany({ where: { id: user.id, passwordHash: verified }, data: { passwordHash } });
     if (updated.count !== 1) throw new HttpError(409, "Your password was changed elsewhere just now. Log in again and retry.");
     await tx.session.deleteMany({ where: { userId: user.id } });

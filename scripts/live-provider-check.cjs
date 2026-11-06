@@ -185,8 +185,9 @@ async function doCleanup() {
     const leftEntries = await db.foodEntry.count({ where: { userId: { in: ids } } });
     const leftFoods = await db.food.count({ where: { userId: { in: ids } } });
     const leftTargets = await db.nutritionTarget.count({ where: { userId: { in: ids } } });
-    out(`Cleanup: removed ${deleted} test user(s); remaining → users ${leftUsers}, entries ${leftEntries}, custom foods ${leftFoods}, targets ${leftTargets}.`);
-    if (leftUsers + leftEntries + leftFoods + leftTargets > 0) process.exitCode = 2;
+    const leftTokens = await db.accountToken.count({ where: { email: { in: createdEmails } } });
+    out(`Cleanup: removed ${deleted} test user(s); remaining → users ${leftUsers}, entries ${leftEntries}, custom foods ${leftFoods}, targets ${leftTargets}, links ${leftTokens}.`);
+    if (leftUsers + leftEntries + leftFoods + leftTargets + leftTokens > 0) process.exitCode = 2;
     // Defense in depth (guard 3 should make this unreachable): fewer rows found than the
     // server confirmed would mean the server wrote to a different database.
     if (deleted < registered) {

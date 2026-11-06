@@ -37,7 +37,8 @@ const databaseName = (url: URL) => decodeURIComponent(url.pathname.slice(1));
 export function isLocalTestServer(env: Env): boolean {
   if (env.FIT_LOCAL_TEST_SERVER !== "1") return false;
   const url = parseDatabaseUrl(env.DATABASE_URL);
-  return !!url && LOOPBACK.has(url.hostname) && DESIGNATED_TEST_DATABASES.has(databaseName(url));
+  // A host= parameter can redirect the connection, whatever the URL's host says. The test guard refuses it too.
+  return !!url && !url.searchParams.has("host") && LOOPBACK.has(url.hostname) && DESIGNATED_TEST_DATABASES.has(databaseName(url));
 }
 
 /** Exact addresses only. Anything else is refused at startup, so "*" or "@example.com" can't open sign-up. */

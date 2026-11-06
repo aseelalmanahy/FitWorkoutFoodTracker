@@ -47,8 +47,9 @@ async function drain(): Promise<void> {
   running = null;
 }
 
-export function enqueueAccountJob(name: string, job: Job): void {
-  if (waiting.length >= MAX_WAITING) {
+/** `always` is for telling someone their password changed. Asking for links can't crowd that out. */
+export function enqueueAccountJob(name: string, job: Job, { always = false }: { always?: boolean } = {}): void {
+  if (!always && waiting.length >= MAX_WAITING) {
     logAccountMail(name, "queue-full");
     return;
   }

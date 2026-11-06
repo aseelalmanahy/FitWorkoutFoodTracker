@@ -58,6 +58,7 @@ async function withApp(name, { appEnv = {}, stubLog = false }, run) {
     return await run({ url, stubUrl: stub.url, stubLogFile, serverLog, mailDir });
   } finally {
     currentMailDir = outerMailDir;
+    fs.rmSync(mailDir, { recursive: true, force: true }); // these files hold live tokens
     await killTree(app); await killTree(stub.child); out.end();
   }
 }

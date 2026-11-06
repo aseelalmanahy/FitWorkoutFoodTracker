@@ -124,7 +124,8 @@ if (HTTPS_ORIGIN) {
   test("an existing account and an address that isn't invited get the same answer, taking about as long, and no mail", async () => {
     const existing = await timed(ALLOWED_EMAIL);
     const stranger = await timed(`other${run}@test.dev`);
-    assert.ok(Math.abs(stranger.ms - existing.ms) < Math.max(stranger.ms, existing.ms), `stranger ${stranger.ms} ms, existing ${existing.ms} ms`);
+    // Both answer before anything is looked up, so a real gap would mean a lookup has moved in front of the response.
+    assert.ok(Math.abs(stranger.ms - existing.ms) < 250, `stranger ${stranger.ms} ms, existing ${existing.ms} ms`);
     const { user } = await createSignedInUser(prisma, `unlisted${run}@test.dev`);
     const unlisted = await register(`unlisted${run}@test.dev`);
     for (const r of [existing, stranger, unlisted]) {

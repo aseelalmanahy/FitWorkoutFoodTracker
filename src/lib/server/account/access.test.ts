@@ -7,7 +7,7 @@ import { NextRequest } from "next/server";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { forgetAttempts, hashPassword } from "@/lib/server/auth";
 import { _resetLoginThrottle, acquirePasswordCheck } from "@/lib/server/login-throttle";
-import { JOB_DEADLINE_MS, _accountJobsIdle, enqueueAccountJob } from "@/lib/server/mail/queue";
+import { JOB_DEADLINE_MS, _accountJobsIdle, _accountJobsWaiting, enqueueAccountJob } from "@/lib/server/mail/queue";
 import { MailRejected, type MailMessage } from "@/lib/server/mail/transport";
 
 type Row = Record<string, unknown>;
@@ -21,6 +21,8 @@ const f = vi.hoisted(() => ({
   send: null as null | ((m: MailMessage, s: AbortSignal) => Promise<void>),
   /** Runs just before a transaction, to stand in for something committing during the slow password hash. */
   beforeTransaction: null as null | (() => void),
+  /** Every raw query fails as PostgreSQL's lock_timeout would. */
+  lockTimedOut: false,
   /** Runs during an export's reads, to stand in for a reset committing while they run. */
   duringExportReads: null as null | (() => void),
   /** Holds a job partway through, to stand in for a slow database. */
@@ -85,7 +87,12 @@ vi.mock("@/lib/server/db", () => {
       create: async ({ data }: { data: Row }) => { log("accountToken.create"); f.tokens.push({ createdAt: new Date(), ...data }); return data; },
       deleteMany: async ({ where }: { where: Row }) => { log("accountToken.deleteMany"); return removeWhere(f.tokens, where); },
     },
+    $executeRaw: async (strings: TemplateStringsArray) => { log(/lock_timeout/.test(strings.join("?")) ? "set:lock_timeout" : "raw:other"); return 0; },
     $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      if (f.lockTimedOut) {
+        const { Prisma } = await import("@prisma/client");
+        throw new Prisma.PrismaClientKnownRequestError("canceling statement due to lock timeout, code 55P03", { code: "P2010", clientVersion: "test" });
+      }
       log(`raw:${/FOR (UPDATE|SHARE)/.exec(strings.join("?"))?.[0] ?? "other"}`);
       return f.users.filter((u) => u.id === values[0]);
     },
@@ -196,6 +203,7 @@ beforeEach(() => {
   f.beforeTransaction = null;
   f.stall = null;
   f.duringExportReads = null;
+  f.lockTimedOut = false;
   origin = ORIGIN;
   _resetLoginThrottle();
   forgetAttempts("reauth:user-1");
@@ -546,6 +554,24 @@ describe("a failed send", () => {
     expect(f.sent).toEqual([]);
   });
 
+  it("a full queue drops requests for links, and never the notice that a password changed", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    let finish = () => {};
+    enqueueAccountJob("first", () => new Promise<void>((resolve) => { finish = resolve; }));
+    await new Promise((resolve) => setImmediate(resolve));
+    for (let i = 0; i < 500; i++) enqueueAccountJob("filler", async () => {});
+    expect(_accountJobsWaiting()).toBe(500);
+    let link = false, notice = false;
+    enqueueAccountJob("link", async () => { link = true; });
+    enqueueAccountJob("notice", async () => { notice = true; }, { always: true });
+    expect(_accountJobsWaiting()).toBe(501);
+    expect(warn.mock.calls.flat().join(" ")).toContain("[account-mail] link: queue-full");
+    finish();
+    await _accountJobsIdle();
+    expect(link).toBe(false);
+    expect(notice).toBe(true);
+  });
+
   it("a failing job doesn't stop the next one", async () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
     let later = false;
@@ -637,6 +663,15 @@ describe("password reset", () => {
     expect((await post("login", { email: user.email, password: NEW_PASSWORD })).status).toBe(200);
   });
 
+  it("a link stops working if the account's address changes, so an old mailbox can't use it", async () => {
+    const user = await makeUser();
+    const before = user.passwordHash;
+    const token = await askReset(user.email);
+    user.email = "moved@example.com";
+    expect((await post("reset", { token, password: NEW_PASSWORD })).status).toBe(400);
+    expect(f.users[0].passwordHash).toBe(before);
+  });
+
   it("parallel use gives exactly one success", async () => {
     const user = await makeUser();
     const token = await askReset(user.email);
@@ -680,6 +715,36 @@ describe("a login already past its password check", () => {
     const lock = f.calls.indexOf("raw:FOR SHARE");
     expect(lock).toBeGreaterThan(-1);
     expect(f.calls.indexOf("session.create")).toBeGreaterThan(lock);
+  });
+});
+
+describe("waiting for a lock is bounded", () => {
+  it.each(["login", "reset", "change"] as const)("%s limits its wait before it takes any lock", async (route) => {
+    const user = await makeUser();
+    signIn(user.id);
+    const token = await askReset(user.email);
+    f.calls.length = 0;
+    const body = route === "login" ? { email: user.email, password: PASSWORD } : route === "reset" ? { token, password: NEW_PASSWORD } : { currentPassword: PASSWORD, newPassword: NEW_PASSWORD };
+    expect((await post(route, body)).status).toBe(200);
+    const limit = f.calls.indexOf("set:lock_timeout");
+    expect(limit).toBeGreaterThan(-1);
+    const firstLocking = f.calls.findIndex((c) => ["raw:FOR SHARE", "raw:FOR UPDATE", "user.updateMany"].includes(c));
+    expect(firstLocking).toBeGreaterThan(limit);
+  });
+
+  it("a timed-out wait answers 503, says why in plain words, and changes nothing", async () => {
+    const user = await makeUser();
+    const token = await askReset(user.email);
+    const before = user.passwordHash;
+    f.lockTimedOut = true;
+    const res = await post("reset", { token, password: NEW_PASSWORD });
+    expect(res.status).toBe(503);
+    expect(res.headers.get("Retry-After")).toBe("5");
+    expect(await res.text()).not.toMatch(/55P03|lock|Prisma/i);
+    expect(f.tokens).toHaveLength(1);
+    expect(f.users[0].passwordHash).toBe(before);
+    expect((await post("login", { email: user.email, password: PASSWORD })).status).toBe(503);
+    expect(f.sessions).toEqual([]);
   });
 });
 
@@ -810,12 +875,15 @@ describe("export authority", () => {
     expect(JSON.parse(text).account.termsAcceptedAt).toBeNull();
   });
 
-  it("a reset committing after the password check, before the snapshot, stops the export", async () => {
+  it("a reset committing after the password check, before the snapshot, stops the export before it reads any data", async () => {
     const user = await makeUser();
     signIn(user.id);
     f.beforeTransaction = () => { user.passwordHash = "the owner's new password"; };
+    let read = false;
+    f.duringExportReads = () => { read = true; };
     const res = await post("exportData", { password: PASSWORD });
     expect(res.status).toBe(409);
+    expect(read).toBe(false);
     expect(await res.text()).not.toContain(user.email);
   });
 

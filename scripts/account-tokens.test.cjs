@@ -12,7 +12,7 @@
 // token rows (createdAt), which is what a restart would leave, so the rows are what is changed and checked.
 // A request at exactly the expiry instant can't be made over HTTP, so expiry is checked 1 ms before now,
 // and at a moment safely ahead of it.
-const { test, before, after } = require("node:test");
+const { test, before, after, afterEach } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
@@ -192,6 +192,14 @@ test("purpose is checked by itself, on rows that no other rule would refuse", as
   assert.equal((await login(u.email, NEW_PASSWORD)).status, 401);
 });
 
+test("a reset link stops working if the account's address changes", async () => {
+  const u = await newUser("moved");
+  const token = await mint("PASSWORD_RESET", u.email, { userId: u.user.id });
+  await prisma.user.update({ where: { id: u.user.id }, data: { email: `moved${SUFFIX}` } });
+  assert.equal((await reset(token, NEW_PASSWORD)).status, 400);
+  assert.equal((await login(`moved${SUFFIX}`, PASSWORD)).status, 200, "the password is unchanged");
+});
+
 test("a made-up or malformed token is refused the same way", async () => {
   const made = Buffer.alloc(32, 7).toString("base64url");
   for (const [label, token] of [["unknown", made], ["too short", "abc"], ["wrong characters", "!".repeat(43)]]) {
@@ -285,11 +293,17 @@ test("a reset racing the account's deletion: no server error, and no account or 
 
 /** How many of this database's connections are waiting on a lock. Only ever read here. */
 const blockedCount = async () => (await prisma.$queryRawUnsafe(`SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`))[0].n;
+// Counted from when the lock was taken, so that something left over from an earlier failure can't look like this test's request.
+let blockedBefore = 0;
 async function waitForBlocked(n, label) {
-  for (const deadline = Date.now() + 4000; Date.now() < deadline; await sleep(25)) if ((await blockedCount()) >= n) return;
+  for (const deadline = Date.now() + 3500; Date.now() < deadline; await sleep(25)) if ((await blockedCount()) - blockedBefore >= n) return;
   throw new Error(`${label}: ${n} request(s) never reached the lock`);
 }
+const heldLocks = new Set();
+// A failing test must not leave its lock behind for the next one.
+afterEach(async () => { for (const release of heldLocks) await release(); });
 async function hold(sql, ...params) {
+  blockedBefore = await blockedCount();
   let release, locked;
   const gate = new Promise((r) => { release = r; });
   const held = new Promise((r) => { locked = r; });
@@ -299,7 +313,9 @@ async function hold(sql, ...params) {
     await gate;
   }, { maxWait: 10_000, timeout: 30_000 });
   await held;
-  return async () => { release(); await done; };
+  const letGo = async () => { heldLocks.delete(letGo); release(); await done; };
+  heldLocks.add(letGo);
+  return letGo;
 }
 const holdUserRow = (userId) => hold(`SELECT id FROM "User" WHERE id = $1 FOR UPDATE`, userId);
 
@@ -394,6 +410,20 @@ test("S-19: without a reset, an export reads a consistent snapshot, for this per
   assert.ok(!/passwordHash|argon2/.test(res.text));
 });
 
+test("an export is one point in time: a row added while it reads isn't in the file", async () => {
+  const u = await newUser("snapshot");
+  const release = await hold(`LOCK TABLE "NutritionTarget" IN ACCESS EXCLUSIVE MODE`);
+  const exporting = exportData(u.cookie, PASSWORD);
+  await waitForBlocked(1, "export");
+  // The export has its snapshot, and reads this table only after the one it's waiting on.
+  await prisma.exercise.create({ data: { userId: u.user.id, name: `added late ${run}`, primaryMuscle: "BACK", equipment: "CABLE" } });
+  await release();
+  const e = await exporting;
+  assert.equal(e.status, 200);
+  assert.ok(!e.text.includes(`added late ${run}`), "the file holds what was true when it began");
+  assert.equal((await deleteAccount(u.cookie, PASSWORD)).status, 200);
+});
+
 test("S-21: a row held past the transaction limit: login and reset refuse, change nothing, and recover", async (t) => {
   const u = await newUser("limit");
   await prisma.session.deleteMany({ where: { userId: u.user.id } });
@@ -404,14 +434,16 @@ test("S-21: a row held past the transaction limit: login and reset refuse, chang
   const timed = (name, p) => p.then((res) => { settledAt[name] = Date.now() - started; return res; });
   const waiting = [timed("login", login(u.email, PASSWORD)), timed("reset", reset(token, NEW_PASSWORD))];
   await waitForBlocked(2, "login and reset");
-  await sleep(6500); // past Prisma's 5-second transaction limit
-  const stillWaitingAtLimit = Object.keys(settledAt).length === 0;
+  await sleep(6500); // past both lock_timeout and Prisma's 5-second limit
+  assert.deepEqual(Object.keys(settledAt).sort(), ["login", "reset"], "both gave up by themselves, with the row still held");
   await release();
   const [l, r] = await Promise.all(waiting);
-  t.diagnostic(`S-21: still waiting after 6.5 s: ${stillWaitingAtLimit}. Settled at ${JSON.stringify(settledAt)} ms, statuses login ${l.status}, reset ${r.status}`);
-  assert.equal(l.status, 500, "login past the limit");
-  assert.equal(r.status, 500, "reset past the limit");
-  assert.ok(!/passwordHash|Prisma|\$queryRaw/.test(l.text + r.text), "and says nothing about why");
+  t.diagnostic(`S-21: settled at ${JSON.stringify(settledAt)} ms, statuses login ${l.status}, reset ${r.status}`);
+  assert.ok(Math.max(settledAt.login, settledAt.reset) < 5000, "within the limit, not when the row was released");
+  assert.equal(l.status, 503, "login past the limit");
+  assert.equal(r.status, 503, "reset past the limit");
+  assert.equal(l.headers.get("retry-after"), "5");
+  assert.ok(!/passwordHash|Prisma|55P03|lock/i.test(l.text + r.text), "and says nothing about why");
   assert.equal(sessionCookie(l), undefined);
   assert.equal(await prisma.session.count({ where: { userId: u.user.id } }), 0, "no session");
   assert.notEqual(await rowOf(token), null, "the link isn't spent");

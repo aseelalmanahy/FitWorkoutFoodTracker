@@ -4,6 +4,7 @@ import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 import { createHash, createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { hash, verify } from "@node-rs/argon2";
+import type { Prisma } from "@prisma/client";
 import { prisma } from "./db";
 
 export const SESSION_COOKIE = "fit_session";
@@ -64,6 +65,13 @@ export async function setDeviceCookie(user: DeviceUser): Promise<void> {
   });
 }
 
+/**
+ * The first statement of a sign-in transaction. Prisma's transaction limit doesn't interrupt a query waiting on a lock
+ * (measured, S-21), so without this a row held by a long deletion or a schema change would hold a connection just as long.
+ * Under Prisma's 5 seconds, so that this is what ends the wait. The API answers 503, and the transaction changes nothing.
+ */
+export const limitLockWait = (tx: Prisma.TransactionClient) => tx.$executeRaw`SET LOCAL lock_timeout = '4s'`;
+
 /** A session's values, for the caller to store in its own transaction. Only the hash goes in the database. */
 export function newSessionRow() {
   const token = randomBytes(32).toString("base64url");
@@ -88,6 +96,7 @@ export async function setSessionCookie(token: string, expiresAt: Date): Promise<
 export async function createSessionForVerifiedPassword(userId: string, verifiedHash: string): Promise<boolean> {
   const session = newSessionRow();
   const stored = await prisma.$transaction(async (tx) => {
+    await limitLockWait(tx);
     const rows = await tx.$queryRaw<{ passwordHash: string }[]>`SELECT "passwordHash" FROM "User" WHERE id = ${userId} FOR SHARE`;
     if (rows[0]?.passwordHash !== verifiedHash) return false;
     await tx.session.create({ data: { id: session.id, userId, expiresAt: session.expiresAt } });

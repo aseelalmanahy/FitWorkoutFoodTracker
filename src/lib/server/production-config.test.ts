@@ -91,6 +91,7 @@ describe("the local test exemption", () => {
   it.each([
     ["a real database", url(`fit_app:${SECRET}@db.example.invalid/fit_production?sslmode=require`)],
     ["a test name on another host", url("u:p@db.example.invalid:5432/fitdb_test")],
+    ["a host= parameter redirecting the connection", url("u:p@localhost:5432/fitdb_test?host=db.example.invalid")],
     ["the development database", url("u:p@localhost:5432/fitdb")],
     ["another name on this machine", url("u:p@localhost:5432/fit_production")],
     ["no database", undefined],

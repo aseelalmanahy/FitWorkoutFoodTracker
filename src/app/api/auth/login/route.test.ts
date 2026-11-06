@@ -16,7 +16,7 @@ const fakes = vi.hoisted(() => ({
 }));
 vi.mock("@/lib/server/db", () => {
   const session = { create: fakes.sessionCreate };
-  const tx = { $queryRaw: async () => [{ passwordHash: fakes.storedHash }], session };
+  const tx = { $executeRaw: async () => 0, $queryRaw: async () => [{ passwordHash: fakes.storedHash }], session };
   return { prisma: { user: { findUnique: fakes.findUnique }, session, $transaction: (fn: (t: typeof tx) => unknown) => fn(tx) } };
 });
 vi.mock("next/headers", () => ({
