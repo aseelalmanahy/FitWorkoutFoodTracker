@@ -68,14 +68,23 @@ function progressFrom(sessions: Row[]): Row[] {
   }));
 }
 
+const passwordChanged = () => new HttpError(409, "Your password was changed elsewhere just now, and nothing was exported. Log in again and retry.");
+
 /**
  * One consistent view of the person's data, or a refusal. It's counted first, inside the same snapshot,
  * so the reads that follow are bounded. A deletion that commits during this can't produce a partial file.
+ *
+ * `verifiedHash` is what the password was checked against. A reset committing after that check ends this person's
+ * authority, so it's compared first, in the snapshot, and again after it, as a snapshot can't see a later commit.
+ * Nothing is locked, so a long export can't hold up the owner's reset. A reset after the last check is simply later.
  */
-export async function buildExport(userId: string, now = new Date()): Promise<Row> {
-  return prisma.$transaction(async (tx) => {
-    const user = await tx.user.findUnique({ where: { id: userId }, select: fields("User") }) as Row | null;
-    if (!user) throw new HttpError(401, "Not authenticated");
+export async function buildExport(userId: string, verifiedHash: string, now = new Date()): Promise<Row> {
+  const document = await prisma.$transaction(async (tx) => {
+    const authority = await tx.user.findUnique({ where: { id: userId }, select: { passwordHash: true } });
+    if (!authority) throw new HttpError(401, "Not authenticated");
+    if (authority.passwordHash !== verifiedHash) throw passwordChanged();
+
+    const user = await tx.user.findUnique({ where: { id: userId }, select: fields("User") }) as Row;
 
     const counts = await Promise.all([
       tx.exercise.count({ where: { userId } }),
@@ -168,6 +177,11 @@ export async function buildExport(userId: string, now = new Date()): Promise<Row
       nutritionTargets: targets.map((t) => exportRow("NutritionTarget", t)),
     };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, maxWait: 10_000, timeout: 120_000 });
+
+  const current = await prisma.user.findUnique({ where: { id: userId }, select: { passwordHash: true } });
+  if (!current) throw new HttpError(401, "Not authenticated");
+  if (current.passwordHash !== verifiedHash) throw passwordChanged();
+  return document;
 }
 
 /** Buffered, not streamed, as a cut-off stream would look like a valid file. */

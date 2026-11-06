@@ -34,6 +34,7 @@ const sha256 = (s) => createHash("sha256").update(s).digest("hex");
 
 let counter = 0, clients = 0;
 const created = [];
+const minted = [];
 
 /** A client address nobody else in this run uses, as the trusted proxy would append it. */
 const newIp = () => { const n = ++clients; return `198.51.${100 + (n >> 8)}.${n & 255}`; };
@@ -58,6 +59,7 @@ const reset = (token, password, opts) => call("POST", "/api/auth/password/reset"
 const login = (email, password, opts) => call("POST", "/api/auth/login", { email, password }, opts);
 const changePassword = (cookie, currentPassword, newPassword, opts) => call("POST", "/api/account/password", { currentPassword, newPassword }, { ...opts, cookie });
 const deleteAccount = (cookie, password) => call("POST", "/api/account/delete", { password, confirmation: "DELETE" }, { cookie });
+const exportData = (cookie, password) => call("POST", "/api/account/export", { password }, { cookie });
 const profileStatus = async (cookie) => (await call("GET", "/api/profile", undefined, { cookie })).status;
 
 function emailFor(label) {
@@ -73,6 +75,7 @@ async function newUser(label, { password = PASSWORD } = {}) {
 /** A live token for this address, with its row written directly. Returns the token, which is what an email would carry. */
 async function mint(purpose, email, { userId = null, expiresAt = new Date(Date.now() + 3_600_000), createdAt } = {}) {
   const token = randomBytes(32).toString("base64url");
+  minted.push(token);
   await prisma.accountToken.create({ data: { id: sha256(token), purpose, email, userId, expiresAt, ...(createdAt ? { createdAt } : {}) } });
   return token;
 }
@@ -251,7 +254,7 @@ test("a reset racing the account's deletion: no server error, and no account or 
     ]);
     assert.ok(resetRes.status < 500 && deleteRes.status < 500, `no server error: reset ${resetRes.status}, delete ${deleteRes.status}`);
     assert.ok([200, 400].includes(resetRes.status), `reset: ${resetRes.status}`);
-    assert.ok([200, 401, 403].includes(deleteRes.status), `delete: ${deleteRes.status}`);
+    assert.ok([200, 401, 403, 409].includes(deleteRes.status), `delete: ${deleteRes.status}`);
     if (deleteRes.status !== 200) {
       // The reset won and changed the password and ended the session, so the owner signs in again and deletes.
       const again = await login(u.email, NEW_PASSWORD);
@@ -262,6 +265,139 @@ test("a reset racing the account's deletion: no server error, and no account or 
     assert.equal(await prisma.accountToken.count({ where: { OR: [{ userId: u.user.id }, { email: u.email }] } }), 0, "and no link, by user or by address");
     assert.equal(await prisma.session.count({ where: { userId: u.user.id } }), 0);
   }
+});
+
+// ─── Races in a known order ─────────────────────────────────────────────────
+// Timing alone might never hit the window. So this holds the row, or a table, the way a slow transaction would, sees in
+// PostgreSQL's own view that each request is waiting on it, and lets go. Holds stay under Prisma's 5-second default.
+
+/** How many of this database's connections are waiting on a lock. Only ever read here. */
+const blockedCount = async () => (await prisma.$queryRawUnsafe(`SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`))[0].n;
+async function waitForBlocked(n, label) {
+  for (const deadline = Date.now() + 4000; Date.now() < deadline; await sleep(25)) if ((await blockedCount()) >= n) return;
+  throw new Error(`${label}: ${n} request(s) never reached the lock`);
+}
+async function hold(sql, ...params) {
+  let release, locked;
+  const gate = new Promise((r) => { release = r; });
+  const held = new Promise((r) => { locked = r; });
+  const done = prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe(sql, ...params);
+    locked();
+    await gate;
+  }, { maxWait: 10_000, timeout: 30_000 });
+  await held;
+  return async () => { release(); await done; };
+}
+const holdUserRow = (userId) => hold(`SELECT id FROM "User" WHERE id = $1 FOR UPDATE`, userId);
+
+test("a reset first, then a login that checked the old password: the login gets no session", async () => {
+  const u = await newUser("seqlogin");
+  const token = await mint("PASSWORD_RESET", u.email, { userId: u.user.id });
+  const release = await holdUserRow(u.user.id);
+  const resetting = reset(token, NEW_PASSWORD);
+  await waitForBlocked(1, "reset");
+  const loggingIn = login(u.email, PASSWORD);
+  await waitForBlocked(2, "login");
+  await release();
+  const [r, l] = await Promise.all([resetting, loggingIn]);
+  assert.equal(r.status, 200);
+  assert.equal(l.status, 401, "its password check no longer counts");
+  assert.equal(sessionCookie(l), undefined);
+  assert.equal(await prisma.session.count({ where: { userId: u.user.id } }), 0);
+});
+
+test("a login first, then a reset: the login's session doesn't survive", async () => {
+  const u = await newUser("seqlogin2");
+  await prisma.session.deleteMany({ where: { userId: u.user.id } });
+  const token = await mint("PASSWORD_RESET", u.email, { userId: u.user.id });
+  const release = await holdUserRow(u.user.id);
+  const loggingIn = login(u.email, PASSWORD);
+  await waitForBlocked(1, "login");
+  const resetting = reset(token, NEW_PASSWORD);
+  await waitForBlocked(2, "reset");
+  await release();
+  const [l, r] = await Promise.all([loggingIn, resetting]);
+  assert.equal(r.status, 200);
+  assert.equal(l.status, 200, "this order lets the login finish first");
+  assert.equal(await profileStatus(sessionCookie(l)), 401, "and the reset then ends its session");
+  assert.equal(await prisma.session.count({ where: { userId: u.user.id } }), 0);
+});
+
+test("a reset first, then a password change that checked the old one: the reset stands", async () => {
+  const u = await newUser("seqchange");
+  const token = await mint("PASSWORD_RESET", u.email, { userId: u.user.id });
+  const release = await holdUserRow(u.user.id);
+  const resetting = reset(token, NEW_PASSWORD);
+  await waitForBlocked(1, "reset");
+  const changing = changePassword(u.cookie, PASSWORD, "the attacker's chosen passphrase");
+  await waitForBlocked(2, "change");
+  await release();
+  const [r, c] = await Promise.all([resetting, changing]);
+  assert.equal(r.status, 200);
+  assert.equal(c.status, 409, "it can't overwrite the owner's new password");
+  assert.equal(sessionCookie(c), undefined, "and gets no session");
+  assert.equal((await login(u.email, NEW_PASSWORD)).status, 200);
+  assert.equal((await login(u.email, "the attacker's chosen passphrase")).status, 401);
+});
+
+test("a reset first, then a deletion that checked the old password: nothing is deleted", async () => {
+  const u = await newUser("seqdelete");
+  const token = await mint("PASSWORD_RESET", u.email, { userId: u.user.id });
+  const release = await holdUserRow(u.user.id);
+  const resetting = reset(token, NEW_PASSWORD);
+  await waitForBlocked(1, "reset");
+  const deleting = deleteAccount(u.cookie, PASSWORD);
+  await waitForBlocked(2, "deletion");
+  await release();
+  const [r, d] = await Promise.all([resetting, deleting]);
+  assert.equal(r.status, 200);
+  assert.equal(d.status, 409);
+  assert.equal(await users(u.email), 1, "the account stands");
+  assert.equal((await login(u.email, NEW_PASSWORD)).status, 200);
+});
+
+test("S-19: a reset committing while an export reads: the export is refused, and hands over nothing", async () => {
+  const u = await newUser("seqexport");
+  const token = await mint("PASSWORD_RESET", u.email, { userId: u.user.id });
+  // The export takes its snapshot, then waits here. The reset doesn't touch this table, so it finishes meanwhile.
+  const release = await hold(`LOCK TABLE "NutritionTarget" IN ACCESS EXCLUSIVE MODE`);
+  const exporting = exportData(u.cookie, PASSWORD);
+  await waitForBlocked(1, "export");
+  const r = await reset(token, NEW_PASSWORD);
+  assert.equal(r.status, 200, "the export holds nothing that delays the reset");
+  await release();
+  const e = await exporting;
+  assert.equal(e.status, 409, "its password check no longer counts");
+  assert.equal(e.body.account, undefined, "no data");
+  assert.ok(!e.text.includes(u.email), "not even the address");
+});
+
+test("S-19: without a reset, an export reads a consistent snapshot, for this person only", async () => {
+  const u = await newUser("seqexport2"), other = await newUser("seqexport3");
+  const res = await exportData(u.cookie, PASSWORD);
+  assert.equal(res.status, 200);
+  assert.equal(res.body.account.email, u.email);
+  assert.ok(!res.text.includes(other.email));
+  assert.ok(!/passwordHash|argon2/.test(res.text));
+});
+
+test("S-21: a row held past the transaction limit: login and reset refuse, change nothing, and recover", async () => {
+  const u = await newUser("limit");
+  await prisma.session.deleteMany({ where: { userId: u.user.id } });
+  const token = await mint("PASSWORD_RESET", u.email, { userId: u.user.id });
+  const release = await holdUserRow(u.user.id);
+  const [l, r] = await Promise.all([login(u.email, PASSWORD), reset(token, NEW_PASSWORD)]);
+  await release();
+  assert.equal(l.status, 500, "login past the limit");
+  assert.equal(r.status, 500, "reset past the limit");
+  assert.ok(!/passwordHash|Prisma|\$queryRaw/.test(l.text + r.text), "and says nothing about why");
+  assert.equal(sessionCookie(l), undefined);
+  assert.equal(await prisma.session.count({ where: { userId: u.user.id } }), 0, "no session");
+  assert.notEqual(await rowOf(token), null, "the link isn't spent");
+  const ok = await login(u.email, PASSWORD);
+  assert.equal(ok.status, 200, "the old password still stands, and the server has recovered");
+  assert.equal((await reset(token, NEW_PASSWORD)).status, 200, "and the link still works");
 });
 
 // ─── Reset and change-password end sessions ─────────────────────────────────
@@ -439,4 +575,21 @@ test("deleting an account removes its links by user and by address, and only its
   assert.notEqual(await rowOf(other), null, "someone else's link is untouched");
   assert.equal((await complete(byAddress, PASSWORD)).status, 400, "so the address can't be revived with an old link");
   assert.equal(await users(u.email), 0);
+});
+
+// ─── Logs. Keep this last, as it reads what everything above caused. ────────
+
+test("the server's log holds no address, token or password from this run", async () => {
+  const log = process.env.SERVER_LOG_FILE;
+  assert.ok(log, "the runner passes the server's log");
+  await sleep(1000);
+  const text = fs.readFileSync(log, "utf8");
+  const mailed = [...mailFiles()].map((f) => { try { return JSON.parse(fs.readFileSync(path.join(process.env.MAIL_STUB_DIR, f), "utf8")); } catch { return null; } }).filter(Boolean);
+  const tokens = [...minted, ...mailed.map((m) => /#token=([A-Za-z0-9_-]{43})/.exec(m.text)?.[1]).filter(Boolean)];
+  assert.ok(tokens.length > 10, "the check has tokens to look for");
+  for (const token of tokens) assert.ok(!text.includes(token), "a token reached the log");
+  for (const email of created) assert.ok(!text.includes(email), "an address reached the log");
+  for (const password of [PASSWORD, NEW_PASSWORD, "the attacker's chosen passphrase"]) assert.ok(!text.includes(password), "a password reached the log");
+  assert.ok(!text.includes(SUFFIX), "not even part of an address");
+  assert.ok(!/argon2id/.test(text), "nor a password hash");
 });

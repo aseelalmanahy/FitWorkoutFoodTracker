@@ -7,9 +7,9 @@ import { accountPasswordSchema } from "@/lib/validation";
 // POST, as it carries a password, and the response must never be cached.
 export const POST = accountRoute(async (req, { user }) => {
   const { password } = await parseBody(req, accountPasswordSchema, { maxBytes: AUTH_BODY_LIMIT_BYTES });
-  await requireAccountPassword(user.id, password);
+  const verified = await requireAccountPassword(user.id, password);
   const now = new Date();
-  const file = await withExportSlot(user.id, async () => serializeExport(await buildExport(user.id, now)));
+  const file = await withExportSlot(user.id, async () => serializeExport(await buildExport(user.id, verified, now)));
   return new Response(new Uint8Array(file), {
     headers: {
       "Content-Type": "application/json; charset=utf-8",

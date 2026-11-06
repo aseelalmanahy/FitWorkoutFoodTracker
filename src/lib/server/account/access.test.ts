@@ -21,6 +21,8 @@ const f = vi.hoisted(() => ({
   send: null as null | ((m: MailMessage, s: AbortSignal) => Promise<void>),
   /** Runs just before a transaction, to stand in for something committing during the slow password hash. */
   beforeTransaction: null as null | (() => void),
+  /** Runs during an export's reads, to stand in for a reset committing while they run. */
+  duringExportReads: null as null | (() => void),
   /** Holds a job partway through, to stand in for a slow database. */
   stall: null as null | Promise<void>,
   cookies: new Map<string, string>(),
@@ -88,7 +90,14 @@ vi.mock("@/lib/server/db", () => {
       return f.users.filter((u) => u.id === values[0]);
     },
   };
-  const others = new Proxy({}, { get: () => ({ deleteMany: async () => ({ count: 0 }) }) });
+  const others = new Proxy({}, {
+    get: (_t, k: string) => ({
+      deleteMany: async () => ({ count: 0 }),
+      count: async () => 0,
+      findUnique: async () => null,
+      findMany: async () => { if (k === "nutritionTarget") { f.duringExportReads?.(); f.duringExportReads = null; } return []; },
+    }),
+  });
   const all = new Proxy(db as Row, { get: (t, k: string) => t[k] ?? (others as Row)[k] });
   let chain: Promise<unknown> = Promise.resolve();
   const $transaction = (fn: (tx: unknown) => Promise<unknown>) => {
@@ -134,6 +143,7 @@ const routes = {
   reset: () => import("@/app/api/auth/password/reset/route"),
   login: () => import("@/app/api/auth/login/route"),
   change: () => import("@/app/api/account/password/route"),
+  exportData: () => import("@/app/api/account/export/route"),
 };
 const ORIGIN = "http://localhost:3000";
 const PASSWORD = "correct horse battery";
@@ -185,6 +195,7 @@ beforeEach(() => {
   f.send = null;
   f.beforeTransaction = null;
   f.stall = null;
+  f.duringExportReads = null;
   origin = ORIGIN;
   _resetLoginThrottle();
   forgetAttempts("reauth:user-1");
@@ -782,6 +793,67 @@ describe("secrets stay out of logs", () => {
     await _accountJobsIdle();
     const text = logged.flat().map(String).join(" ");
     for (const secret of ["secret.person", token, reset, PASSWORD, NEW_PASSWORD]) expect(text).not.toContain(secret);
+  });
+});
+
+describe("export authority", () => {
+  it("gives the signed-in person their own data, with no secret in it", async () => {
+    const user = await makeUser();
+    await makeUser("someone.else@example.com");
+    signIn(user.id);
+    const res = await post("exportData", { password: PASSWORD, email: "someone.else@example.com", userId: "user-2" });
+    expect(res.status).toBe(200);
+    const text = await res.text();
+    expect(JSON.parse(text).account.email).toBe(user.email);
+    expect(text).not.toContain("someone.else");
+    expect(text).not.toContain("argon2");
+    expect(JSON.parse(text).account.termsAcceptedAt).toBeNull();
+  });
+
+  it("a reset committing after the password check, before the snapshot, stops the export", async () => {
+    const user = await makeUser();
+    signIn(user.id);
+    f.beforeTransaction = () => { user.passwordHash = "the owner's new password"; };
+    const res = await post("exportData", { password: PASSWORD });
+    expect(res.status).toBe(409);
+    expect(await res.text()).not.toContain(user.email);
+  });
+
+  it("a reset committing during the snapshot's reads stops it too, as the snapshot can't see that", async () => {
+    const user = await makeUser();
+    signIn(user.id);
+    f.duringExportReads = () => { user.passwordHash = "the owner's new password"; };
+    const res = await post("exportData", { password: PASSWORD });
+    expect(f.duringExportReads).toBeNull();
+    expect(res.status).toBe(409);
+    expect(await res.text()).not.toContain(user.email);
+  });
+
+  it("an account deleted during it gets no file", async () => {
+    const user = await makeUser();
+    signIn(user.id);
+    f.duringExportReads = () => { f.users.length = 0; };
+    expect((await post("exportData", { password: PASSWORD })).status).toBe(401);
+  });
+
+  it("a refusal frees the person's export slot, and still counts against the guess limit", async () => {
+    const user = await makeUser();
+    signIn(user.id);
+    const hash = user.passwordHash;
+    f.duringExportReads = () => { user.passwordHash = "changed"; };
+    expect((await post("exportData", { password: PASSWORD })).status).toBe(409);
+    user.passwordHash = hash;
+    expect((await post("exportData", { password: PASSWORD })).status).toBe(200);
+    for (let i = 0; i < 8; i++) await post("exportData", { password: "a wrong guess" });
+    expect((await post("exportData", { password: "a wrong guess" })).status).toBe(429);
+  });
+
+  it("holds no lock on the row, so a long export can't hold up the owner's reset", async () => {
+    const user = await makeUser();
+    signIn(user.id);
+    f.calls.length = 0;
+    await post("exportData", { password: PASSWORD });
+    expect(f.calls.filter((c) => c.startsWith("raw:"))).toEqual([]);
   });
 });
 
