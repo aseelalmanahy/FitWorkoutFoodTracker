@@ -33,7 +33,10 @@ const hydrated = async (page, locator) => {
   await page.waitForTimeout(300);
 };
 const focusedText = (page) => page.evaluate(() => document.activeElement?.textContent ?? "");
-const focusedId = (page) => page.evaluate(() => document.activeElement?.id ?? "");
+const focusedId = async (page, id) => {
+    await page.waitForFunction((want) => document.activeElement?.id === want, id, { timeout: 5000 }).catch(() => {});
+    return page.evaluate(() => document.activeElement?.id ?? "");
+  };
 
 async function inBrowser(name) {
   const browser = await playwright[name].launch(target.launchOptions(name));
@@ -78,7 +81,7 @@ async function inBrowser(name) {
     await page.getByRole("button", { name: "Continue" }).click();
     await page.getByText("Please choose your units.").waitFor();
     await page.getByText("Please choose an activity level.").waitFor();
-    assert.equal(await focusedId(page), "profile-units", "T20: focus on the first invalid field");
+    assert.equal(await focusedId(page, "profile-units"), "profile-units", "T20: focus on the first invalid field");
     assert.deepEqual(puts, [], "T20: nothing sent");
     step("nothing preselected, units first, errors focus the first invalid field");
 
@@ -86,9 +89,9 @@ async function inBrowser(name) {
     await fillProfile(page, { birthDate: refusedDate });
     await page.getByRole("button", { name: "Continue" }).click();
     const status = page.getByRole("status");
-    await status.waitFor();
-    assert.match(await status.innerText(), /You entered \d{1,2} [A-Z][a-z]+ \d{4}\. Is this right\?/, "T35: date in words");
+    await status.or(page.getByRole("heading", { name: /can't set up an account/ })).waitFor();
     assert.deepEqual(puts, [], "T35: nothing sent before confirming");
+    assert.match(await status.innerText(), /You entered \d{1,2} [A-Z][a-z]+ \d{4}\. Is this right\?/, "T35: date in words");
     await page.getByRole("button", { name: "Change date" }).click();
     await page.waitForFunction(() => document.activeElement?.id === "profile-birthDate");
     assert.deepEqual(puts, [], "T35: declining sends nothing");
@@ -132,7 +135,7 @@ async function inBrowser(name) {
     await page.getByRole("button", { name: "Save changes" }).click();
     await page.getByRole("button", { name: "Yes, that's right" }).click();
     await page.getByText("This date of birth can't be used.").waitFor();
-    assert.equal(await focusedId(page), "profile-birthDate");
+    assert.equal(await focusedId(page, "profile-birthDate"), "profile-birthDate");
     assert.equal(await date.getAttribute("aria-invalid"), "true");
     assert.ok(await date.getAttribute("aria-describedby"));
     assert.equal((await prisma.profile.findUnique({ where: { userId: user.id } })).birthDate.toISOString().slice(0, 10), "1990-01-01", "saved date unchanged");
@@ -163,8 +166,9 @@ async function inBrowser(name) {
     puts.length = 0;
     await calories.fill("2000"); // so the only thing wrong is the blank macros
     await page.getByRole("button", { name: "Save targets" }).click();
-    await page.getByText("Enter each target as a plain number").waitFor();
+    await page.getByText(/Enter each target as a plain number|Saved\. New targets/).waitFor();
     assert.deepEqual(puts, [], "T30: blank sends nothing");
+    assert.equal(await page.getByText("Enter each target as a plain number").count(), 1, "T30: blank gets the plain-number error");
     await page.getByLabel("Protein (g)").fill("100");
     await page.getByLabel("Fat (g)").fill("50");
     await calories.fill("700");
@@ -250,9 +254,9 @@ async function inBrowser(name) {
     await page.goto(`${BASE}/nutrition/targets`);
     const calories = page.getByLabel("Calories (kcal/day)");
     await hydrated(page, calories);
-    await page.getByText(/Set automatically earlier/).first().waitFor();
     const text = await page.locator("main").innerText();
-    assert.doesNotMatch(text, /Set by you/, "T25");
+    assert.doesNotMatch(text, /Set by you/, "T25: a legacy row is never labelled as the person's own");
+    assert.match(text, /Set automatically earlier/, "T25: a legacy row is labelled truthfully");
     for (const l of ["Calories (kcal/day)", "Protein (g)", "Fat (g)"]) assert.equal(await page.getByLabel(l).inputValue(), "", `T32: ${l} blank`);
     await page.goto(`${BASE}/nutrition`);
     await page.getByText("Set automatically earlier").waitFor();
