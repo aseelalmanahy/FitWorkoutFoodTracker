@@ -1032,3 +1032,121 @@ describe("measurements are of what happened", () => {
     assert.deepEqual([m.idleBetweenWorkersMs, m.summedWorkerMs, m.wallClockMs, m.peakConcurrent], [6000, 6000, 12000, 1]);
   });
 });
+
+describe("reconcile judges ownership apart from timing", () => {
+  const at = (n) => `2026-01-01T00:00:${String(n).padStart(2, "0")}.000Z`;
+  const worked = (run, id, from, to, files) => { Object.assign(task(run, id), { startedAt: at(from), endedAt: at(to), filesChanged: files, launches: 1 }); };
+  test("two workers that own neither report a file one after the other: reported, and never clean", () => {
+    const run = o.createRun([impl("a", ["src/a.ts"]), impl("b", ["src/b.ts"])]);
+    worked(run, "a", 0, 5, ["src/other.ts"]);
+    worked(run, "b", 6, 9, ["src/other.ts"]);
+    const out = o.reconcile(run, ["src/other.ts"]);
+    assert.deepEqual(out.sequential, [], "it isn't an authorized sequence");
+    assert.deepEqual(out.unowned, ["src/other.ts"]);
+    assert.deepEqual(out.unexpected.map((u) => u.by), ["a", "b"]);
+    assert.equal(out.clean, false);
+  });
+  test("one owner and one outsider, one after the other: the outsider is reported", () => {
+    const run = o.createRun([impl("a", ["src/a.ts"]), impl("b", ["src/b.ts"])]);
+    worked(run, "a", 0, 5, ["src/a.ts"]);
+    worked(run, "b", 6, 9, ["src/a.ts"]);
+    const out = o.reconcile(run, ["src/a.ts"]);
+    assert.deepEqual(out.sequential, []);
+    assert.deepEqual(out.unexpected.map((u) => u.by), ["b"]);
+    assert.equal(out.clean, false);
+  });
+  test("two owners, one after the other: authorized, and clean", () => {
+    const run = o.createRun([impl("a", ["src/x.ts"]), impl("b", ["src/x.ts"])]);
+    worked(run, "a", 0, 5, ["src/x.ts"]);
+    worked(run, "b", 6, 9, ["src/x.ts"]);
+    const out = o.reconcile(run, ["src/x.ts"]);
+    assert.deepEqual(out.sequential, [{ file: "src/x.ts", by: ["a", "b"] }]);
+    assert.equal(out.clean, true);
+  });
+  test("two owners at the same time: a conflict, even though both may change it", () => {
+    const run = o.createRun([impl("a", ["src/x.ts"]), impl("b", ["src/x.ts"])]);
+    worked(run, "a", 0, 5, ["src/x.ts"]);
+    worked(run, "b", 3, 9, ["src/x.ts"]);
+    const out = o.reconcile(run, ["src/x.ts"]);
+    assert.equal(out.simultaneous.length, 1);
+    assert.equal(out.clean, false);
+  });
+  test("an outsider at the same time: reported both ways", () => {
+    const run = o.createRun([impl("a", ["src/a.ts"]), impl("b", ["src/b.ts"])]);
+    worked(run, "a", 0, 5, ["src/a.ts"]);
+    worked(run, "b", 3, 9, ["src/a.ts"]);
+    const out = o.reconcile(run, ["src/a.ts"]);
+    assert.equal(out.simultaneous.length, 1);
+    assert.deepEqual(out.unexpected.map((u) => u.by), ["b"]);
+  });
+  test("a single outsider's file that's owned by nobody is unowned and unexpected", () => {
+    const run = o.createRun([impl("a", ["x"])]);
+    worked(run, "a", 0, 5, ["y"]);
+    const out = o.reconcile(run, ["y"]);
+    assert.deepEqual(out.unowned, ["y"]);
+    assert.equal(out.unexpected[0].by, "a");
+  });
+  test("a worker that ran with no report stops it being clean, even with nothing changed on disk", () => {
+    for (const end of [() => {}, (r) => o.cancel(r, "a", "stop"), (r) => o.fail(r, "a", "permission-denied", "no")]) {
+      const run = o.createRun([impl("a", ["x"])]);
+      o.next(run);
+      o.started(run, "a");
+      end(run);
+      const out = o.reconcile(run, []);
+      assert.deepEqual(out.missingReports, ["a"]);
+      assert.equal(out.clean, false);
+    }
+  });
+  test("one worker's report can't account for another that owned the file and never reported", () => {
+    const run = o.createRun([impl("a", ["x"]), impl("b", ["x"])]);
+    worked(run, "a", 0, 5, ["x"]);
+    task(run, "b").launches = 1;
+    assert.equal(o.reconcile(run, ["x"]).clean, false);
+  });
+  test("a read-only worker that ran is held to the same rule", () => {
+    const run = o.createRun([{ id: "r", title: "R", signals: { lightweightAnalysis: true } }]);
+    task(run, "r").launches = 1;
+    assert.deepEqual(o.reconcile(run, []).missingReports, ["r"]);
+    task(run, "r").filesChanged = [];
+    assert.equal(o.reconcile(run, []).clean, true);
+    task(run, "r").filesChanged = ["src/x.ts"];
+    assert.equal(o.reconcile(run, ["src/x.ts"]).clean, false, "it owns nothing");
+  });
+  test("a task that never launched owes no report", () => {
+    const run = o.createRun([impl("a", ["x"]), impl("b", ["y"])]);
+    worked(run, "a", 0, 5, ["x"]);
+    assert.equal(o.reconcile(run, ["x"]).clean, true);
+  });
+  test("the main session's own finished task accounts for its file, and only that", () => {
+    const run = o.createRun([{ id: "m", title: "M", size: "TRIVIAL", owns: ["x"] }]);
+    assert.equal(o.reconcile(run, ["x"]).clean, false, "not finished yet");
+    o.doneInMain(run, "m", "Done");
+    assert.equal(o.reconcile(run, ["x"]).clean, true);
+    assert.equal(o.reconcile(run, ["x", "y"]).clean, false);
+  });
+  // Every combination of 3 workers, what they own, what they report, and when. Whatever else, an unauthorized edit is never clean.
+  test("no combination of unauthorized edits comes out clean", () => {
+    const OWNS = [["a.ts"], ["b.ts"], ["a.ts", "b.ts"]];
+    const REPORTS = [[], ["a.ts"], ["b.ts"], ["c.ts"], ["a.ts", "c.ts"], undefined];
+    const TIMES = [[0, 2], [3, 5], [1, 4]];
+    let checked = 0, cleanCount = 0;
+    for (const o1 of OWNS) for (const o2 of OWNS) for (const r1 of REPORTS) for (const r2 of REPORTS) for (const t1 of TIMES) for (const t2 of TIMES) for (const disk of [[], ["a.ts"], ["c.ts"]]) {
+      const run = o.createRun([impl("w1", o1, { goal: "one" }), impl("w2", o2, { goal: "two" })]);
+      for (const [id, reports, time] of [["w1", r1, t1], ["w2", r2, t2]]) {
+        Object.assign(task(run, id), { launches: 1, startedAt: at(time[0]), endedAt: at(time[1]) });
+        if (reports) task(run, id).filesChanged = reports;
+      }
+      const out = o.reconcile(run, disk);
+      checked++;
+      const pairs = [["w1", o1, r1], ["w2", o2, r2]];
+      const unauthorized = pairs.some(([, owns, reports]) => (reports ?? []).some((f) => !owns.includes(f)));
+      const unknownOnDisk = disk.some((f) => !o1.includes(f) && !o2.includes(f));
+      const missing = r1 === undefined || r2 === undefined;
+      const unaccounted = disk.some((f) => !(r1 ?? []).includes(f) && !(r2 ?? []).includes(f));
+      if (out.clean) cleanCount++;
+      if (unauthorized || unknownOnDisk || missing || unaccounted) assert.equal(out.clean, false, JSON.stringify({ o1, o2, r1, r2, t1, t2, disk }));
+    }
+    assert.ok(checked > 8000, String(checked));
+    assert.ok(cleanCount > 0, "authorized work can still come out clean");
+  });
+});

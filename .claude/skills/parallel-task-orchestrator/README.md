@@ -94,7 +94,8 @@ owner -> main session -> orchestrate.cjs (what may start) -> Agent tool -> worke
 | `sequential` | Two workers reported a file, one after the other | Yes |
 | `simultaneous` | Two workers reported a file while both ran, or their times aren't known | **No** |
 | `unowned` | Changed, and no task owns it | **No** |
-| `unexpected` | Owned but reported by nobody, or reported by a worker that doesn't own it | **No** |
+| `unexpected` | Reported by a worker that doesn't own it, whatever the timing, or owned but reported by nobody | **No** |
+| `missingReports` | A worker that ran has no report, including a cancelled or crashed one | **No** |
 
 **It works from what workers said and when they ran.** Ownership isn't enforced during a run, so this can't prove who wrote a file.
 

@@ -527,14 +527,16 @@ function ranTogether(a, b) {
 /**
  * Compares what changed on disk with who owned it and who said they changed it. Nothing is reverted. It relies on
  * the workers' own reports and recorded times, as ownership isn't enforced while they run, so it can't prove who
- * wrote what. `clean` means nothing here contradicts the plan.
- *   simultaneous: two workers report the same file, and ran at the same time. A genuine conflict.
- *   sequential:   two workers report the same file, one after the other. Authorized, and fine.
- *   unowned:      changed, and no task owns it.
- *   unexpected:   changed and owned, but no owner reported it, or reported by a worker that doesn't own it.
+ * wrote what. Ownership and timing are judged separately, so that good timing can never excuse an unauthorized edit.
+ * `clean` means nothing here contradicts the plan, and every worker that ran has accounted for itself.
+ *   simultaneous:   two workers report the same file, and ran at the same time, or their times aren't known.
+ *   sequential:     two workers report the same file, one after the other, and both own it. Authorized.
+ *   unowned:        a changed or reported file that no task owns.
+ *   unexpected:     a worker reported a file it doesn't own, or an owned file changed and nobody accounts for it.
+ *   missingReports: a worker that ran has no report, so it could have changed anything it says nothing about.
  */
 function reconcile(run, changedFiles) {
-  const out = { simultaneous: [], sequential: [], unowned: [], unexpected: [] };
+  const out = { simultaneous: [], sequential: [], unowned: [], unexpected: [], missingReports: [] };
   const writers = run.tasks.filter((t) => t.owns.length);
   const files = new Map();
   for (const file of changedFiles) files.set(normalize(file), file);
@@ -542,18 +544,20 @@ function reconcile(run, changedFiles) {
   for (const file of files.values()) {
     const owners = writers.filter((t) => ownsFile(t.owns, file));
     const reporters = run.tasks.filter((t) => (t.filesChanged ?? []).some((f) => normalize(f) === normalize(file)));
+    const authorized = reporters.filter((t) => owners.includes(t));
+    if (!owners.length) out.unowned.push(file);
+    for (const t of reporters) if (!owners.includes(t)) out.unexpected.push({ file, by: t.id, reason: "reported by a worker that doesn't own it" });
     if (reporters.length > 1) {
-      const together = reporters.some((a, i) => reporters.slice(i + 1).some((b) => ranTogether(a, b)));
-      (together ? out.simultaneous : out.sequential).push({ file, by: reporters.map((t) => t.id) });
-    } else if (reporters.length === 1 && !owners.includes(reporters[0])) {
-      out.unexpected.push({ file, by: reporters[0].id, reason: "reported by a worker that doesn't own it" });
-    } else if (!reporters.length && !owners.length) {
-      out.unowned.push(file);
-    } else if (!reporters.length) {
-      out.unexpected.push({ file, by: null, reason: `owned by ${owners.map((t) => t.id).join(", ")}, and no worker reported changing it` });
+      const together = reporters.some((a, k) => reporters.slice(k + 1).some((b) => ranTogether(a, b)));
+      if (together) out.simultaneous.push({ file, by: reporters.map((t) => t.id) });
+      else if (authorized.length === reporters.length) out.sequential.push({ file, by: reporters.map((t) => t.id) });
     }
+    // The main session records its own work, so a file one of its finished tasks owns is accounted for.
+    const doneInMain = owners.some((t) => t.runsIn === "main" && t.status === "COMPLETED");
+    if (!reporters.length && owners.length && !doneInMain) out.unexpected.push({ file, by: null, reason: `owned by ${owners.map((t) => t.id).join(", ")}, and no worker reported changing it` });
   }
-  return { ...out, clean: !out.simultaneous.length && !out.unowned.length && !out.unexpected.length };
+  for (const t of run.tasks) if (t.runsIn === "worker" && t.launches > 0 && !t.filesChanged) out.missingReports.push(t.id);
+  return { ...out, clean: !out.simultaneous.length && !out.unowned.length && !out.unexpected.length && !out.missingReports.length };
 }
 
 /** Review the plan owes: a high-risk change needs an independent review that finished, or the owner's decision. */
