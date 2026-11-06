@@ -1,0 +1,16 @@
+{
+  "_comment": "FitWorkoutFoodTracker's additions to the model router's guard. Delete this file when copying the router to another repository.",
+  "existingAgents": { "featureProposal": "product-strategy-agent" },
+  "guard": {
+    "protectedWritePatterns": [
+      "(^|/)docs/BUNNY_AGENT_DESIGN\\.md$",
+      "(^|/)deploy/",
+      "(^|/)Dockerfile$"
+    ],
+    "restrictedCommands": [
+      { "label": "a database needing the owner's authorization", "pattern": "\\bfitdb(_test_other)?\\b" },
+      { "label": "a database-backed suite, authorized per phase by the owner", "pattern": "run-guarded-suites|test:suites|test:api|test:e2e|mark-test-database" },
+      { "label": "a paid provider check", "pattern": "live-provider-check" }
+    ]
+  }
+}

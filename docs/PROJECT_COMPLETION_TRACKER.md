@@ -367,6 +367,14 @@ The merged documents hold **recommendations.** Stage A's authorization covered i
 | TD-13 | Docs | `ARCHITECTURE.md`'s Profile summary doesn't say these fields are nullable | NOT STARTED | P3 | Merge of 4.0.1c | Updated |
 | TD-08 | Tests | `npm run test:e2e` and `test:api` cover only some suites. `test:suites` is the complete run | DEFERRED | P3 | None | Named clearly in the README |
 
+## 8a. Development tooling
+
+Not a product feature, and it changes nothing in the application.
+
+| ID | Phase | Description | Status | Priority | Dependency | Acceptance Criteria |
+|---|---|---|---|---|---|---|
+| TOOL-01 | Tooling | Model router: the `intelligent-model-router` skill and four specialist agents | IN PROGRESS | P3 | Independent review, owner | On `feature/intelligent-model-router`, branched from `main` before Phase 4.0.3 merged. Dry-run tests pass, and 22 deliberate defects were caught. **NOT VERIFIED: Claude Code loading the four agents, delegating to them and running their guard,** as the session that wrote them couldn't find them. **It can't change the main session's model, and doesn't enforce that routing happens.** Its guard is defence in depth, and not a sandbox |
+
 ## 9. Items outside this tracker
 
 `docs/BUNNY_AGENT_DESIGN.md` is an untracked file belonging to the owner. It hasn't been read or evaluated, and it isn't counted here as planned work.

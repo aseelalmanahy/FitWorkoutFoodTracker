@@ -6,6 +6,10 @@ Before designing or implementing a new feature, or a major scope change to one, 
 
 The full cycle is in `docs/DEVELOPMENT_WORKFLOW.md`. Decisions so far are in `docs/FEATURE_DECISIONS.md`, and the vision and roadmap are in `docs/PRODUCT_STRATEGY.md`.
 
+## Model routing
+
+For substantial work, use the `intelligent-model-router` skill to choose a model and specialist. An explicit choice by the owner comes first. Routing never grants a permission or an approval: migrations, seeds, deployment, merges, protected databases and paid requests still need the owner's explicit approval, and specialists don't do them. The main session's model can only be changed by the owner.
+
 ## Principles that aren't traded away
 
 - AI never invents calories, macros, weights, portions or ingredients.
