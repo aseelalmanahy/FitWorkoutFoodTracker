@@ -45,7 +45,8 @@ async function factsFor(a) {
   const inProgress = await prisma.workoutSession.findFirst({ where: { userId: a.userId, status: "IN_PROGRESS" }, select: { id: true } });
   const latest = await prisma.workoutSession.findFirst({ where: { userId: a.userId, status: "COMPLETED" }, orderBy: { startedAt: "desc" }, select: { id: true, name: true } });
   const templates = await prisma.workoutTemplate.findMany({ where: { userId: a.userId }, select: { id: true, name: true }, orderBy: { name: "asc" } });
-  const slots = await prisma.scheduleSlot.count({ where: { userId: a.userId } });
+  const slotRows = await prisma.scheduleSlot.findMany({ where: { userId: a.userId }, select: { templateId: true } });
+  const slots = slotRows.length;
   const grouped = await prisma.sessionExercise.groupBy({ by: ["exerciseId"], where: { session: { userId: a.userId, status: "COMPLETED" } }, _count: { _all: true } });
   grouped.sort((x, y) => y._count._all - x._count._all || (x.exerciseId < y.exerciseId ? -1 : 1));
   const topId = grouped[0]?.exerciseId;
@@ -57,7 +58,18 @@ async function factsFor(a) {
   const targets = await prisma.nutritionTarget.findMany({ where: { userId: a.userId }, orderBy: { effectiveFrom: "asc" } });
   const anyEntry = await prisma.foodEntry.findFirst({ where: { userId: a.userId }, select: { id: true } });
   const custom = await prisma.exercise.findFirst({ where: { userId: a.userId }, select: { id: true, name: true } });
-  return { completed, inProgress, latest, templates, slots, exercises: grouped.length, top, topSessions, entries, entriesToday, targets, anyEntry, custom };
+  // A full past day, compared by calories as they're stored, which the page should add up and round.
+  const lastDay = await prisma.foodEntry.findFirst({ where: { userId: a.userId, date: { lt: new Date(`${today}T00:00:00Z`) } }, orderBy: { date: "desc" }, select: { date: true } });
+  let dayTotal = null;
+  if (lastDay) {
+    const sum = await prisma.foodEntry.aggregate({ where: { userId: a.userId, date: lastDay.date }, _sum: { kcal: true } });
+    const iso = lastDay.date.toISOString().slice(0, 10);
+    const monday = new Date(lastDay.date.getTime() - ((lastDay.date.getUTCDay() + 6) % 7) * 86_400_000).toISOString().slice(0, 10);
+    dayTotal = { date: iso, monday, kcal: Math.round(Number(sum._sum.kcal)).toLocaleString("en-US") };
+  }
+  const soup = await prisma.foodEntry.findFirst({ where: { userId: a.userId, foodName: "QA Homemade Soup", date: { lt: new Date(`${today}T00:00:00Z`) } }, orderBy: { date: "desc" }, select: { date: true } });
+  const soupDate = soup ? soup.date.toISOString().slice(0, 10) : null;
+  return { completed, inProgress, latest, templates, slots, slotRows, exercises: grouped.length, top, topSessions, entries, entriesToday, targets, anyEntry, custom, dayTotal, soupDate };
 }
 
 async function newUserPage(browser, a) {
@@ -99,10 +111,12 @@ async function visit(page, a, route, problems) {
   const res = await page.goto(`${BASE}${route}`, { waitUntil: "domcontentloaded" });
   const ms = Date.now() - started;
   await page.waitForLoadState("load");
-  await page.waitForTimeout(150);
+  visit.loaded = Date.now() - started;
+  // Let this page's link prefetches finish. Leaving while they run makes WebKit report them as failures.
+  await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {});
   assert.ok(res.status() < 400, `HTTP ${res.status()}`);
   assert.equal(await page.getByText("Application error").count(), 0, "an application error is showing");
-  assert.deepEqual([...problems], [], "page errors");
+  assert.deepEqual([...problems], [], `page errors: ${String(problems[0]).slice(0, 150)}`);
   return ms;
 }
 const see = (page, text) => page.getByText(text, { exact: false }).first().waitFor({ timeout: 6000 });
@@ -110,7 +124,7 @@ const absent = async (page, text) => assert.equal(await page.getByText(text, { e
 
 async function timed(page, a, route, problems) {
   const ms = await visit(page, a, route, problems);
-  timings.push({ user: a.n, route, ms });
+  timings.push({ user: a.n, route: route.replace(/qafx[^/]+|c[a-z0-9]{20,}/, "[id]"), ms, loaded: visit.loaded });
   if (ms > BUDGET_MS) throw new Error(`took ${ms} ms, over the ${BUDGET_MS} ms budget`);
 }
 
@@ -142,7 +156,13 @@ async function fullChecks(page, a, f, problems) {
     await visit(page, a, "/workouts/schedule", problems);
     await see(page, "Weekly schedule");
     if (!f.templates.length) await see(page, "Create a plan first");
-    else await see(page, f.templates[0].name);
+    else {
+      // Each slot is a select, showing its plan.
+      await page.locator("select").first().waitFor({ timeout: 6000 });
+      const shown = await page.locator("select").evaluateAll((els) => els.map((e) => e.value));
+      for (const { templateId } of f.slotRows) assert.ok(shown.includes(templateId), "a scheduled plan is showing");
+      assert.equal(shown.filter((v) => f.slotRows.some((r) => r.templateId === v)).length, f.slots, "one select per slot");
+    }
   });
 
   await check(a, "/workouts/history", "total and first page match the data", async () => {
@@ -196,6 +216,36 @@ async function fullChecks(page, a, f, problems) {
     });
   }
 
+  if (f.latest && a.n === 8) {
+    await check(a, "/workouts/history/[id]", "bodyweight sets aren't shown as a weight of 0", async () => {
+      await visit(page, a, `/workouts/history/${f.latest.id}`, problems);
+      assert.equal(await page.getByText(/0 (kg|lb)/).count(), 0, "a weight of 0 is showing");
+    });
+  }
+  if (f.latest && a.units === "IMPERIAL" && a.n === 2) {
+    await check(a, "/workouts/history/[id]", "weights are in the account's units", async () => {
+      await visit(page, a, `/workouts/history/${f.latest.id}`, problems);
+      await see(page, " lb");
+      assert.equal(await page.getByText(/d kg/).count(), 0, "kg is showing");
+    });
+  }
+  if (f.dayTotal) {
+    await check(a, "/nutrition/history?week=", "a day's calories equal what's stored", async () => {
+      await visit(page, a, `/nutrition/history?week=${f.dayTotal.monday}`, problems);
+      const row = page.locator(`a[href="/nutrition?date=${f.dayTotal.date}"]`);
+      await row.waitFor({ timeout: 6000 });
+      const text = await row.innerText();
+      assert.ok(text.includes(f.dayTotal.kcal), `expected ${f.dayTotal.kcal} in "${text.replace(/s+/g, " ").slice(0, 80)}"`);
+    });
+  }
+  if (f.soupDate) {
+    await check(a, "/nutrition?date=", "a missing value isn't shown as 0", async () => {
+      await visit(page, a, `/nutrition?date=${f.soupDate}`, problems);
+      const text = await page.getByText("QA Homemade Soup").first().locator("xpath=ancestor::*[self::li or self::a or self::button or self::div][1]").innerText();
+      assert.doesNotMatch(text, /[PCF] 0|0 g/, "a missing macro reads as 0");
+    });
+  }
+
   await check(a, "/nutrition", "today's log or its empty state", async () => {
     await visit(page, a, "/nutrition", problems);
     if (!f.entriesToday) await see(page, "Nothing logged");
@@ -220,7 +270,7 @@ async function fullChecks(page, a, f, problems) {
     const current = f.targets.at(-1);
     if (!f.targets.length) await see(page, "No target");
     else if (current.kcal === null) await see(page, "No target in use.");
-    else await see(page, String(current.kcal));
+    else await see(page, `${current.kcal.toLocaleString("en-US")} kcal`);
     if (f.targets.length > 1) await see(page, "Target history");
     if (f.targets.some((t) => t.kcal === null) && f.targets.length > 1) await see(page, "Stopped");
     if (f.targets.some((t) => t.kcal !== null && t.proteinG === null)) await see(page, "Not set");
@@ -248,9 +298,16 @@ async function isolationChecks(browser, A, fa, B, fb, cookie, page, problems) {
     fa.latest && ["GET", `/api/sessions/${fa.latest.id}`], fa.latest && ["DELETE", `/api/sessions/${fa.latest.id}`],
     fa.templates[0] && ["GET", `/api/templates/${fa.templates[0].id}`], fa.templates[0] && ["DELETE", `/api/templates/${fa.templates[0].id}`],
     fa.anyEntry && ["DELETE", `/api/nutrition/entries/${fa.anyEntry.id}`],
-    fa.custom && ["GET", `/api/exercises/${fa.custom.id}/history`], fa.custom && ["GET", `/api/exercises/${fa.custom.id}/previous`],
+    fa.custom && ["GET", `/api/exercises/${fa.custom.id}/history`],
   ].filter(Boolean)) {
     await check(B, url.replace(/qafx[^/]+/, "[A]"), `${label}: ${method} is refused`, async () => assert.equal(await send(method, url), 404));
+  }
+  if (fa.custom) {
+    // This route answers for any id, reading only the caller's own sessions, so an id tells it nothing.
+    await check(B, "/api/exercises/[A]/previous", `${label}: holds none of A's data`, async () => {
+      const res = await fetch(`${BASE}/api/exercises/${fa.custom.id}/previous`, { headers: { Cookie: `${cookie.name}=${cookie.value}` } });
+      assert.deepEqual(await res.json(), { previous: null });
+    });
   }
   await check(B, "database", `${label}: A's rows are unchanged`, async () => {
     assert.deepEqual({ sessions: await prisma.workoutSession.count({ where: { userId: A.userId } }), templates: await prisma.workoutTemplate.count({ where: { userId: A.userId } }), entries: await prisma.foodEntry.count({ where: { userId: A.userId } }) }, before);
@@ -346,7 +403,7 @@ async function isolationChecks(browser, A, fa, B, fb, cookie, page, problems) {
     console.log(`checked ${name}`);
   }
 
-  console.log(`Timings: ${timings.map((t) => `#${t.user} ${t.route} ${t.ms} ms`).join("; ")}`);
+  console.log(`Timings: ${timings.map((t) => `#${t.user} ${t.route} ${t.ms}/${t.loaded} ms`).join("; ")}`);
   console.log(`Checks passed: ${passed}. Failed: ${failures.length}.`);
   for (const f of failures) console.log(`FAIL [${f.browser}] #${f.user} ${f.route}: ${f.check}: ${f.message}`);
   await prisma.$disconnect();
