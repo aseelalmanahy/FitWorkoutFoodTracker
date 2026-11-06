@@ -146,6 +146,81 @@ describe("when a model is unavailable", () => {
   });
 });
 
+describe("the model and the agent always agree", () => {
+  const policy = loadPolicy();
+  const TIERS = ["haiku", "sonnet", "opus"];
+  const subsets = [[], ["haiku"], ["sonnet"], ["opus"], ["haiku", "sonnet"], ["haiku", "opus"], ["sonnet", "opus"], ["haiku", "sonnet", "opus"]];
+  const modelOf = (agent) => fs.readFileSync(path.join(AGENTS, `${agent}.md`), "utf8").match(/^model: *(.*?)\s*$/m)[1];
+  const TASKS = {
+    documentation: [{ documentation: true }, "haiku"],
+    "light analysis": [{ lightweightAnalysis: true }, "haiku"],
+    routine: [{}, "sonnet"],
+    "documentation after failures": [{ documentation: true, failedAttempts: 2 }, "sonnet"],
+    "routine after failures": [{ failedAttempts: 2 }, "opus"],
+    "high risk": [{ securitySensitive: true }, "opus"],
+    "review defects": [{ unresolvedReviewDefects: true }, "opus"],
+  };
+
+  for (const [label, [signals, wanted]] of Object.entries(TASKS)) {
+    for (const available of subsets) {
+      test(`${label}, with ${JSON.stringify(available)} available`, () => {
+        const d = route({ ...signals, availableTiers: available });
+        const expected = TIERS.filter((t) => available.includes(t) && policy.tiers[t].rank >= policy.tiers[wanted].rank)[0];
+        if (!expected) {
+          assert.equal(d.execution, "owner-decision", "no suitable tier, so it stops");
+          assert.equal(d.agent, null);
+          assert.equal(d.model, null);
+          return;
+        }
+        assert.equal(d.tier, expected);
+        assert.equal(d.agent, policy.tiers[expected].agent, "the tier's own agent");
+        assert.equal(modelOf(d.agent), d.model, "the agent's definition runs on the model reported");
+        assert.equal(d.fallback, expected !== wanted);
+      });
+    }
+  }
+  test("a Haiku task moved up to Sonnet uses the Sonnet agent", () => {
+    const d = route({ documentation: true, availableTiers: ["sonnet"] });
+    assert.deepEqual([d.model, d.agent, d.fallback], ["sonnet", "development-agent", true]);
+  });
+  test("a Haiku task moved up to Opus uses the Opus agent", () => {
+    const d = route({ documentation: true, availableTiers: ["opus"] });
+    assert.deepEqual([d.model, d.agent, d.fallback], ["opus", "architecture-agent", true]);
+  });
+  test("a Sonnet task moved up to Opus uses the Opus agent", () => {
+    const d = route({ availableTiers: ["haiku", "opus"] });
+    assert.deepEqual([d.model, d.agent, d.fallback], ["opus", "architecture-agent", true]);
+  });
+  for (const available of subsets) {
+    test(`a review stays with the read-only agent, or stops, with ${JSON.stringify(available)} available`, () => {
+      const d = route({ isReview: true, securitySensitive: true, availableTiers: available });
+      if (available.includes("opus")) {
+        assert.deepEqual([d.agent, d.model, d.execution], ["security-review-agent", "opus", "delegate"]);
+      } else {
+        assert.deepEqual([d.agent, d.execution, d.blocked], [null, "owner-decision", true], "never an agent that can edit");
+      }
+    });
+    test(`a feature proposal stays with the project's agent, with ${JSON.stringify(available)} available`, () => {
+      const project = { existingAgents: { featureProposal: "product-strategy-agent" } };
+      const d = route({ featureProposal: true, availableTiers: available }, { project });
+      assert.deepEqual([d.agent, d.model, d.tier, d.execution, d.blocked], ["product-strategy-agent", "inherit", "inherit", "delegate", false]);
+    });
+    test(`a restricted action is never delegated, with ${JSON.stringify(available)} available`, () => {
+      for (const approvalConfirmed of [false, true]) {
+        const d = route({ restrictedActions: ["deploy"], approvalConfirmed, availableTiers: available });
+        assert.equal(d.agent, null);
+        assert.notEqual(d.execution, "delegate");
+      }
+    });
+    test(`a trivial edit is never delegated, with ${JSON.stringify(available)} available`, () => {
+      assert.equal(route({ trivial: true, availableTiers: available }).agent, null);
+    });
+  }
+  test("every tier's agent runs on that tier's model", () => {
+    for (const [tier, def] of Object.entries(policy.tiers)) assert.equal(modelOf(def.agent), tier);
+  });
+});
+
 describe("the report", () => {
   test("has the required sections, in order", () => {
     const text = format(route({ concurrency: true }));

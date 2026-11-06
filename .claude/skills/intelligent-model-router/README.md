@@ -6,15 +6,21 @@ Sends each substantial task to the cheapest Claude model able to do it reliably,
 
 ## What's been verified
 
+On Claude Code 2.1.319, on Windows, on 2026-11-06, in a folder where the trust dialog had been accepted.
+
 | Check | Result |
 |---|---|
-| Routing policy, guard, configuration and report | **Dry-run tests pass, with no model called.** `node --test .claude/skills/intelligent-model-router/tests/router.test.cjs` |
-| Whether those tests can fail | 22 deliberate defects, each caught, with every file restored and hash-checked |
-| `verify-model.cjs` | Read the real model from one real subagent transcript, in this repository's sessions |
-| Claude Code loading the skill | Observed: it appeared in the session without a restart |
-| **Claude Code loading the four agents, delegating to them, and running their guard** | **NOT VERIFIED.** The docs say new agent files are picked up within seconds, but the session that wrote them answered `Agent type 'quick-task-agent' not found`, twice. The YAML frontmatter also hasn't been through a real parser |
+| Routing policy, fallback, guard, configuration and report | **Dry-run tests pass, with no model called.** `node --test .claude/skills/intelligent-model-router/tests/router.test.cjs` |
+| Whether those tests can fail | 25 deliberate defects, each caught, with every file restored and hash-checked |
+| Agent frontmatter | Parsed with PyYAML 6.0.3. Every field is one the docs list, and the hook's `node` resolves to a real executable, which the exec form needs on Windows. The repository has no YAML dependency, so the tests here don't repeat this |
+| Discovery | A fresh `claude -p` session from the repository root listed all four agents and the skill |
+| Launch | `quick-task-agent` launched, from that session and from an existing one |
+| **Guard, live** | Reading `.env.router-smoke`, a file that doesn't exist, returned `PreToolUse:Read hook error: Blocked by the model router: secret files aren't for a specialist agent`. **So the hook ran and refused it before the filesystem.** Both sessions ended normally |
+| **Model comes from the definition** | The agent ran on `claude-haiku-5-5`, by its transcript, **under a parent running Opus,** so it wasn't inherited |
 
-**To finish that check, in a new session:** ask Claude to use `quick-task-agent` to read `.env.router-smoke`, a file that doesn't exist. **Expect the router's guard to refuse the read,** with "Blocked by the model router". A "file not found" error means the guard didn't run. Then check the model with `/tasks` or `verify-model.cjs`. This is one small Haiku request. **Until it's done, treat the agents as untested.**
+**Not observed live:** the other three agents launching, a Sonnet or Opus definition's model, the guard's Bash rules and read-only profile in a real session, `onFailure: block` on a real hook failure, an untrusted folder, or any platform but Windows. These have unit tests only, or nothing beyond the docs.
+
+**The earlier "Agent type not found" error:** the session that created the agents couldn't launch them in the same turn, though it found the skill. In the next turn, they were listed, and one launched. No file changed in between, so **the definitions were fine, and the likely cause is when a session refreshes its agent list.** That timing is inferred, and it differs from the docs' "within a few seconds".
 
 ## How it works
 
@@ -58,7 +64,7 @@ Sends each substantial task to the cheapest Claude model able to do it reliably,
 
 **Length is never an input,** so a long, simple task stays cheap.
 
-**If a model is unavailable,** a task moves up to the next available tier, and never down. If only weaker tiers are available, it stops for a decision. Claude Code can also do this by itself: under an `availableModels` restriction, a subagent runs on a fallback model rather than failing, so **the model named in a definition isn't proof of the model used.**
+**If a model is unavailable,** a task moves up to the next available tier, and to that tier's agent, so the model reported is the one its definition runs on. It never moves down. If only weaker tiers are available, it stops for a decision. A review stays with the read-only agent or stops, and never goes to one that can edit. A feature proposal stays with the project's agent, as its own definition sets its model. Claude Code can also do this by itself: under an `availableModels` restriction, a subagent runs on a fallback model rather than failing, so **the model named in a definition isn't proof of the model used.**
 
 ## How delegation happens
 
@@ -99,11 +105,44 @@ Claude Code may also delegate by itself when a task matches an agent's `descript
 
 **Limits you should know:**
 
-- **The guard matches patterns, and it isn't a sandbox.** A command written to evade it, for example through a script file, can get past it. **Use `permissions.deny` rules for anything that must never happen.** This router adds none, as global and project permission settings need your approval.
+- **The guard matches patterns, and it isn't a sandbox.** A command written to evade it, for example through a script file, can get past it. See "Stronger protection" below. The router adds no permission rules, as they need your approval.
 - **Hooks in project agents need folder trust.** The docs say that without it, Claude Code skips them.
 - **Main-session work has no guard.** There, your permission mode and rules apply, as they always did.
 - **Being blocked can be inconvenient by design.** A specialist can't commit or run database-backed suites, so the main session does that, with your authorization.
 - `security-review-agent` is independent of the conversation that did the work, but it's still the same vendor's model. **It supplements a required external or human review, and never replaces it.**
+
+## Stronger protection, for the owner to decide
+
+**None of this is applied.** Project permission rules apply to the main session as well as to subagents, so they can get in the way of work you've authorized. The docs say `disallowedTools` removes a whole tool even with a pattern, so **there's no per-agent list of denied commands.**
+
+**The docs are also clear that these aren't a boundary:** a Bash rule "covers the invocation Claude usually produces and isn't a security boundary around the program". `Bash(curl *)` doesn't stop `sh -c 'curl ...'`. Read rules cover built-in tools and commands like `cat`, but not "a Python or Node script that opens files itself". OS-level enforcement is the sandbox.
+
+```json
+{
+  "permissions": {
+    "deny": [
+      "Read(./.env)", "Read(./.env.production)", "Read(./.env.local)", "Read(./deploy/production.env)",
+      "Edit(./.env)", "Edit(./.env.production)", "Edit(./.env.local)", "Edit(./deploy/production.env)"
+    ],
+    "ask": [
+      "Bash(npx prisma migrate *)", "Bash(npx prisma db *)", "Bash(npm run db:*)",
+      "Bash(node node_modules/prisma/build/index.js *)",
+      "Bash(psql *)", "Bash(pg_restore *)", "Bash(dropdb *)",
+      "Bash(git push *)", "Bash(docker compose *)", "Bash(kubectl *)", "Bash(terraform *)"
+    ]
+  }
+}
+```
+
+| Concern | Rule | Consequence |
+|---|---|---|
+| Secret files | `deny` on named files | No exception is possible, as an allow rule can't override a deny, so `Read(./.env.*)` would also block `.env.example`, and that's why files are named. **`.env.test` is left out,** as the main session's pre-flight checks read it, and it would block them. `node --env-file` still works, as Node reads the file itself |
+| Migrations, deployment, publishing | `ask` rather than `deny` | Each one prompts, including in auto mode, by the docs, so authorized work can still go ahead. A `deny` would block the owner's approved migrations too. **Unattended runs would stop at each prompt.** Whether `ask` holds in `bypassPermissions` isn't stated in what was read |
+| Protected databases | **No rule can do this** | The database is named by `DATABASE_URL` in a file or the environment, so it usually isn't in the command text. `Bash(*fitdb*)` would miss those, and would also match `fitdb_test`. **The real control is credentials:** the existing test-target guard, and no `fitdb` or production credential on a machine where agents run |
+| Production | **Same** | No production credential exists here today. Keep it that way, and keep them on the server |
+| Whole classes of escape | The sandbox | Enforces files and network whatever the command says. Stronger, but **not evaluated here,** and it could affect the test suites' browsers and local databases. It needs its own trial |
+
+**Recommendation:** apply the block above to `.claude/settings.json`, after you've read the consequences, and try the sandbox separately. Tracked as TOOL-02.
 
 ## Seeing the model actually used
 
@@ -111,7 +150,8 @@ Claude Code may also delegate by itself when a task matches an agent's `descript
 |---|---|---|
 | Main session | `/status`, or the status line's `model.id` | Documented |
 | A running subagent | `/tasks` names the model on its row | Documented, 2.1.242 and later |
-| A finished subagent | `node .claude/skills/intelligent-model-router/scripts/verify-model.cjs <transcript>` | **The transcript's format isn't documented,** so this reports "unverified" rather than guessing if it changes |
+| A finished subagent | `node .claude/skills/intelligent-model-router/scripts/verify-model.cjs <transcript>` | **The transcript's format isn't documented,** so this reports "unverified" rather than guessing if it changes. Transcripts were under `~/.claude/projects/<project>/<session>/subagents/`, which is also undocumented |
+| A headless run | `--output-format stream-json --verbose`: `system`/`init` listed `agents` and `model`, and `result` has `modelUsage` | Observed, not confirmed in the docs read |
 
 ## Cost and performance
 

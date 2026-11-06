@@ -55,8 +55,12 @@ function route(input, { policy = loadPolicy(), project = {} } = {}) {
       };
     }
     const fallback = resolved !== tier;
+    // A tier's own agent follows the tier, so the model reported is the one its definition runs on. The review
+    // agent is kept, as it's read-only and its tier has nothing above it. If that tier is ever unavailable, this
+    // stops above rather than giving a review to an agent that can edit files.
+    const delegateTo = agent === policy.tiers[tier].agent ? policy.tiers[resolved].agent : agent;
     return {
-      task, tier: resolved, model: policy.tiers[resolved].alias, agent, execution,
+      task, tier: resolved, model: policy.tiers[resolved].alias, agent: delegateTo, execution,
       reason: fallback ? `${reason} ${tier} isn't available, so this moves up to ${resolved}.` : reason,
       fallback, independentReview, requiresHumanApproval: false, blocked: false, silent: false, ...extra,
     };
@@ -85,7 +89,11 @@ function route(input, { policy = loadPolicy(), project = {} } = {}) {
   // 3. A project's own agents are reused where they cover the task. Their definition decides their model.
   const proposal = project.existingAgents?.featureProposal;
   if (s.featureProposal && proposal) {
-    return { ...build("feature proposal", "sonnet", proposal, "delegate", `${proposal} evaluates proposals before any implementation.`), tier: "inherit", model: "inherit" };
+    return {
+      task: "feature proposal", tier: "inherit", model: "inherit", agent: proposal, execution: "delegate",
+      reason: `${proposal} evaluates proposals before any implementation, on the model its own definition sets.`,
+      fallback: false, independentReview: highRisk, requiresHumanApproval: false, blocked: false, silent: false,
+    };
   }
 
   // 4. Escalations named by the policy.
