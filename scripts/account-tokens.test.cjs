@@ -434,12 +434,14 @@ test("S-21: a row held past the transaction limit: login and reset refuse, chang
   const timed = (name, p) => p.then((res) => { settledAt[name] = Date.now() - started; return res; });
   const waiting = [timed("login", login(u.email, PASSWORD)), timed("reset", reset(token, NEW_PASSWORD))];
   await waitForBlocked(2, "login and reset");
-  await sleep(6500); // past both lock_timeout and Prisma's 5-second limit
+  // The limit is per lock, and whichever arrived second waits for two: its place in the queue, then the row.
+  await sleep(9000);
   assert.deepEqual(Object.keys(settledAt).sort(), ["login", "reset"], "both gave up by themselves, with the row still held");
   await release();
   const [l, r] = await Promise.all(waiting);
   t.diagnostic(`S-21: settled at ${JSON.stringify(settledAt)} ms, statuses login ${l.status}, reset ${r.status}`);
-  assert.ok(Math.max(settledAt.login, settledAt.reset) < 5000, "within the limit, not when the row was released");
+  assert.ok(Math.min(settledAt.login, settledAt.reset) < 5000, "the first in the queue, within one limit");
+  assert.ok(Math.max(settledAt.login, settledAt.reset) < 9000, "the second, within two, and not when the row was released");
   assert.equal(l.status, 503, "login past the limit");
   assert.equal(r.status, 503, "reset past the limit");
   assert.equal(l.headers.get("retry-after"), "5");
@@ -450,6 +452,40 @@ test("S-21: a row held past the transaction limit: login and reset refuse, chang
   const ok = await login(u.email, PASSWORD);
   assert.equal(ok.status, 200, "the old password still stands, and the server has recovered");
   assert.equal((await reset(token, NEW_PASSWORD)).status, 200, "and the link still works");
+});
+
+test("S-21: a password change past the limit answers 503 too, keeps the old password and every session", async () => {
+  const u = await newUser("limitchg");
+  const other = `fit_session=${await addSession(prisma, u.user.id)}`;
+  const release = await holdUserRow(u.user.id);
+  const started = Date.now();
+  const c = await changePassword(u.cookie, PASSWORD, NEW_PASSWORD);
+  const elapsed = Date.now() - started;
+  await release();
+  assert.ok(elapsed < 5000, `it gave up by itself, in ${elapsed} ms`);
+  assert.equal(c.status, 503);
+  assert.ok(!/passwordHash|Prisma|55P03|lock/i.test(c.text), "and says nothing about why");
+  assert.equal(sessionCookie(c), undefined);
+  assert.equal(await profileStatus(u.cookie), 200, "this session stands");
+  assert.equal(await profileStatus(other), 200, "and the other device's");
+  assert.equal((await login(u.email, PASSWORD)).status, 200, "the old password stands");
+  assert.equal((await login(u.email, NEW_PASSWORD)).status, 401);
+});
+
+test("a timed-out wait leaves no open transaction, and the limit ends with its transaction", async () => {
+  const [{ n }] = await prisma.$queryRawUnsafe(`SELECT count(*)::int AS n FROM pg_stat_activity WHERE datname = current_database() AND state LIKE 'idle in transaction%' AND pid <> pg_backend_pid()`);
+  assert.equal(n, 0, "nothing is left idle in a transaction");
+  const one = new PrismaClient({ datasources: { db: { url: `${target.databaseUrl}${target.databaseUrl.includes("?") ? "&" : "?"}connection_limit=1` } } });
+  try {
+    const [{ lock_timeout: normal }] = await one.$queryRawUnsafe("SHOW lock_timeout");
+    const inside = await one.$transaction(async (tx) => {
+      await tx.$executeRaw`SET LOCAL lock_timeout = '4s'`;
+      return (await tx.$queryRawUnsafe("SHOW lock_timeout"))[0].lock_timeout;
+    });
+    assert.equal(inside, "4s");
+    const [{ lock_timeout: after }] = await one.$queryRawUnsafe("SHOW lock_timeout");
+    assert.equal(after, normal, "the same connection is back to normal afterward");
+  } finally { await one.$disconnect(); }
 });
 
 // ─── Reset and change-password end sessions ─────────────────────────────────

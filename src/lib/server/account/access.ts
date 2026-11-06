@@ -2,7 +2,7 @@ import "server-only";
 import { Prisma, type AccountTokenPurpose } from "@prisma/client";
 import { randomBytes } from "node:crypto";
 import { HttpError } from "../api";
-import { hashPassword, hashToken, limitLockWait, newSessionRow, setDeviceCookie, setSessionCookie } from "../auth";
+import { SIGN_IN_TRANSACTION, hashPassword, hashToken, limitLockWait, newSessionRow, setDeviceCookie, setSessionCookie } from "../auth";
 import { prisma } from "../db";
 import { acquirePasswordCheck } from "../login-throttle";
 import { MailRejected, mailTransport, type MailMessage } from "../mail/transport";
@@ -160,7 +160,7 @@ export async function resetPassword(token: string, password: string): Promise<vo
     await tx.session.deleteMany({ where: { userId } });
     await tx.accountToken.deleteMany({ where: { OR: [{ userId }, { email: locked[0].email }] } });
     return locked[0].email;
-  });
+  }, SIGN_IN_TRANSACTION);
   notifyPasswordChanged(email);
 }
 
@@ -179,7 +179,7 @@ export async function changePassword(user: { id: string; email: string }, curren
     await tx.session.deleteMany({ where: { userId: user.id } });
     await tx.accountToken.deleteMany({ where: { OR: [{ userId: user.id }, { email: user.email }] } });
     await tx.session.create({ data: { id: session.id, userId: user.id, expiresAt: session.expiresAt } });
-  });
+  }, SIGN_IN_TRANSACTION);
   await setSessionCookie(session.token, session.expiresAt);
   await setDeviceCookie({ id: user.id, passwordHash });
   notifyPasswordChanged(user.email);

@@ -21,6 +21,8 @@ const f = vi.hoisted(() => ({
   send: null as null | ((m: MailMessage, s: AbortSignal) => Promise<void>),
   /** Runs just before a transaction, to stand in for something committing during the slow password hash. */
   beforeTransaction: null as null | (() => void),
+  /** The options of the latest transaction. */
+  txOptions: null as null | { timeout?: number },
   /** Every raw query fails as PostgreSQL's lock_timeout would. */
   lockTimedOut: false,
   /** Runs during an export's reads, to stand in for a reset committing while they run. */
@@ -107,7 +109,8 @@ vi.mock("@/lib/server/db", () => {
   });
   const all = new Proxy(db as Row, { get: (t, k: string) => t[k] ?? (others as Row)[k] });
   let chain: Promise<unknown> = Promise.resolve();
-  const $transaction = (fn: (tx: unknown) => Promise<unknown>) => {
+  const $transaction = (fn: (tx: unknown) => Promise<unknown>, options?: { timeout?: number }) => {
+    f.txOptions = options ?? null;
     const run = async () => {
       f.beforeTransaction?.();
       f.beforeTransaction = null;
@@ -730,6 +733,8 @@ describe("waiting for a lock is bounded", () => {
     expect(limit).toBeGreaterThan(-1);
     const firstLocking = f.calls.findIndex((c) => ["raw:FOR SHARE", "raw:FOR UPDATE", "user.updateMany"].includes(c));
     expect(firstLocking).toBeGreaterThan(limit);
+    // Two lock stages of 4 seconds each can pass, so Prisma's limit must not be what ends this.
+    expect(f.txOptions?.timeout).toBeGreaterThan(8000);
   });
 
   it("a timed-out wait answers 503, says why in plain words, and changes nothing", async () => {

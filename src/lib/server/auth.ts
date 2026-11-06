@@ -68,9 +68,12 @@ export async function setDeviceCookie(user: DeviceUser): Promise<void> {
 /**
  * The first statement of a sign-in transaction. Prisma's transaction limit doesn't interrupt a query waiting on a lock
  * (measured, S-21), so without this a row held by a long deletion or a schema change would hold a connection just as long.
- * Under Prisma's 5 seconds, so that this is what ends the wait. The API answers 503, and the transaction changes nothing.
+ * The API answers 503, and the transaction changes nothing. The limit applies to each lock it waits for, and a request
+ * queued behind another waits for two: its place in the queue, then the row. So it can take up to about 8 seconds (measured).
  */
 export const limitLockWait = (tx: Prisma.TransactionClient) => tx.$executeRaw`SET LOCAL lock_timeout = '4s'`;
+/** Longer than that wait, so that the lock limit always decides, with a clear answer, and not Prisma's 5-second default. */
+export const SIGN_IN_TRANSACTION = { timeout: 10_000 };
 
 /** A session's values, for the caller to store in its own transaction. Only the hash goes in the database. */
 export function newSessionRow() {
@@ -101,7 +104,7 @@ export async function createSessionForVerifiedPassword(userId: string, verifiedH
     if (rows[0]?.passwordHash !== verifiedHash) return false;
     await tx.session.create({ data: { id: session.id, userId, expiresAt: session.expiresAt } });
     return true;
-  });
+  }, SIGN_IN_TRANSACTION);
   if (stored) await setSessionCookie(session.token, session.expiresAt);
   return stored;
 }
