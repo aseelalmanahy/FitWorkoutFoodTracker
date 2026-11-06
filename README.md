@@ -73,9 +73,10 @@ Open Food Facts text search uses [Search-a-licious](https://search.openfoodfacts
 | `npm run build && npm start` | Production build and server |
 | `npm test` | Unit tests for energy equations, overload/PR logic and time-zone handling |
 | `npm run lint` | Type-check |
-| `node scripts/e2e-smoke.cjs` | Playwright end-to-end smoke test of Phase 1 workouts against a running server (`BASE_URL`) |
+| `node scripts/e2e-smoke.cjs` | Playwright end-to-end smoke test of Phase 1 workouts against a running server (`BASE_URL`, `DATABASE_URL`) |
 | `npm run stub:food-apis` | Local stand-in for USDA/OFF (documented response shapes) for offline testing |
-| `npm run test:api` | Nutrition API integration tests (31) against a running server using the stub (`BASE_URL`) |
+| `npm run test:guard` | Test-target guard tests. Needs no app or database |
+| `npm run test:api` | Nutrition API integration tests (31) against a running server using the stub (`BASE_URL`, `DATABASE_URL`) |
 | `node scripts/e2e-nutrition.cjs` | Playwright end-to-end test of Phase 2 nutrition flows |
 | `node --test scripts/live-provider-check.safety.test.cjs` | Database-safety tests for the live check (needs a build and the `fitdb_test` + `fitdb_test_other` databases) |
 
@@ -121,8 +122,8 @@ What it does and guarantees:
 - **Same code path as the app:** it uses the app's own API, so the provider calls go through the existing server-side
   clients. The key and the database password are redacted from everything it prints and from its report.
 - **Refuses before any write** (exit 4) unless all of these hold:
-  - `BASE_URL` is local;
-  - the database name contains `test`;
+  - `BASE_URL` is set, and is exactly a loopback origin;
+  - the database is `fitdb_test` or `fitdb_test_other`;
   - the **running server's database** is proven to be the same database, via an opaque fingerprint from
     `GET /api/health/db-identity`;
   - that database carries a **valid test-database marker**, as reported by the server.
@@ -145,6 +146,8 @@ What it does and guarantees:
 
 ### Running the integration and E2E suites (stub, not live)
 
+**Every write-capable script refuses to run (exit 4) unless `BASE_URL` is set to a loopback origin, `DATABASE_URL` is a designated local test database (`fitdb_test` or `fitdb_test_other`), and the running server proves it's using that database and that it's marked.** There are no defaults and no bypass. For `next start`, set `EXPOSE_DB_IDENTITY=1`. See [`docs/PHASE_4_0_0A_TEST_TARGET_GUARD.md`](docs/PHASE_4_0_0A_TEST_TARGET_GUARD.md).
+
 Use the **test database**, never the dev database. `nutrition-api` and `release-workflow` also query the database directly, so set `DATABASE_URL` for the test process too. They refuse to run (exit 4) unless it is a local database with `test` in its name. With the stub, the food cache would otherwise store stub data under real
 USDA/OFF ids in your dev database. Playwright is a dev dependency (`npm ci` installs it); browsers come from
 `npx playwright install chromium`. Build first: `npm run build`.
@@ -156,17 +159,17 @@ variables for the **server process** itself. (`VAR=x npm run build && npx next s
 # bash — terminal 1: stub; terminal 2: app (restart it between suites: sign-ups are limited to 10 per IP per 15 min)
 node scripts/stub-food-apis.cjs 4010
 export DATABASE_URL="postgresql://USER:PASSWORD@localhost:5432/fitdb_test" FDC_BASE_URL=http://localhost:4010/fdc/v1 \
-  OFF_BASE_URL=http://localhost:4010/off FDC_API_KEY=stub FOOD_RATE_LIMIT_MULTIPLIER=100
+  OFF_BASE_URL=http://localhost:4010/off FDC_API_KEY=stub FOOD_RATE_LIMIT_MULTIPLIER=100 EXPOSE_DB_IDENTITY=1
 npx next start -p 3000
-# terminal 3
-BASE_URL=http://localhost:3000 npm run test:api
+# terminal 3, with the same DATABASE_URL as the server
+DATABASE_URL="postgresql://USER:PASSWORD@localhost:5432/fitdb_test" BASE_URL=http://localhost:3000 npm run test:api
 ```
 ```powershell
 # PowerShell — terminal 2 (app)
 $env:DATABASE_URL="postgresql://USER:PASSWORD@localhost:5432/fitdb_test"; $env:FDC_BASE_URL="http://localhost:4010/fdc/v1"
-$env:OFF_BASE_URL="http://localhost:4010/off"; $env:FDC_API_KEY="stub"; $env:FOOD_RATE_LIMIT_MULTIPLIER="100"; npx next start -p 3000
-# terminal 3
-$env:BASE_URL="http://localhost:3000"; npm run test:api
+$env:OFF_BASE_URL="http://localhost:4010/off"; $env:FDC_API_KEY="stub"; $env:FOOD_RATE_LIMIT_MULTIPLIER="100"; $env:EXPOSE_DB_IDENTITY="1"; npx next start -p 3000
+# terminal 3, with the same DATABASE_URL as the server
+$env:DATABASE_URL="postgresql://USER:PASSWORD@localhost:5432/fitdb_test"; $env:BASE_URL="http://localhost:3000"; npm run test:api
 ```
 
 Notes for the other server-based suites:
@@ -176,7 +179,7 @@ Notes for the other server-based suites:
 
 **Self-contained database-safety suites** start their own stub and app servers on free ports and clean up all processes.
 They need two migrated local test databases. They refuse to run (and change nothing) unless the URLs are local, the names
-contain `test`, and `SAFETY_DB_CONFIRM` repeats the first database's exact name:
+are the designated test databases, and `SAFETY_DB_CONFIRM` repeats the first database's exact name:
 
 ```powershell
 $env:SAFETY_DB_URL="postgresql://USER:PASSWORD@localhost:5432/fitdb_test"; $env:SAFETY_DB_CONFIRM="fitdb_test"

@@ -1,6 +1,6 @@
 // End-to-end test of reading PDFs in real browsers, through the real server, with no paid requests:
 // the app must run with ANTHROPIC_BASE_URL pointing at scripts/stub-label-provider.cjs and a non-real key.
-// Usage: BASE_URL=... LABEL_STUB_URL=... SHOTS_DIR=... node scripts/e2e-label-pdf.cjs
+// Usage: BASE_URL=... DATABASE_URL=<local test database> LABEL_STUB_URL=... SHOTS_DIR=... node scripts/e2e-label-pdf.cjs
 "use strict";
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
@@ -9,7 +9,8 @@ const playwright = require("playwright");
 const sharp = require("sharp");
 const { fixtures } = require("./lib/pdf-fixtures.cjs");
 
-const BASE = process.env.BASE_URL;
+const target = require("./lib/test-target-guard.cjs").requireSafeTarget();
+const BASE = target.baseUrl;
 const STUB = process.env.LABEL_STUB_URL;
 const SHOTS = (process.env.SHOTS_DIR || require("node:os").tmpdir()) + "/";
 const BROWSERS = (process.env.BROWSERS || "chromium,firefox,webkit").split(",");
@@ -61,7 +62,7 @@ async function corners(bytes) {
 async function runBrowser(name, jpeg) {
   console.log(`--- ${name}`);
   const browser = await playwright[name].launch();
-  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const ctx = await target.guardContext(await browser.newContext({ viewport: { width: 390, height: 844 } }));
   const page = await ctx.newPage();
   const errors = [], requests = [], dialogs = [], consoleText = [];
   page.on("console", (m) => consoleText.push(m.text()));
@@ -390,7 +391,7 @@ async function runBrowser(name, jpeg) {
 /** With no provider configured, text PDFs still work, and a scanned page says plainly that it can't be read. */
 async function unconfigured(jpeg) {
   const browser = await playwright.chromium.launch();
-  const page = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage();
+  const page = await (await target.guardContext(await browser.newContext({ viewport: { width: 390, height: 844 } }))).newPage();
   await signUp(page);
   const open = async (file) => {
     await page.goto(`${BASE}/nutrition/scan`);
@@ -422,6 +423,7 @@ async function unconfigured(jpeg) {
 }
 
 (async () => {
+  await target.verifyServer();
   if (process.env.EXPECT_UNCONFIGURED) {
     const px = Buffer.alloc(800 * 1000 * 3, 200);
     return unconfigured(await sharp(px, { raw: { width: 800, height: 1000, channels: 3 } }).jpeg().toBuffer());

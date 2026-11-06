@@ -1,10 +1,12 @@
 // S2: with FDC_API_KEY unset, clients get a generic message; the detail is in server logs.
 // Run against a server started WITHOUT FDC_API_KEY, logging to SERVER_LOG_FILE.
-//   SERVER_LOG_FILE=/tmp/server.log BASE_URL=http://localhost:3000 node --test scripts/provider-config.test.cjs
-const { test } = require("node:test");
+//   SERVER_LOG_FILE=/tmp/server.log BASE_URL=http://localhost:3000 DATABASE_URL=<local test database> node --test scripts/provider-config.test.cjs
+const { test, before } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
-const BASE = process.env.BASE_URL || "http://localhost:3000";
+const target = require("./lib/test-target-guard.cjs").requireSafeTarget();
+before(() => target.verifyServer());
+const BASE = target.baseUrl;
 const ORIGIN = new URL(BASE).origin;
 
 test("missing USDA key: generic client message, detail only in server log", async () => {

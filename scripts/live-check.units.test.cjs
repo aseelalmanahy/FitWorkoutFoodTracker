@@ -112,7 +112,7 @@ test("PROT-1 NOT RUN: an outcome that can't separate the local limit from an ups
 
 test("suites using Prisma directly refuse, before connecting, unless DATABASE_URL is a local test database", () => {
   const root = path.resolve(__dirname, "..");
-  const env = { ...process.env };
+  const env = { ...process.env, BASE_URL: "http://127.0.0.1:9" }; // a valid target, so only the database check can refuse. Never contacted.
   delete env.DATABASE_URL;
   delete env.NODE_TEST_CONTEXT;
   const cases = [

@@ -1,15 +1,15 @@
 // Integration tests for the Phase 2 nutrition API against a running server and
 // its PostgreSQL database. External food APIs must point at
 // scripts/stub-food-apis.cjs (FDC_BASE_URL / OFF_BASE_URL / FDC_API_KEY=stub).
-//   BASE_URL=http://localhost:3000 node --test scripts/nutrition-api.test.cjs
+//   BASE_URL=http://localhost:3000 DATABASE_URL=<local test database> node --test scripts/nutrition-api.test.cjs
 const { test, before, after } = require("node:test");
 const assert = require("node:assert/strict");
 const { PrismaClient } = require("@prisma/client");
-const { requireTestDatabaseUrl } = require("./lib/test-db-guard.cjs");
+const target = require("./lib/test-target-guard.cjs").requireSafeTarget();
 
-const BASE = process.env.BASE_URL || "http://localhost:3000";
+const BASE = target.baseUrl;
 const ORIGIN = new URL(BASE).origin;
-const prisma = new PrismaClient({ datasources: { db: { url: requireTestDatabaseUrl() } } });
+const prisma = new PrismaClient({ datasources: { db: { url: target.databaseUrl } } });
 const run = Date.now();
 
 function client() {
@@ -41,6 +41,7 @@ const A = client(), B = client(), anon = client();
 let userA, banana, banana100, nutella;
 
 before(async () => {
+  await target.verifyServer(); // first: hooks don't wait for each other
   for (const [c, email] of [[A, `a${run}@test.dev`], [B, `b${run}@test.dev`]]) {
     assert.equal((await c.post("/api/auth/register", { email, password: "long password 123" })).status, 200);
     assert.equal((await c.put("/api/profile", profile())).status, 200);

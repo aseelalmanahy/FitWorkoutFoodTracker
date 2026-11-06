@@ -1,12 +1,13 @@
 // Circuit breaker counts well-formed JSON with an unexpected structure as a provider
 // failure. Run against a FRESH server (default budgets, circuits closed) whose provider
 // URLs point at scripts/stub-food-apis.cjs started with STUB_LOG_FILE.
-//   STUB_LOG_FILE=/tmp/stub.log BASE_URL=http://localhost:3000 node --test scripts/provider-malformed.test.cjs
+//   STUB_LOG_FILE=/tmp/stub.log BASE_URL=http://localhost:3000 DATABASE_URL=<local test database> node --test scripts/provider-malformed.test.cjs
 const { test, before } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 
-const BASE = process.env.BASE_URL || "http://localhost:3000";
+const target = require("./lib/test-target-guard.cjs").requireSafeTarget();
+const BASE = target.baseUrl;
 const ORIGIN = new URL(BASE).origin;
 const LOG = process.env.STUB_LOG_FILE;
 const run = Date.now();
@@ -29,6 +30,7 @@ function client() {
 }
 const U = {};
 before(async () => {
+  await target.verifyServer(); // first: hooks don't wait for each other
   assert.ok(LOG, "STUB_LOG_FILE must be set");
   for (const n of ["usda", "usda2", "detail", "offs", "offp"]) {
     U[n] = client();

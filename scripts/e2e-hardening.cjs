@@ -2,14 +2,15 @@
 // saving, through the real server and SDK, with no paid requests. The app runs with ANTHROPIC_BASE_URL
 // pointing at scripts/stub-label-provider.cjs, both model settings set to stub names, and food searches
 // pointing at scripts/stub-food-apis.cjs.
-// Usage: BASE_URL=... LABEL_STUB_URL=... SHOTS_DIR=... node scripts/e2e-hardening.cjs
+// Usage: BASE_URL=... DATABASE_URL=<local test database> LABEL_STUB_URL=... SHOTS_DIR=... node scripts/e2e-hardening.cjs
 "use strict";
 const assert = require("node:assert/strict");
 const playwright = require("playwright");
 const sharp = require("sharp");
 const { fixtures } = require("./lib/pdf-fixtures.cjs");
 
-const BASE = process.env.BASE_URL;
+const target = require("./lib/test-target-guard.cjs").requireSafeTarget();
+const BASE = target.baseUrl;
 const STUB = process.env.LABEL_STUB_URL;
 const SHOTS = (process.env.SHOTS_DIR || require("node:os").tmpdir()) + "/";
 const BROWSERS = (process.env.BROWSERS || "chromium,firefox,webkit").split(",");
@@ -56,7 +57,7 @@ async function photo() {
 async function runBrowser(name, buffer) {
   console.log(`--- ${name}`);
   const browser = await playwright[name].launch();
-  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const ctx = await target.guardContext(await browser.newContext({ viewport: { width: 390, height: 844 } }));
   const page = await ctx.newPage();
   const errors = [];
   page.on("pageerror", (e) => {
@@ -688,6 +689,7 @@ async function runBrowser(name, buffer) {
 }
 
 (async () => {
+  await target.verifyServer();
   const buffer = await photo();
   for (const name of BROWSERS) await runBrowser(name, buffer);
   console.log("ALL HARDENING CHECKS PASSED");

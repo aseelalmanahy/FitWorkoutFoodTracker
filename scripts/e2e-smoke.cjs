@@ -1,12 +1,14 @@
 // End-to-end smoke test of the Phase 1 flow (register → plan → schedule → log two workouts → progress).
-// Usage: BASE_URL=http://localhost:3000 node scripts/e2e-smoke.cjs   (requires playwright)
+// Usage: BASE_URL=http://localhost:3000 DATABASE_URL=<local test database> node scripts/e2e-smoke.cjs   (requires playwright)
 const { chromium } = require('playwright');
 const assert = require('node:assert/strict');
 const SHOTS = (process.env.SHOTS_DIR || require('os').tmpdir()) + '/';
-const BASE = process.env.BASE_URL || 'http://localhost:3000';
+const target = require('./lib/test-target-guard.cjs').requireSafeTarget();
+const BASE = target.baseUrl;
 (async () => {
+  await target.verifyServer();
   const browser = await chromium.launch();
-  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: 'dark', timezoneId: 'America/New_York' });
+  const ctx = await target.guardContext(await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: 'dark', timezoneId: 'America/New_York' }));
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push('pageerror: ' + e.message));
@@ -125,7 +127,7 @@ const BASE = process.env.BASE_URL || 'http://localhost:3000';
   const csrf = await page.evaluate(async () => (await fetch('/api/sessions', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{"name":"x"}' })).status);
   console.log('same-origin POST start workout (expect 200):', csrf);
   assert.equal(csrf, 200);
-  const ctx2 = await browser.newContext();
+  const ctx2 = await target.guardContext(await browser.newContext());
   const p2 = await ctx2.newPage();
   await p2.goto(BASE + '/register');
   await p2.fill('input[name=email]', 'other' + email);

@@ -2,15 +2,15 @@
 // API and database, with hand-computed expected values (arithmetic in comments).
 // Generic food data comes from scripts/stub-food-apis.cjs (USDA "banana"), so this
 // suite is NOT a live-provider test. All other foods are custom foods with exact values.
-//   BASE_URL=http://localhost:3000 node --test scripts/release-workflow.test.cjs
+//   BASE_URL=http://localhost:3000 DATABASE_URL=<local test database> node --test scripts/release-workflow.test.cjs
 const { test, before, after } = require("node:test");
 const assert = require("node:assert/strict");
 const { PrismaClient } = require("@prisma/client");
-const { requireTestDatabaseUrl } = require("./lib/test-db-guard.cjs");
+const target = require("./lib/test-target-guard.cjs").requireSafeTarget();
 
-const BASE = process.env.BASE_URL || "http://localhost:3000";
+const BASE = target.baseUrl;
 const ORIGIN = new URL(BASE).origin;
-const prisma = new PrismaClient({ datasources: { db: { url: requireTestDatabaseUrl() } } });
+const prisma = new PrismaClient({ datasources: { db: { url: target.databaseUrl } } });
 const run = Date.now();
 const r2 = (x) => Math.round((x + Number.EPSILON) * 100) / 100;
 const today = () => new Date().toISOString().slice(0, 10);
@@ -41,6 +41,7 @@ const entries = {};
 const D0 = today(), D1 = addDays(D0, -1), D2 = addDays(D0, -2);
 
 before(async () => {
+  await target.verifyServer(); // first: hooks don't wait for each other
   for (const [c, n] of [[A, "a"], [X, "x"], [S, "s"]]) {
     assert.equal((await c.post("/api/auth/register", { email: `rel${n}${run}@test.dev`, password: "long password 123" })).status, 200);
     assert.equal((await c.put("/api/profile", profile())).status, 200);

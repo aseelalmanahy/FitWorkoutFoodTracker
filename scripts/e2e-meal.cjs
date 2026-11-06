@@ -1,14 +1,15 @@
 // End-to-end test of meal-photo identification in real browsers, through the real server and SDK,
 // with no paid requests: the app runs with ANTHROPIC_BASE_URL pointing at scripts/stub-label-provider.cjs
 // and food searches pointing at scripts/stub-food-apis.cjs.
-// Usage: BASE_URL=... LABEL_STUB_URL=... SHOTS_DIR=... node scripts/e2e-meal.cjs
+// Usage: BASE_URL=... DATABASE_URL=<local test database> LABEL_STUB_URL=... SHOTS_DIR=... node scripts/e2e-meal.cjs
 // With EXPECT_UNCONFIGURED=1, checks only that a server with no meal model reports that clearly.
 "use strict";
 const assert = require("node:assert/strict");
 const playwright = require("playwright");
 const sharp = require("sharp");
 
-const BASE = process.env.BASE_URL;
+const target = require("./lib/test-target-guard.cjs").requireSafeTarget();
+const BASE = target.baseUrl;
 const STUB = process.env.LABEL_STUB_URL;
 const SHOTS = (process.env.SHOTS_DIR || require("node:os").tmpdir()) + "/";
 const BROWSERS = (process.env.BROWSERS || "chromium,firefox,webkit").split(",");
@@ -54,7 +55,7 @@ async function photo() {
 
 async function unconfigured(buffer) {
   const browser = await playwright.chromium.launch();
-  const page = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage();
+  const page = await (await target.guardContext(await browser.newContext({ viewport: { width: 390, height: 844 } }))).newPage();
   await signUp(page);
   await page.goto(`${BASE}/nutrition/meal`);
   await page.locator("#meal-photo").setInputFiles({ name: "meal.jpg", mimeType: "image/jpeg", buffer });
@@ -71,7 +72,7 @@ async function unconfigured(buffer) {
 async function runBrowser(name, buffer) {
   console.log(`--- ${name}`);
   const browser = await playwright[name].launch();
-  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const ctx = await target.guardContext(await browser.newContext({ viewport: { width: 390, height: 844 } }));
   const page = await ctx.newPage();
   const errors = [], requests = [], dialogs = [];
   page.on("pageerror", (e) => {
@@ -384,6 +385,7 @@ async function runBrowser(name, buffer) {
 }
 
 (async () => {
+  await target.verifyServer();
   const buffer = await photo();
   if (process.env.EXPECT_UNCONFIGURED) return unconfigured(buffer);
   assert.ok(STUB, "LABEL_STUB_URL is required");

@@ -67,21 +67,4 @@ function urlSecrets(url) {
   } catch { return []; }
 }
 
-/**
- * The local test database a suite may query directly, read only from DATABASE_URL. Exits (4)
- * otherwise, before any connection. A Prisma client created without a URL silently falls back
- * to `.env`, which points at the development database, so suites must use this URL explicitly.
- */
-function requireTestDatabaseUrl() {
-  const url = process.env.DATABASE_URL;
-  let name;
-  try { name = decodeURIComponent(new URL(url).pathname.slice(1)); } catch { /* reported by validateTargetUrl */ }
-  const v = validateTargetUrl(url, name);
-  if (!v.ok) {
-    console.error(`REFUSING to run (no database was touched): DATABASE_URL must be set to a local test database:\n  - ${redact(v.errors.join("\n  - "), urlSecrets(url))}`);
-    process.exit(4);
-  }
-  return url;
-}
-
-module.exports = { validateTargetUrl, assertConnectedTarget, redact, urlSecrets, requireTestDatabaseUrl, TEST_DB_MARKER_PREFIX, LOCAL_HOSTS };
+module.exports = { validateTargetUrl, assertConnectedTarget, redact, urlSecrets, TEST_DB_MARKER_PREFIX, LOCAL_HOSTS };

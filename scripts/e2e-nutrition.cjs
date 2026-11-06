@@ -1,14 +1,16 @@
 // End-to-end UI test of Phase 2 nutrition flows. Requires a running app (BASE_URL)
 // whose FDC_BASE_URL/OFF_BASE_URL point at scripts/stub-food-apis.cjs (or the real APIs).
-// Usage: BASE_URL=http://localhost:3000 SHOTS_DIR=/tmp node scripts/e2e-nutrition.cjs
+// Usage: BASE_URL=http://localhost:3000 DATABASE_URL=<local test database> SHOTS_DIR=/tmp node scripts/e2e-nutrition.cjs
 const { chromium } = require("playwright");
 const assert = require("node:assert/strict");
-const BASE = process.env.BASE_URL || "http://localhost:3000";
+const target = require("./lib/test-target-guard.cjs").requireSafeTarget();
+const BASE = target.baseUrl;
 const SHOTS = (process.env.SHOTS_DIR || require("os").tmpdir()) + "/";
 
 (async () => {
+  await target.verifyServer();
   const browser = await chromium.launch();
-  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark", timezoneId: "UTC" });
+  const ctx = await target.guardContext(await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark", timezoneId: "UTC" }));
   const page = await ctx.newPage();
   globalThis.page = page;
   globalThis.errors = [];

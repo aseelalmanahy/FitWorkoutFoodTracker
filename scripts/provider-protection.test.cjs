@@ -3,12 +3,13 @@
 // FDC_BASE_URL/OFF_BASE_URL pointing at scripts/stub-food-apis.cjs started with
 // STUB_LOG_FILE so provider hits can be counted. Run against a freshly started
 // server: budgets are per process.
-//   STUB_LOG_FILE=/tmp/stub.log BASE_URL=http://localhost:3000 node --test scripts/provider-protection.test.cjs
+//   STUB_LOG_FILE=/tmp/stub.log BASE_URL=http://localhost:3000 DATABASE_URL=<local test database> node --test scripts/provider-protection.test.cjs
 const { test, before } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 
-const BASE = process.env.BASE_URL || "http://localhost:3000";
+const target = require("./lib/test-target-guard.cjs").requireSafeTarget();
+const BASE = target.baseUrl;
 const ORIGIN = new URL(BASE).origin;
 const LOG = process.env.STUB_LOG_FILE;
 const run = Date.now();
@@ -43,6 +44,7 @@ const offSearch = (c, q) => c.get(`/api/foods/search?q=${encodeURIComponent(q)}&
 const offErr = (r) => r.body.errors.find((e) => e.source === "OPEN_FOOD_FACTS");
 
 before(async () => {
+  await target.verifyServer(); // first: hooks don't wait for each other
   assert.ok(LOG, "STUB_LOG_FILE must be set (same path as the stub)");
   for (const n of ["p1", "p2", "p3", "p4", "p5", "p6"]) await user(n);
 });

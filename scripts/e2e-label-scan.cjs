@@ -1,13 +1,14 @@
 // End-to-end test of label scanning in real browsers, through the real server and SDK, with no
 // paid requests: the app must run with ANTHROPIC_BASE_URL pointing at scripts/stub-label-provider.cjs
-// and any non-real key. Usage: BASE_URL=... LABEL_STUB_URL=... SHOTS_DIR=... node scripts/e2e-label-scan.cjs
+// and any non-real key. Usage: BASE_URL=... DATABASE_URL=<local test database> LABEL_STUB_URL=... SHOTS_DIR=... node scripts/e2e-label-scan.cjs
 // With EXPECT_UNCONFIGURED=1, checks only that a server with no provider settings reports that clearly.
 "use strict";
 const assert = require("node:assert/strict");
 const playwright = require("playwright");
 const sharp = require("sharp");
 
-const BASE = process.env.BASE_URL;
+const target = require("./lib/test-target-guard.cjs").requireSafeTarget();
+const BASE = target.baseUrl;
 const STUB = process.env.LABEL_STUB_URL;
 const SHOTS = (process.env.SHOTS_DIR || require("node:os").tmpdir()) + "/";
 const BROWSERS = (process.env.BROWSERS || "chromium,firefox,webkit").split(",");
@@ -33,7 +34,7 @@ async function corners(bytes) {
 
 async function unconfigured() {
   const browser = await playwright.chromium.launch();
-  const ctx = await browser.newContext();
+  const ctx = await target.guardContext(await browser.newContext());
   const page = await ctx.newPage();
   await signUp(page);
   await page.goto(`${BASE}/nutrition/scan`);
@@ -84,7 +85,7 @@ const stub = {
 async function runBrowser(name, files) {
   console.log(`--- ${name}`);
   const browser = await playwright[name].launch();
-  const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+  const ctx = await target.guardContext(await browser.newContext({ viewport: { width: 390, height: 844 } }));
   const page = await ctx.newPage();
   const errors = [];
   page.on("pageerror", (e) => {
@@ -506,6 +507,7 @@ async function reviewFlows({ name, page, scanPage, pick, toReview, useThis, file
 }
 
 (async () => {
+  await target.verifyServer();
   if (process.env.EXPECT_UNCONFIGURED) return unconfigured();
   assert.ok(STUB, "LABEL_STUB_URL is required");
   // Never run against the real provider: the stub must be the thing answering.

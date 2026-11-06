@@ -26,6 +26,7 @@ const fs = require("node:fs");
 const path = require("node:path");
 const { validateTargetUrl, assertConnectedTarget, TEST_DB_MARKER_PREFIX } = require("./lib/test-db-guard.cjs");
 const { ROOT, startApp, startStub, runNode, killTree, killAll, freePort } = require("./lib/test-servers.cjs");
+const { databaseUrlProblem } = require("./lib/test-target-guard.cjs");
 
 const DB = process.env.SAFETY_DB_URL;
 const CONFIRM = process.env.SAFETY_DB_CONFIRM;
@@ -45,6 +46,10 @@ function configProblems() {
   // The other database is never modified, but it's still connected to, so it must be a local test database too.
   const other = validateTargetUrl(OTHER, otherName);
   if (!other.ok) problems.push(...other.errors.map((e) => `SAFETY_OTHER_DB_URL: ${e}`));
+  for (const [label, url, v] of [["SAFETY_DB_URL", DB, main], ["SAFETY_OTHER_DB_URL", OTHER, other]]) {
+    const unsafe = v.ok ? databaseUrlProblem(url) : null;
+    if (unsafe) problems.push(`${label}: ${unsafe.message}`);
+  }
   if (main.ok && other.ok && main.dbName === other.dbName) problems.push("SAFETY_OTHER_DB_URL must be a different database from SAFETY_DB_URL");
   return { problems, dbName: main.dbName };
 }
@@ -145,7 +150,7 @@ test("non-test database name and non-local BASE_URL → exit 4, no rows", { time
   const devName = await runScript({ BASE_URL: "http://localhost:1", DATABASE_URL: DB.replace(/\/[^/?]+(\?|$)/, "/fitdb$1") });
   const remote = await runScript({ BASE_URL: "https://example.com", DATABASE_URL: DB });
   assert.equal(devName.code, 4, devName.out);
-  assert.match(devName.out, /doesn't look like a test database/);
+  assert.match(devName.out, /doesn't contain "test"/);
   assert.equal(remote.code, 4, remote.out);
   assert.match(remote.out, /is not local/);
   assert.deepEqual(await snapshot(), before);

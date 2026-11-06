@@ -8,15 +8,13 @@
 //   node --env-file=.env.test scripts/live-provider-check.cjs
 // .env.test must hold the same DATABASE_URL the server uses (the test database), and
 // FDC_API_KEY (used only to confirm no response contains it).
-// Env options: BASE_URL (default http://localhost:3000); REPORT_FILE (default
-// live-provider-report.json, git-ignored); LIVE_CHECK_ALLOW_DATABASE (see guard 2);
+// BASE_URL is required. Env options: REPORT_FILE (default live-provider-report.json, git-ignored);
 // LIVE_CHECK_REQUEST_TIMEOUT_MS (default 60000); LIVE_CHECK_CLEANUP_GRACE_MS (default 15000);
 // LIVE_CHECK_USDA_ORACLE=off (skip the independent USDA check; USDA-6 then reports NOT RUN).
 //
 // SAFETY GUARDS (the script refuses to run, exit code 4, BEFORE any write anywhere):
-//   1. BASE_URL must be localhost / 127.0.0.1 / [::1]. It never targets a deployed app.
-//   2. The database name in DATABASE_URL must contain "test" (e.g. fitdb_test), unless
-//      LIVE_CHECK_ALLOW_DATABASE is set to exactly that database name. Guard 4 still applies.
+//   1. BASE_URL must be exactly a loopback origin (scripts/lib/test-target-guard.cjs).
+//   2. DATABASE_URL must be a local designated test database: fitdb_test or fitdb_test_other.
 //   3. The RUNNING SERVER's actual database must be that same database. The script reads an
 //      opaque fingerprint from the server (GET /api/health/db-identity: hash of database name,
 //      OID and cluster start time) and compares it with the fingerprint of its own
@@ -58,7 +56,8 @@ const { redact, urlSecrets, TEST_DB_MARKER_PREFIX } = require("./lib/test-db-gua
 const { decideVerdict, decideProt1, REAL_HOSTS } = require("./lib/live-verdict.cjs");
 const { compareWithApp } = require("./lib/usda-nutrient-oracle.cjs");
 
-const BASE = process.env.BASE_URL || "http://localhost:3000";
+const { checkTarget } = require("./lib/test-target-guard.cjs");
+const BASE = process.env.BASE_URL;
 const REPORT = process.env.REPORT_FILE || "live-provider-report.json";
 const KEY = process.env.FDC_API_KEY || "";
 const REQUEST_TIMEOUT_MS = Number(process.env.LIVE_CHECK_REQUEST_TIMEOUT_MS || 60_000);
@@ -87,23 +86,11 @@ function refuse(msg) {
   err(`REFUSED (nothing was written): ${msg}`);
   process.exit(4);
 }
-let baseUrl;
-try { baseUrl = new URL(BASE); } catch { refuse(`BASE_URL is not a valid URL`); }
-if (!["localhost", "127.0.0.1", "[::1]", "::1"].includes(baseUrl.hostname)) {
-  refuse(`BASE_URL host "${baseUrl.hostname}" is not local. This script only runs against a local app.`);
-}
-if (!process.env.DATABASE_URL) refuse("DATABASE_URL is not set (run with --env-file=.env.test, the same database the server uses).");
-let dbName, dbHost;
-try {
-  const u = new URL(process.env.DATABASE_URL);
-  dbName = decodeURIComponent(u.pathname.replace(/^\//, ""));
-  dbHost = u.hostname;
-} catch { refuse("DATABASE_URL can't be parsed."); }
-if (!/test/i.test(dbName) && process.env.LIVE_CHECK_ALLOW_DATABASE !== dbName) {
-  refuse(`database "${dbName}" doesn't look like a test database. Point the server and this script at a dedicated, marked ` +
-    `test database (e.g. fitdb_test), or set LIVE_CHECK_ALLOW_DATABASE=${dbName} (the test-database marker is still required).`);
-}
-const ORIGIN = baseUrl.origin;
+// Real provider traffic is this script's purpose, so provider URLs aren't limited to stubs here.
+const checkedTarget = checkTarget(process.env, { externalProviders: true });
+if (!checkedTarget.ok) refuse(checkedTarget.problems.map((p) => p.message).join(" "));
+const { dbName, dbHost } = checkedTarget;
+const ORIGIN = new URL(BASE).origin;
 
 // Must match src/lib/server/db-identity.ts exactly (SQL, hash format, marker format).
 const DB_IDENTITY_SQL =
@@ -127,7 +114,7 @@ async function verifyServerDatabase() {
   }
   let res, body;
   try {
-    res = await fetch(`${BASE}/api/health/db-identity`, { signal: AbortSignal.timeout(10_000), cache: "no-store" });
+    res = await fetch(`${BASE}/api/health/db-identity`, { signal: AbortSignal.timeout(10_000), cache: "no-store", redirect: "manual" });
     body = await res.json().catch(() => null);
   } catch (e) {
     refuse(`can't reach ${BASE}/api/health/db-identity to verify the server's database (${e.message}). Is the app running?`);

@@ -18,6 +18,7 @@ const os = require("node:os");
 const fs = require("node:fs");
 const path = require("node:path");
 const { validateTargetUrl } = require("./lib/test-db-guard.cjs");
+const { databaseUrlProblem, environmentProblems, verifyServerIdentity } = require("./lib/test-target-guard.cjs");
 const { ROOT, startApp, startStub, runNode, killAll, killTree, freePort } = require("./lib/test-servers.cjs");
 
 const DB = process.env.SAFETY_DB_URL;
@@ -32,13 +33,15 @@ const appEnv = () => ({ DATABASE_URL: DB, FDC_BASE_URL: `${stub.url}/fdc/v1`, OF
   EXPOSE_DB_IDENTITY: "1", FOOD_RATE_LIMIT_MULTIPLIER: "100" });
 /** Each live-check run registers 3 users; the app allows 10 sign-ups per IP per 15 min (in memory), so
  *  tests that run the script repeatedly use a fresh app process. */
-async function freshApp() { if (app) await killTree(app.child); app = await startApp(appEnv()); }
+async function freshApp() { if (app) await killTree(app.child); app = await startApp(appEnv()); await verifyServerIdentity({ baseUrl: app.url, databaseUrl: DB }); }
 
 before(async () => {
   const v = validateTargetUrl(DB, CONFIRM);
   if (!v.ok) throw new Error(`REFUSING: SAFETY_DB_URL/SAFETY_DB_CONFIRM must name a local, marked test database: ${v.errors.join("; ")}`);
+  const unsafe = [databaseUrlProblem(DB), ...environmentProblems(process.env)].filter(Boolean);
+  if (unsafe.length) throw new Error(`REFUSING: ${unsafe.map((p) => p.message).join(" ")}`);
   stub = await startStub();
-  app = await startApp(appEnv());
+  await freshApp(); // verified before any request below
   // Oracle: mirrors the stub's raw /food/{id} payloads (or tampers with / fails them).
   const port = await freePort();
   oracle = http.createServer(async (req, res) => {
