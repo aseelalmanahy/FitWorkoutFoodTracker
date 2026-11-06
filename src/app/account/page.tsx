@@ -3,6 +3,7 @@ import { accessStateFor } from "@/lib/eligibility";
 import { requireUser } from "@/lib/server/auth";
 import { prisma } from "@/lib/server/db";
 import { AccountDataControls } from "@/components/account/data-controls";
+import { PasswordControls } from "@/components/account/password-controls";
 import { LogoutButton } from "@/components/logout-button";
 
 export const metadata = { title: "Your account and data" };
@@ -19,6 +20,7 @@ export default async function AccountPage() {
         <Link href={BACK[state]} className="mb-1 inline-flex items-center gap-1 text-sm text-muted hover:text-fg"><span aria-hidden>‹</span> Back</Link>
         <h1 className="text-3xl font-bold tracking-tight">Your account and data</h1>
       </header>
+      <PasswordControls />
       <AccountDataControls email={user.email} />
       <LogoutButton className="mt-6 w-full" />
     </main>

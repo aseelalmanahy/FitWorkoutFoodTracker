@@ -16,6 +16,9 @@ const NO_ANSWER = "Couldn't reach the server. Check your connection and try agai
 /** Long enough for a save that has to refresh a food from its source first. */
 export const SAVE_TIMEOUT_MS = 30_000;
 
+/** For every sign-in, sign-up and password call. */
+export const AUTH_TIMEOUT_MS = 15_000;
+
 export async function api<T = unknown>(method: string, url: string, body?: unknown, options: ApiOptions = {}): Promise<T> {
   const headers: Record<string, string> = {
     ...(body !== undefined ? { "Content-Type": "application/json" } : {}),
