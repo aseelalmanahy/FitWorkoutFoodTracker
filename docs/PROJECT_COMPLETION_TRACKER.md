@@ -1,4 +1,4 @@
-# Project Completion Tracker
+| E-07 | 4.0.2 | Independent review, then the owner's merge approval | IN PROGRESS | P0 | Owner | The independent review conditionally approved `dbf5773`, pending N23's correction, now made. **Merge review of the corrected commit, and the owner's merge approval, are still needed** || N23 | The restricted page has no way out | A restricted account has a link to its data controls. Corrected from a timeout to this named assertion, and rerun against the mutation. The test also asserts the export and deletion controls on the page |# Project Completion Tracker
 
 **The single source of truth for what's done and what isn't.** Last updated 2026-11-06, on branch `feature/phase-4.0.2-account-data-controls`, from `main` at `9b6a57a`.
 

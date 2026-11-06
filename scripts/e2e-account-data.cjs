@@ -173,8 +173,14 @@ async function inBrowser(name) {
     const { user } = await signedIn(ctx, { ...adult, birthDate: dbDate(yearsAgo(17)) });
     await page.goto(`${BASE}/dashboard`);
     await page.waitForURL("**/account-restricted");
-    await page.getByRole("link", { name: "Download or delete your data" }).click();
+    await page.getByRole("heading", { name: "Your account is restricted" }).waitFor();
+    const way = page.getByRole("link", { name: "Download or delete your data" });
+    assert.equal(await way.count(), 1, "a restricted account has a link to its data controls");
+    await way.click();
     await page.waitForURL("**/account");
+    await page.getByRole("heading", { name: "Your account and data" }).waitFor();
+    assert.equal(await page.getByRole("button", { name: "Download my data" }).count(), 1, "a restricted account has the export control");
+    assert.equal(await page.getByRole("button", { name: "Delete my account" }).count(), 1, "a restricted account has the deletion control");
     const doc = await download(page, await openExport(page));
     assert.equal(doc.profile.name, "Row");
     await page.goto(`${BASE}/dashboard`);
