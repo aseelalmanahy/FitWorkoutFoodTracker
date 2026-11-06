@@ -19,9 +19,9 @@ These are six separate states, and one never implies another.
 
 | Milestone | Tracker | Implemented | Tested | Reviewed | Merged | Operationally verified | Blocked by |
 |---|---|---|---|---|---|---|---|
-| 4.0.3 Production foundation | M-11 | Yes, `de4607f` | Yes, local production build | **No** | No | **No, nothing is deployed** | A1 to merge. R-07, T-16, T-17 and F-06 to finish |
-| Router and orchestrator | TOOL-01, 03, 04 | Yes, section 3 | Yes, largely mocked | **Partly:** `665cb10` only, conditionally | No | Partly, small live checks | A2, A3 to merge. TOOL-02 stays open |
-| 4.0.4 Email-proven access | M-12 | No | No | No | No | No | Integration, Decisions 8, 10, 11, MIG-03 |
+| 4.0.3 Production foundation | M-11 | Yes, `de4607f` | Yes, local production build | Yes, source review of the code | Yes, `de4607f` | **No, nothing is deployed** | R-07, T-16, T-17 and F-06 to finish |
+| Router and orchestrator | TOOL-01, 03, 04 | Yes, `3bc4471` | Yes, largely mocked | Yes, source review | Yes, `3bc4471` | Partly, small live checks | Live checks, from real use. TOOL-02 is NOT STARTED |
+| 4.0.4 Email-proven access | M-12 | No | No | No | No | No | Decisions 8, 10, 11, feature approval, MIG-03 |
 | 4.0.5 Notice and acceptance | M-13 | No | No | No | No | No | 4.0.4, R-01, Decisions 3, 6, 12 |
 | 4.1 Core progress | M-15 | No | No | No | No | No | Scope approval, Decision 21, its own migration |
 | 4.0.6 Device test and go/no-go | M-14 | No | No | No | No | No | Everything above, T-15, R-13 |
@@ -32,66 +32,30 @@ No new agents, routing or orchestration features, or benchmarks without a real n
 
 ## 3. Integration
 
-**The base is out of date for new work.** `main` is at `e743b53`. Neither of the following is on it, and neither contains the other.
+**A1, A2 and A3 are completed, on the owner's approval of each.** All were normal pushes, with no force-push. **No production infrastructure has been deployed.**
 
-| Branch | Commit | Changes |
+| Step | What happened | Commit |
 |---|---|---|
-| `feature/phase-4.0.3-production-foundation` | `de4607f` | 36 files, application code included |
-| `feature/intelligent-model-router` | The tip reported with this plan. This file is its last commit, so it can't state its own SHA | Tooling, `CLAUDE.md`, tracker section 8a, and this plan |
+| **A1** | `main` fast-forwarded to Phase 4.0.3, then a tracker-only commit | `de4607f`, then `cbd9a0f` |
+| **A2** | `main` merged into the router branch, with no conflicts. Router 217 of 217, orchestrator 178 of 178, `tsc`, Vitest 1507 of 1507, guard 51 of 51. **Application code identical to `de4607f`.** Database and browser suites weren't rerun, as nothing relevant changed | `3bc4471` |
+| **A3** | `main` fast-forwarded to that reviewed merge | `3bc4471` |
+| **A4** | Authorized. `feature/phase-4-program` starts from the commit that adds this text. **No application work starts before it** | |
 
-**Trial merge, at the correction `07a2e26`, in a temporary worktree since removed:** no text conflicts. `tsc` passes, and Vitest 1507 of 1507, guard 51 of 51, router and orchestrator 395 of 395. **Compared with `de4607f`, the merged tree has no differences in application code,** only in `.claude/`, `.gitignore`, `CLAUDE.md` and the tracker. Database and browser suites weren't run on it. **This is a trial, not a review, and nothing was merged.**
+### Interactions, as checked
 
-### Interactions to check
-
-| Where | What happens | Handling |
-|---|---|---|
-| `.gitignore` | Both add entries, close together | Merges cleanly. Confirm `deploy/production.env` and `.claude/orchestrator/` both stay ignored |
-| Tracker | 4.0.3 changes the header and sections 1 to 8. The router adds section 8a | Merges cleanly. **The header will still name the 4.0.3 branch,** so step 1's tracker commit corrects it |
-| Router guard and `deploy/`, `Dockerfile` | The guard stops workers changing the files 4.0.3 adds | Intended. Those files stay with the main session |
-| 4.0.3's production-mode start | `next start` now runs preflight, and it affects any suite that starts a server | Already handled for designated test databases. Tooling suites start no server |
-
-### Exact sequence
-
-Only one branch can fast-forward. Rebasing the other would need a force-push, which isn't allowed, so it takes one merge commit, reviewed before it reaches `main`.
-
-**Step 1, needs A1.** After source review of `de4607f`:
-
-```sh
-git switch main
-git merge --ff-only de4607f
-git push origin main
-```
-
-Then a tracker-only commit on `main` records the merge, leaving M-11 IN PROGRESS. Call the result `main-after-4.0.3`.
-
-**Step 2, needs A2.** On the router branch, after repeating the conflict check against `main-after-4.0.3`:
-
-```sh
-git switch feature/intelligent-model-router
-git merge --no-ff main
-git push origin feature/intelligent-model-router
-```
-
-Call the result `router-merge`. Tests on `router-merge`: router and orchestrator, `tsc`, Vitest and guard. Application suites aren't repeated if application code still matches `de4607f`.
-
-**Step 3, needs A3.** After source review of `router-merge`:
-
-```sh
-git switch main
-git merge --ff-only <router-merge>
-git push origin main
-```
-
-Then a tracker-only commit records it, leaving TOOL-01, 03 and 04 IN PROGRESS.
-
-**Step 4.** Branch `feature/phase-4-program` from that `main`. **No application work starts before this.**
+| Where | Result |
+|---|---|
+| `.gitignore` | `deploy/production.env` and `.claude/orchestrator/` both stay ignored |
+| Tracker | Sections from both branches are kept |
+| Router guard and `deploy/`, `Dockerfile` | The guard stops workers changing these files. Intended, as they stay with the main session |
+| 4.0.3's production-mode start | `next start` runs preflight, which affects any suite that starts a server. Handled for designated test databases, and tooling suites start no server |
 
 **Later merges:** each checkpoint in section 5 fast-forwards `main` to a commit the owner names. Never a force-push, and never without approval for that branch and commit.
 
 ## 4. Order of work, and why
 
-1. **4.0.3,** as everything depends on its preflight, allowlist and headers.
-2. **Router and orchestrator,** which change no application code.
+1. **4.0.3, merged,** as everything depends on its preflight, allowlist and headers.
+2. **Router and orchestrator, merged,** which change no application code.
 3. **4.0.4,** which replaces the sign-up flow that all later tests go through, and holds the first migration.
 4. **4.0.5,** which shares 4.0.4's acceptance fields, and adds nothing to the schema of its own.
 5. **4.1,** after MIG-03 is prepared, so that the two migrations stay in order. Its logic can begin alongside 4.0.4.
@@ -105,7 +69,7 @@ Each one is **user-visible or adds a table, so each takes the full cycle:** prod
 
 **Scope:** link-first sign-up, with no account until the link is used and the allowlist applied at that point. `AccountToken`, stored as a SHA-256 hash. Password reset deleting all sessions in one transaction. Change password. Terms acceptance fields. A request deadline on auth. A local mail stub, with sending outside the request.
 
-**Depends on:** steps 1 to 4, Decisions 8, 10, 11. Decision 4, and Decision 5's provider, only for the operational check, as the stub is enough to build and test it.
+**Depends on:** A4, feature approval, Decisions 8, 10, 11. Decision 4, and Decision 5's provider, only for the operational check, as the stub is enough to build and test it.
 
 **Acceptance:** identical responses, so nobody can learn who has an account. GET consumes nothing. Parallel use gives one success. Expiry tested at 1 ms either side, by backdating. Cooldown survives a restart. No token in logs. All 14 registering scripts go through the real flow. **No test-only bypass in production code.**
 
@@ -194,10 +158,10 @@ Each one is **user-visible or adds a table, so each takes the full cycle:** prod
 
 | ID | What | When | Recommendation |
 |---|---|---|---|
-| **A1** | Merge 4.0.3 at `de4607f` to `main`, with a tracker commit | Now, after source review | Approve |
-| **A2** | Merge `main` into the router branch, with a normal push | After A1 | Approve |
-| **A3** | Fast-forward `main` to `router-merge`, with a tracker commit | After its review | Approve |
-| **A4** | Create `feature/phase-4-program` from that `main` | After A3 | Approve |
+| **A1** | Merge 4.0.3 at `de4607f` to `main`, with a tracker commit | | **Done** |
+| **A2** | Merge `main` into the router branch, with a normal push | | **Done** |
+| **A3** | Fast-forward `main` to `3bc4471`, with a documentation commit | | **Done** |
+| **A4** | Create `feature/phase-4-program` from that `main` | | **Authorized,** and follows this text |
 | **A5** | Decisions 8, 10, 11, recorded in D-03. Prepare MIG-03's file | Before 4.0.4 | 8: link-first with allowlist. 10: yes. **11: no for the beta, following the product agent over the design's earlier yes,** as it's the smaller change |
 | **A6** | Back up and apply MIG-03 to `fitdb_test` only | When 4.0.4 reaches database tests | Decide then, on the reviewed file |
 | **A7** | Same for MIG-04 | When 4.1 reaches database tests | Decide then |
