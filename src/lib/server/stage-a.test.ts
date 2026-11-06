@@ -98,6 +98,7 @@ describe("every API route is classified", () => {
     "app/api/auth/register/route.ts": "publicRoute",
     "app/api/auth/logout/route.ts": "publicRoute",
     "app/api/health/db-identity/route.ts": "none",
+    "app/api/health/route.ts": "none",
   };
 
   it("T33: finds the routes", () => {

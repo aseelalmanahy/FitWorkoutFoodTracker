@@ -77,7 +77,8 @@ async function waitForChild(url, child, ms = 45_000) {
 async function startApp(env) {
   const port = await freePort();
   if (await portInUse(port)) throw new Error(`port ${port} unexpectedly in use`);
-  const child = spawnNode([NEXT_BIN, "start", "-p", String(port)], env);
+  // A production build refuses a test setup unless it's told this is one. See production-config.ts.
+  const child = spawnNode([NEXT_BIN, "start", "-p", String(port)], { FIT_LOCAL_TEST_SERVER: "1", FIT_TEST_OPEN_REGISTRATION: "1", ...env });
   await waitForChild(`http://localhost:${port}/login`, child);
   return { child, port, url: `http://localhost:${port}` };
 }

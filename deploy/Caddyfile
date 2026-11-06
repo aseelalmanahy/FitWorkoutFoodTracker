@@ -1,0 +1,29 @@
+# TEMPLATE, not deployed. The domain is owner decision 4, and comes from the environment.
+# Caddy obtains and renews the certificate, and redirects HTTP to HTTPS.
+{$APP_DOMAIN} {
+	encode gzip
+
+	# The largest legitimate request is an image upload, and the app enforces its own limits as well.
+	request_body {
+		max_size 8MB
+	}
+
+	header {
+		# Short first, as a mistake can't be undone until it expires. Raise it after a rehearsal.
+		Strict-Transport-Security "max-age=86400"
+		-Server
+	}
+
+	# With no trusted_proxies set, Caddy replaces any X-Forwarded-For and X-Forwarded-Host the caller sent.
+	# So the app, at TRUST_PROXY_HOPS=1, reads only what this one proxy wrote. Not yet tested through a proxy.
+	reverse_proxy app:3000 {
+		health_uri /api/health
+		health_interval 30s
+		health_timeout 5s
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}
