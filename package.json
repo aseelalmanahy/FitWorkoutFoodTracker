@@ -12,6 +12,8 @@
     "db:deploy": "prisma migrate deploy",
     "db:seed": "prisma db seed",
     "test:guard": "node --test scripts/test-target-guard.test.cjs",
+    "test:guard:browser": "node --test scripts/test-target-guard.browser.test.cjs",
+    "test:suites": "node --env-file=.env.test scripts/run-guarded-suites.cjs",
     "test:api": "node --test scripts/nutrition-api.test.cjs",
     "test:e2e": "node scripts/e2e-smoke.cjs && node scripts/e2e-nutrition.cjs",
     "stub:food-apis": "node scripts/stub-food-apis.cjs"

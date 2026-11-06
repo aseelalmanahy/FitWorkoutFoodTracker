@@ -9,9 +9,9 @@ const playwright = require("playwright");
 const sharp = require("sharp");
 const { fixtures } = require("./lib/pdf-fixtures.cjs");
 
-const target = require("./lib/test-target-guard.cjs").requireSafeTarget();
+const target = require("./lib/test-target-guard.cjs").requireSafeTarget({ labelStub: true });
 const BASE = target.baseUrl;
-const STUB = process.env.LABEL_STUB_URL;
+const STUB = target.stubUrl;
 const SHOTS = (process.env.SHOTS_DIR || require("node:os").tmpdir()) + "/";
 const BROWSERS = (process.env.BROWSERS || "chromium,firefox,webkit").split(",");
 const step = (s) => console.log("  ✓", s);
@@ -56,7 +56,7 @@ async function photo() {
 
 async function runBrowser(name, buffer) {
   console.log(`--- ${name}`);
-  const browser = await playwright[name].launch();
+  const browser = await playwright[name].launch(target.launchOptions(name));
   const ctx = await target.guardContext(await browser.newContext({ viewport: { width: 390, height: 844 } }));
   const page = await ctx.newPage();
   const errors = [];

@@ -70,6 +70,10 @@ async function markProperly() {
   const r = await markScript(["--confirm", CONFIRM]);
   assert.equal(r.code, 0, r.out);
 }
+/** Writes only if needed, so tests that never change the marker can run without changing it. */
+async function ensureMarked() {
+  if ((await readMarker()) !== TEST_DB_MARKER_PREFIX + serverDbName) await markProperly();
+}
 const readMarker = async () =>
   (await dbs.server.$queryRawUnsafe("SELECT shobj_description((SELECT oid FROM pg_database WHERE datname = current_database()), 'pg_database') AS m"))[0].m;
 
@@ -102,12 +106,12 @@ before(async () => {
   dbs = { server: new PrismaClient({ datasources: { db: { url: DB } } }), other: new PrismaClient({ datasources: { db: { url: OTHER } } }) };
   await assertConnectedTarget((q) => dbs.server.$queryRawUnsafe(q), serverDbName);
   await assertConnectedTarget((q) => dbs.other.$queryRawUnsafe(q), decodeURIComponent(new URL(OTHER).pathname.slice(1)));
-  await markProperly(); // deliberate, guarded provisioning step for the dedicated test database
+  await ensureMarked(); // deliberate, guarded provisioning step for the dedicated test database
   assert.equal(await readMarker(), TEST_DB_MARKER_PREFIX + serverDbName);
   stub = await startStub();
 });
 after(async () => {
-  try { if (dbs && !configProblems().problems.length) await markProperly(); } catch {} // leave the test DB validly marked
+  try { if (dbs && !configProblems().problems.length) await ensureMarked(); } catch {} // leave the test DB validly marked
   await killAll();
   for (const r of reports) fs.rmSync(r, { force: true });
   if (dbs) { await dbs.server.$disconnect(); await dbs.other.$disconnect(); }

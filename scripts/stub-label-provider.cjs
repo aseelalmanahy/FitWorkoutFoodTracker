@@ -73,7 +73,7 @@ const send = (res, status, value) => { res.writeHead(status, { "content-type": "
 http.createServer(async (req, res) => {
   const url = new URL(req.url, "http://stub");
   const raw = await body(req);
-  if (url.pathname === "/__health") return send(res, 200, { ok: true });
+  if (url.pathname === "/__health") return send(res, 200, { ok: true, stub: "fitworkoutfoodtracker-provider-stub:v1" }); // checked by scripts/lib/test-target-guard.cjs
   if (url.pathname === "/__scenario") { scenario = JSON.parse(raw).name; if (!SCENARIOS[scenario]) return send(res, 400, {}); return send(res, 200, { scenario }); }
   if (url.pathname === "/__requests") return send(res, 200, requests);
   if (url.pathname === "/__reset") { requests = []; scenario = "good"; return send(res, 200, {}); }

@@ -9,7 +9,7 @@ const SHOTS = (process.env.SHOTS_DIR || require("os").tmpdir()) + "/";
 
 (async () => {
   await target.verifyServer();
-  const browser = await chromium.launch();
+  const browser = await chromium.launch(target.launchOptions("chromium"));
   const ctx = await target.guardContext(await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: "dark", timezoneId: "UTC" }));
   const page = await ctx.newPage();
   globalThis.page = page;

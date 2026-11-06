@@ -7,7 +7,7 @@ const target = require('./lib/test-target-guard.cjs').requireSafeTarget();
 const BASE = target.baseUrl;
 (async () => {
   await target.verifyServer();
-  const browser = await chromium.launch();
+  const browser = await chromium.launch(target.launchOptions('chromium'));
   const ctx = await target.guardContext(await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: 'dark', timezoneId: 'America/New_York' }));
   const page = await ctx.newPage();
   const errors = [];

@@ -17,6 +17,8 @@ Stops automated tests from writing to anything other than a designated local tes
 | `provider-config.test`, `provider-malformed.test`, `provider-protection.test` | API sign-ups, foods and entries | Same |
 | `live-provider-check` | API, and deletes its own users by Prisma | Shared static checks, plus its existing stricter server verification |
 | `usda-missing-nutrients.test` | Starts its own app, then API and Prisma | Shared database check, and `verifyServerIdentity` after each start |
+| `run-guarded-suites` | Starts apps for the other suites | Shared database check, and `verifyServerIdentity` before each suite |
+| `live-check.identity.test` | Runs the live check against a mock server | Shared database check |
 | `live-provider-check.safety.test` | Starts its own apps, changes the marker | Shared database check, with its existing guards |
 | `mark-test-database` | The marker comment only | Its existing guard. Not changed |
 
@@ -42,7 +44,19 @@ It also replaces global `fetch` with one that refuses everything until step 2 pa
 - `GET /api/health/db-identity`, with redirects off, must report the exact marker of that database. The server is checked first, so a wrong server causes no database connection.
 - This process reads the database at `DATABASE_URL` itself, and the fingerprints must be equal. **This is what catches a local app using `.env`,** and a different database labelled with the right marker.
 
-**While tests run:** `fetch` refuses anything off loopback, and doesn't follow redirects to another origin. `guardContext` aborts browser requests off loopback. No allowlist or bypass flag exists, by design.
+**While tests run, the verified origin is the boundary.** Another local port or address could be a different app on a different database, so being on loopback isn't enough. One destination policy decides for every request:
+
+| Destination | Allowed when |
+|---|---|
+| Application | Exactly the verified `BASE_URL` origin. `localhost:3001` doesn't permit `localhost:3000` or `127.0.0.1:3001` |
+| Provider stub | The script passes `{ labelStub: true }`, `LABEL_STUB_URL` is one exact loopback origin that isn't the app, it answers `GET /__health` with the stub's identity, and the path is one of its four control paths |
+| Anything else | Forbidden |
+
+- **Direct requests:** `fetch` refuses forbidden destinations, and doesn't follow a redirect to another origin.
+- **Browsers:** `target.launchOptions(engine)` sends all traffic through a local forward proxy that applies the policy. **Playwright's routes don't see redirect targets, in any engine:** a 302 or a 307 POST from the app reached another server despite a route guard. The proxy sees every hop. `guardContext` remains as a second layer. WebSocket upgrades are refused, and so is any tunnel except one to the exact verified origin, which Playwright's `route.fetch()` needs.
+- **Stubs:** the environment can't add a destination. Setting `LABEL_STUB_URL` does nothing unless the script asks for it, and even then it reaches only those control paths, none of which exists on the app.
+
+No allowlist or bypass flag exists, by design. The food stub is called by the app, not by tests, so tests get no permission for it.
 
 **The existing identity endpoint was sufficient, so no application change was needed.** It returns only a hash and a marker. `next start` needs `EXPOSE_DB_IDENTITY=1`, as before, and otherwise the guard refuses.
 
@@ -62,8 +76,9 @@ These aren't closed by this milestone.
 | **A process that deliberately lies** can pass, if it returns a copied fingerprint and marker, and forwards writes elsewhere | The check proves configuration, not honesty. It stops accidents, not an attacker on this machine |
 | **Time of check to time of use:** the server could be replaced after verification | Verification runs once per script |
 | **A tunnel** from a loopback port to a remote server | It would pass only if the remote server's fingerprint matched the local database, which it wouldn't. The remote endpoint is also off in production builds |
-| **`localhost` in browsers** may resolve differently from Node | The check covers Node's resolver. Use `127.0.0.1` for the strictest result |
-| **WebSockets** from a browser aren't covered by `guardContext` | Playwright routes them separately. No test or app code uses one outside `next dev` |
+| **`localhost` in browsers** may resolve differently from Node | The proxy resolves it in Node, so the check and the request now agree. The proxy can't see DNS done elsewhere |
+| **Suites that start their own app** (`usda-missing-nutrients`, the safety suite, the runner) don't use the fetch guard or proxy | They only call addresses of processes they started, and the live check needs real providers. They verify the database, not each destination |
+| **`next dev`** hot reloading uses a WebSocket, which the proxy refuses | Pages still load, without live reload. Use `next start` for tests |
 | **Server provider settings** can't be seen from outside | The guard can't prove the app uses stubs rather than a real provider or a real key. That stays with whoever starts the server |
 | **Scripts run outside this repository,** or a direct `psql` or Prisma CLI | Out of scope. Migrations and seeds aren't guarded here |
 | **The meta-test reads source text** | Runtime gates back it up: `fetch` and `guardContext` refuse before verification. A determined rewrite could still get past the text check |
@@ -72,8 +87,27 @@ These aren't closed by this milestone.
 
 ## Running
 
+**These need no app or database, and nothing leaves the machine:**
+
 ```bash
-npm run test:guard   # no app or database needed
+npm run test:guard            # unit tests, negative controls, coverage meta-tests
+npm run test:guard:browser    # real browsers against local mocks
 ```
 
-The app-based suites need the server and the test process to have the same `DATABASE_URL`. See the README.
+**The suites need two migrated, marked local databases, `fitdb_test` and `fitdb_test_other`,** and a `.env.test` file, never committed, whose `DATABASE_URL` names `fitdb_test`. Then:
+
+```bash
+npm run build                 # set DATABASE_URL to the test database first
+npm run test:suites           # everything below
+npm run test:suites -- nutrition-api e2e-smoke   # or by name
+```
+
+`scripts/run-guarded-suites.cjs` refuses any other database, starts stubs and an app on free ports, proves each app is on `fitdb_test` before its suite runs, removes real provider keys from the environment, redacts credentials from its logs, and exits non-zero on any failure.
+
+**It doesn't run everything,** so that no marker is written and the development database's comment isn't read:
+
+| Suite | Runs | Doesn't run, and why |
+|---|---|---|
+| `safety-no-marker` | All of `live-provider-check.safety.test` except the next column. The runner also checks that the marker's row wasn't rewritten | "MISSING marker" and three "INVALID marker" tests, which change the marker. `live-check.identity` covers the same refusals with a mock |
+| `db-guard-scoped` | All of `test-db-guard.test`, with `GUARD_SNAPSHOT_SCOPE=designated` | The before-and-after comparison doesn't cover other databases, as the development database's comment isn't read |
+| Not included | `live-provider-check` against real providers | Needs real keys and separate approval |

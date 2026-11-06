@@ -16,8 +16,12 @@ const { TEST_DB_MARKER_PREFIX } = require("./lib/test-db-guard.cjs");
 
 const {
   baseUrlProblem, databaseUrlProblem, environmentProblems, checkTarget, verifyServerIdentity,
-  createFetchGuard, guardBrowserContext, isLoopbackHttpUrl, TargetRefused,
+  createFetchGuard, guardBrowserContext, isLoopbackHttpUrl, TargetRefused, createDestinationPolicy, DESTINATION,
+  browserRequestAllowed, startGuardProxy, browserLaunchOptions, verifyProviderStub, stubUrlProblem, PROVIDER_STUB_IDENTITY,
 } = guard;
+const APP = "http://localhost:3000";
+const STUB = "http://127.0.0.1:4011";
+const POLICY = createDestinationPolicy({ applicationOrigin: APP, stubOrigin: STUB });
 
 const SCRIPTS = __dirname;
 const ROOT = path.resolve(SCRIPTS, "..");
@@ -25,6 +29,18 @@ const FAKE_DB = "postgresql://u:SECRETPW@127.0.0.1:1/fitdb_test";
 const FINGERPRINT = "a".repeat(64);
 const MARKER = `${TEST_DB_MARKER_PREFIX}fitdb_test`;
 const reasonOf = (p) => (p ? p.reason : null);
+const readScript = (f) => fs.readFileSync(path.join(SCRIPTS, f), "utf8");
+function mockServer(respond) {
+  const requests = [];
+  const server = http.createServer((req, res) => {
+    requests.push(`${req.method} ${req.url}`);
+    respond(req, res);
+  });
+  return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve({
+    url: `http://127.0.0.1:${server.address().port}`, requests,
+    close: () => new Promise((r) => { server.closeAllConnections(); server.close(r); }),
+  })));
+}
 
 // ─── Requirement A: server target ───────────────────────────────────────────
 
@@ -285,15 +301,16 @@ const rejectsWith = (promise, reason) => assert.rejects(promise, (e) => e instan
 
 test("no request can be sent before verification", async () => {
   const f = fakeFetch();
-  await rejectsWith(createFetchGuard(f, () => false)("http://localhost:3000/api/auth/register", { method: "POST" }), "not_verified");
+  await rejectsWith(createFetchGuard(f, () => false, POLICY)("http://localhost:3000/api/auth/register", { method: "POST" }), "not_verified");
   assert.equal(f.calls.length, 0);
 });
 
-test("requests off loopback are refused, in any input form", async () => {
+test("requests outside the verified origin are refused, in any input form", async () => {
   const f = fakeFetch();
-  const guarded = createFetchGuard(f, () => true);
-  for (const input of ["https://fit.production.invalid/api/auth/register", new URL("https://fit.production.invalid"), new Request("https://fit.production.invalid/x", { method: "POST", body: "{}" }), "http://192.168.1.10:3000/", "http://user:p@localhost:3000/"]) {
-    await rejectsWith(guarded(input), "request_not_loopback");
+  const guarded = createFetchGuard(f, () => true, POLICY);
+  for (const input of ["https://fit.production.invalid/api/auth/register", new URL("https://fit.production.invalid"), new Request("https://fit.production.invalid/x", { method: "POST", body: "{}" }), "http://192.168.1.10:3000/", "http://user:p@localhost:3000/",
+    "http://localhost:3001/api/auth/register", new URL("http://localhost:3001/x"), new Request("http://localhost:3001/x", { method: "POST", body: "{}" }), "http://127.0.0.1:3000/api/auth/register", "http://[::1]:3000/x", "http://127.0.0.2:3000/x"]) {
+    await rejectsWith(guarded(input), "request_forbidden");
   }
   assert.equal(f.calls.length, 0);
 });
@@ -302,7 +319,7 @@ test("redirects to another origin are never followed, for any method", async () 
   for (const method of ["GET", "POST", "PUT", "DELETE"]) {
     for (const location of ["https://fit.production.invalid/steal", "http://localhost:9999/other-port", "//fit.production.invalid/x"]) {
       const f = fakeFetch(redirectTo(location, 307));
-      await rejectsWith(createFetchGuard(f, () => true)("http://localhost:3000/a", { method, body: method === "GET" ? undefined : "{}" }), "redirect_refused");
+      await rejectsWith(createFetchGuard(f, () => true, POLICY)("http://localhost:3000/a", { method, body: method === "GET" ? undefined : "{}" }), "redirect_refused");
       assert.equal(f.calls.length, 1, `${method} ${location}`);
       assert.equal(f.calls[0].init.redirect, "manual");
     }
@@ -311,38 +328,39 @@ test("redirects to another origin are never followed, for any method", async () 
 
 test("same-origin GET redirects are followed, and writes aren't repeated", async () => {
   const get = fakeFetch(redirectTo("/next"), new Response("done", { status: 200 }));
-  const r = await createFetchGuard(get, () => true)("http://localhost:3000/a");
+  const r = await createFetchGuard(get, () => true, POLICY)("http://localhost:3000/a");
   assert.equal(await r.text(), "done");
   assert.deepEqual(get.calls.map((c) => c.url), ["http://localhost:3000/a", "http://localhost:3000/next"]);
 
   const post = fakeFetch(redirectTo("/next", 307));
-  const res = await createFetchGuard(post, () => true)("http://localhost:3000/a", { method: "POST", body: "{}" });
+  const res = await createFetchGuard(post, () => true, POLICY)("http://localhost:3000/a", { method: "POST", body: "{}" });
   assert.equal(res.status, 307);
   assert.equal(post.calls.length, 1);
 
   const manual = fakeFetch(redirectTo("https://fit.production.invalid/x"));
-  assert.equal((await createFetchGuard(manual, () => true)("http://localhost:3000/a", { redirect: "manual" })).status, 302, "a caller inspecting redirects still can");
+  assert.equal((await createFetchGuard(manual, () => true, POLICY)("http://localhost:3000/a", { redirect: "manual" })).status, 302, "a caller inspecting redirects still can");
   assert.equal(manual.calls.length, 1);
 
   const loop = fakeFetch(...Array.from({ length: 20 }, () => redirectTo("/again")));
-  await rejectsWith(createFetchGuard(loop, () => true)("http://localhost:3000/a"), "redirect_refused");
+  await rejectsWith(createFetchGuard(loop, () => true, POLICY)("http://localhost:3000/a"), "redirect_refused");
   assert.ok(loop.calls.length <= 6);
 });
 
-test("browser requests off loopback are aborted, and contexts can't open before verification", async () => {
-  await rejectsWith(guardBrowserContext({ route: async () => assert.fail("no route") }, () => false), "not_verified");
+test("browser requests outside the policy are aborted, and contexts can't open before verification", async () => {
+  await rejectsWith(guardBrowserContext({ route: async () => assert.fail("no route") }, () => false, POLICY), "not_verified");
   let handler;
   const context = { route: async (pattern, fn) => { assert.equal(pattern, "**/*"); handler = fn; } };
   const blocked = [];
-  assert.equal(await guardBrowserContext(context, () => true, (u) => blocked.push(u)), context);
+  assert.equal(await guardBrowserContext(context, () => true, POLICY, (u) => blocked.push(u)), context);
   const visit = (url) => {
     const seen = [];
     handler({ request: () => ({ url: () => url }), fallback: () => seen.push("allowed"), abort: () => seen.push("aborted") });
     return seen[0];
   };
-  for (const url of ["http://localhost:3000/register", "http://127.0.0.1:4011/x", "data:image/png;base64,AA", "blob:http://localhost:3000/id"]) assert.equal(visit(url), "allowed", url);
-  for (const url of ["https://fit.production.invalid/", "http://192.168.1.10/", "https://localhost:3000/", "http://user:p@localhost:3000/"]) assert.equal(visit(url), "aborted", url);
-  assert.equal(blocked.length, 4);
+  for (const url of ["http://localhost:3000/register", "http://127.0.0.1:4011/__reset", "data:image/png;base64,AA", "blob:http://localhost:3000/id"]) assert.equal(visit(url), "allowed", url);
+  const refused = ["https://fit.production.invalid/", "http://192.168.1.10/", "https://localhost:3000/", "http://user:p@localhost:3000/", "http://localhost:3001/", "http://127.0.0.1:3000/", "http://127.0.0.1:4011/api/auth/register", "blob:http://localhost:3001/id"];
+  for (const url of refused) assert.equal(visit(url), "aborted", url);
+  assert.equal(blocked.length, refused.length);
 });
 
 test("requireSafeTarget gates requests until the server is verified, verifies once, and refuses with exit 4", async () => {
@@ -361,7 +379,7 @@ test("requireSafeTarget gates requests until the server is verified, verifies on
     await Promise.all(both);
     await ok.verifyServer();
     assert.equal(fetches, 1, "verifies once, however many hooks ask");
-    await guardBrowserContext({ route: async () => {} }, () => true);
+    assert.equal(ok.launchOptions("webkit").proxy.server.startsWith("http://127.0.0.1:"), true);
 
     const exits = [];
     const refused = guard.requireSafeTarget({ env, exit: (c) => exits.push(c), deps: { fetchImpl: async () => jsonResponse(200, { fingerprint: FINGERPRINT, testMarker: null }), readDatabase } });
@@ -369,6 +387,7 @@ test("requireSafeTarget gates requests until the server is verified, verifies on
     assert.deepEqual(exits, [4]);
     await rejectsWith(globalThis.fetch("http://127.0.0.1:1/x"), "not_verified");
     await rejectsWith(refused.guardContext({ route: async () => assert.fail("no route") }), "not_verified");
+    assert.throws(() => refused.launchOptions("chromium"), (e) => e.reason === "not_verified");
 
     const staticExits = [];
     assert.equal(guard.requireSafeTarget({ env: {}, exit: (c) => staticExits.push(c) }), null);
@@ -376,6 +395,163 @@ test("requireSafeTarget gates requests until the server is verified, verifies on
   } finally {
     globalThis.fetch = realGlobalFetch;
   }
+});
+
+// ─── The verified origin is the boundary, not "somewhere on loopback" ──────────
+
+const FORBIDDEN_DESTINATIONS = [
+  "http://localhost:3001/", "http://localhost:3001/api/auth/register", "http://localhost/", "http://127.0.0.1:3000/", "http://[::1]:3000/", "http://127.0.0.2:3000/",
+  "https://localhost:3000/", "http://user:p@localhost:3000/", "https://fit.production.invalid/", "http://192.168.1.10:3000/", "http://127.0.0.1:4011/", "http://127.0.0.1:4011/api/auth/register",
+  "http://127.0.0.1:4011/v1/messages", "http://127.0.0.1:4012/__reset", "http://localhost:4011/__reset", "not a url",
+];
+const ALLOWED_DESTINATIONS = [
+  ["http://localhost:3000/", DESTINATION.APPLICATION], ["http://localhost:3000/api/auth/register?x=1", DESTINATION.APPLICATION],
+  ["http://127.0.0.1:4011/__health", DESTINATION.STUB], ["http://127.0.0.1:4011/__scenario", DESTINATION.STUB], ["http://127.0.0.1:4011/__requests", DESTINATION.STUB], ["http://127.0.0.1:4011/__reset", DESTINATION.STUB],
+];
+
+test("the policy allows only the exact verified origin and a named stub's control paths", () => {
+  for (const url of FORBIDDEN_DESTINATIONS) assert.equal(POLICY.classify(url), DESTINATION.FORBIDDEN, url);
+  for (const [url, kind] of ALLOWED_DESTINATIONS) assert.equal(POLICY.classify(url), kind, url);
+  for (const url of ["http://127.0.0.1:4011/__x/../api/auth/register", "http://127.0.0.1:4011/%2e%2e/api", "http://127.0.0.1:4011/__health/../api"]) assert.equal(POLICY.classify(url), DESTINATION.FORBIDDEN, url);
+  const noStub = createDestinationPolicy({ applicationOrigin: APP });
+  assert.equal(noStub.classify("http://127.0.0.1:4011/__reset"), DESTINATION.FORBIDDEN, "no stub unless one was named");
+});
+
+test("verifying one server doesn't permit a request to another local server, in the entry point itself", async () => {
+  const realGlobalFetch = globalThis.fetch;
+  try {
+    const sent = [];
+    const target = guard.requireSafeTarget({
+      env: { BASE_URL: "http://127.0.0.1:3001", DATABASE_URL: FAKE_DB },
+      exit: () => assert.fail("must not exit"),
+      deps: { fetchImpl: async () => good(), readDatabase: async () => ownIdentity() },
+    });
+    await target.verifyServer();
+    assert.equal(target.baseUrl, "http://127.0.0.1:3001");
+    void sent;
+    await rejectsWith(globalThis.fetch("http://127.0.0.1:3000/api/auth/register", { method: "POST", body: "{}" }), "request_forbidden");
+    await rejectsWith(globalThis.fetch("http://localhost:3001/api/auth/register", { method: "POST", body: "{}" }), "request_forbidden");
+  } finally { globalThis.fetch = realGlobalFetch; }
+});
+
+test("approved stub requests pass, and the stub must be named, valid, identified and separate", async () => {
+  const f = fakeFetch(new Response("{}"), new Response("{}"));
+  const guarded = createFetchGuard(f, () => true, POLICY);
+  assert.equal((await guarded(`${STUB}/__reset`, { method: "POST" })).status, 200);
+  assert.equal((await guarded(`${APP}/api/profile`)).status, 200);
+  await rejectsWith(guarded(`${STUB}/api/auth/register`, { method: "POST" }), "request_forbidden");
+  assert.equal(f.calls.length, 2);
+
+  // Redirects can't move from the stub or the app to anywhere else, including each other.
+  for (const [from, location] of [[`${STUB}/__health`, `${APP}/api`], [`${APP}/x`, `${STUB}/__reset`], [`${STUB}/__health`, "/api/auth/register"]]) {
+    const hop = fakeFetch(redirectTo(location));
+    await rejectsWith(createFetchGuard(hop, () => true, POLICY)(from), "redirect_refused");
+    assert.equal(hop.calls.length, 1, `${from} -> ${location}`);
+  }
+
+  assert.equal(stubUrlProblem(undefined, APP), null);
+  assert.equal(stubUrlProblem(STUB, APP), null);
+  assert.equal(reasonOf(stubUrlProblem("http://127.0.0.1:4011/__reset", APP)), "stub_url_invalid");
+  assert.equal(reasonOf(stubUrlProblem("https://stub.example.invalid", APP)), "stub_url_invalid");
+  assert.equal(reasonOf(stubUrlProblem("http://u:p@127.0.0.1:4011", APP)), "stub_url_invalid");
+  assert.equal(reasonOf(stubUrlProblem(APP, APP)), "stub_is_application");
+
+  // Only a script that asks gets a stub, so setting the variable alone adds no destination.
+  const env = { BASE_URL: APP, DATABASE_URL: FAKE_DB, LABEL_STUB_URL: STUB };
+  assert.equal(checkTarget(env).stubUrl, undefined);
+  assert.equal(checkTarget(env, { labelStub: true }).stubUrl, STUB);
+  assert.equal(checkTarget({ ...env, LABEL_STUB_URL: APP }, { labelStub: true }).ok, false);
+
+  const answers = [
+    [() => jsonResponse(200, { ok: true, stub: PROVIDER_STUB_IDENTITY }), null],
+    [() => jsonResponse(200, { ok: true }), "stub_not_identified"],
+    [() => jsonResponse(404, {}), "stub_not_identified"],
+    [() => new Response("<html></html>"), "stub_not_identified"],
+    [() => redirectTo("https://fit.production.invalid/__health"), "stub_not_identified"],
+    [() => { throw new Error("ECONNREFUSED"); }, "stub_unreachable"],
+  ];
+  for (const [answer, reason] of answers) {
+    const check = verifyProviderStub(STUB, { fetchImpl: async () => answer() });
+    if (reason) await rejectsWith(check, reason); else await check;
+  }
+  assert.ok(readScript("stub-label-provider.cjs").includes(PROVIDER_STUB_IDENTITY), "the real stub gives this identity");
+});
+
+test("an entry point with a stub that doesn't identify itself refuses with exit 4", async () => {
+  const realGlobalFetch = globalThis.fetch;
+  try {
+    const exits = [];
+    const target = guard.requireSafeTarget({
+      labelStub: true, exit: (c) => exits.push(c),
+      env: { BASE_URL: APP, DATABASE_URL: FAKE_DB, LABEL_STUB_URL: STUB },
+      deps: { fetchImpl: async (url) => (String(url).startsWith(APP) ? good() : jsonResponse(200, { ok: true })), readDatabase: async () => ownIdentity(), lookup: loopbackLookup },
+    });
+    await target.verifyServer();
+    assert.deepEqual(exits, [4]);
+    await rejectsWith(globalThis.fetch(`${APP}/x`), "not_verified");
+  } finally { globalThis.fetch = realGlobalFetch; }
+});
+
+test("direct requests, browser routes and the browser proxy make the same decision for every destination", async () => {
+  const upstreamHits = [];
+  const upstream = await mockServer((req, res) => { upstreamHits.push(req.url); res.end("ok"); });
+  const hostOf = new URL(upstream.url);
+  const app = upstream.url;
+  const policy = createDestinationPolicy({ applicationOrigin: app, stubOrigin: STUB });
+  const proxy = await startGuardProxy(policy);
+  const viaProxy = (url) => new Promise((resolve) => {
+    const p = new URL(proxy.url);
+    const req = http.request({ host: p.hostname, port: p.port, method: "GET", path: url, headers: { Host: new URL(url).host } }, (res) => { res.resume(); res.on("end", () => resolve(res.statusCode)); });
+    req.on("error", () => resolve("error"));
+    req.end();
+  });
+  try {
+    const refused = [`http://localhost:${hostOf.port}/`, `http://127.0.0.1:${Number(hostOf.port) + 1}/`, "https://fit.production.invalid/", "http://192.168.1.10:3000/", "http://127.0.0.2/", `${STUB}/api/auth/register`, "http://user:p@127.0.0.1:1/"];
+    for (const url of refused) {
+      assert.equal(policy.classify(url), DESTINATION.FORBIDDEN, url);
+      assert.equal(browserRequestAllowed(policy, url), false, url);
+      await rejectsWith(createFetchGuard(fakeFetch(), () => true, policy)(url), "request_forbidden");
+      if (url.startsWith("http://") && !url.includes("user:p")) assert.equal(await viaProxy(url), 403, url);
+    }
+    assert.deepEqual(upstreamHits, [], "nothing forbidden reached a server");
+
+    const allowed = `${app}/page?x=1`;
+    assert.equal(browserRequestAllowed(policy, allowed), true);
+    assert.equal((await createFetchGuard(fakeFetch(), () => true, policy)(allowed)).status, 200);
+    assert.equal(await viaProxy(allowed), 200);
+    assert.deepEqual(upstreamHits, ["/page?x=1"]);
+  } finally { await proxy.close(); await upstream.close(); }
+});
+
+test("the browser proxy refuses tunnels and WebSocket upgrades, except a tunnel to the verified application", async () => {
+  const other = await mockServer((_req, res) => res.end("other"));
+  const application = await mockServer((_req, res) => res.end("application"));
+  const blocked = [];
+  const policy = createDestinationPolicy({ applicationOrigin: application.url, stubOrigin: STUB });
+  const proxy = await startGuardProxy(policy, (u) => blocked.push(u));
+  const p = new URL(proxy.url);
+  const connect = (destination) => new Promise((resolve) => {
+    const req = http.request({ host: p.hostname, port: p.port, method: "CONNECT", path: destination });
+    req.on("connect", (res, socket) => { socket.destroy(); resolve(res.statusCode); });
+    req.on("error", () => resolve("error"));
+    req.end();
+  });
+  const hostOf = (url) => new URL(url).host;
+  try {
+    for (const refused of ["fit.production.invalid:443", hostOf(other.url), hostOf(STUB), `localhost:${new URL(application.url).port}`, `user:p@${hostOf(application.url)}`]) {
+      assert.equal(await connect(refused), 403, refused);
+    }
+    assert.equal(blocked.length, 5);
+    assert.deepEqual(other.requests, [], "nothing reached the other server");
+    assert.equal(await connect(hostOf(application.url)), 200, "the verified application is allowed");
+  } finally { await proxy.close(); await other.close(); await application.close(); }
+});
+
+test("each browser engine is told not to skip the proxy for loopback, and only known engines launch", () => {
+  assert.deepEqual(browserLaunchOptions("chromium", "http://127.0.0.1:1"), { proxy: { server: "http://127.0.0.1:1" }, args: ["--proxy-bypass-list=<-loopback>"] });
+  assert.equal(browserLaunchOptions("firefox", "http://127.0.0.1:1").firefoxUserPrefs["network.proxy.allow_hijacking_localhost"], true);
+  assert.deepEqual(browserLaunchOptions("webkit", "http://127.0.0.1:1"), { proxy: { server: "http://127.0.0.1:1" } });
+  assert.throws(() => browserLaunchOptions("other", "http://127.0.0.1:1"), (e) => e.reason === "unknown_browser");
 });
 
 test("isLoopbackHttpUrl handles URLs seen at runtime", () => {
@@ -400,16 +576,19 @@ const OTHER_WRITE_CAPABLE = {
   "live-provider-check.cjs": { must: ["checkTarget("], reason: "shared static checks, plus its own stricter server verification" },
   "usda-missing-nutrients.test.cjs": { must: ["databaseUrlProblem(", "verifyServerIdentity("], reason: "starts its own app, then verifies it" },
   "live-provider-check.safety.test.cjs": { must: ["databaseUrlProblem("], reason: "starts its own apps, and tests the live check's refusals" },
+  "live-check.identity.test.cjs": { must: ["databaseUrlProblem("], reason: "the live check's refusals against a mock server, reading the test database" },
+  "run-guarded-suites.cjs": { must: ["databaseUrlProblem(", "verifyServerIdentity("], reason: "starts apps for the suites, and verifies each one first" },
 };
 const NOT_GUARDED = {
   "mark-test-database.cjs": "changes only the marker comment, with validateTargetUrl and an exact --confirm",
   "test-db-guard.test.cjs": "reads through a validated URL, and spawns tools that must refuse",
   "live-check.units.test.cjs": "unit tests, and spawns suites that must refuse",
   "test-target-guard.test.cjs": "this file: no app or database, only a local mock",
+  "test-target-guard.browser.test.cjs": "real browsers against local mocks only, with no app or database",
   "stub-food-apis.cjs": "a local stand-in server, sends no requests",
   "stub-label-provider.cjs": "a local stand-in server, sends no requests",
 };
-const NOT_GUARDED_MAY_WRITE = new Set(["mark-test-database.cjs", "test-db-guard.test.cjs", "live-check.units.test.cjs", "test-target-guard.test.cjs"]);
+const NOT_GUARDED_MAY_WRITE = new Set(["mark-test-database.cjs", "test-db-guard.test.cjs", "live-check.units.test.cjs", "test-target-guard.test.cjs", "test-target-guard.browser.test.cjs"]);
 const WRITE_CAPABLE = /\bfetch\(|PrismaClient|newContext\(|require\(["']playwright["']\)|\/api\/auth\/register|http\.request\(/;
 
 /** Problems in a guarded script's source. Comments are ignored, so a mention can't satisfy this. */
@@ -420,6 +599,11 @@ function auditGuardedSource(raw) {
   if (at < 0) problems.push("doesn't call requireSafeTarget()");
   if (!/\btarget\.verifyServer\(\)/.test(source)) problems.push("doesn't call verifyServer()");
   if (/process\.env\.BASE_URL|process\.env\[/.test(source)) problems.push("reads BASE_URL itself");
+  if (/process\.env\.LABEL_STUB_URL/.test(source)) problems.push("reads the stub address itself");
+  const launches = source.match(/\.launch\(/g)?.length ?? 0;
+  const guardedLaunches = source.match(/\.launch\(target\.launchOptions\(/g)?.length ?? 0;
+  if (launches !== guardedLaunches) problems.push("launches a browser without launchOptions()");
+  if (/launchPersistentContext|launchServer|connectOverCDP|\.connect\(|browser\.newPage\(|\bproxy:/.test(source)) problems.push("opens a browser outside the guarded launch");
   if (/["'`]https?:\/\/(?:localhost|127\.0\.0\.1)/.test(source)) problems.push("has a default server address");
   if (/new PrismaClient\(\s*\)/.test(source)) problems.push("opens a default Prisma client");
   if (/requireTestDatabaseUrl|validateTargetUrl/.test(source)) problems.push("uses a weaker database check");
@@ -437,8 +621,6 @@ function auditGuardedSource(raw) {
   if (!/require\("node:test"\)/.test(source) && !/\(async \(\) => \{\s*await target\.verifyServer\(\);/.test(source)) problems.push("verifyServer() isn't the first step of main");
   return problems;
 }
-
-const readScript = (f) => fs.readFileSync(path.join(SCRIPTS, f), "utf8");
 
 test("every script in scripts/ is classified, so a new one can't be missed", () => {
   const known = new Set([...GUARDED, ...Object.keys(OTHER_WRITE_CAPABLE), ...Object.keys(NOT_GUARDED)]);
@@ -483,8 +665,13 @@ test("control 14: a script that omits or weakens the shared guard fails the audi
   omit("reads BASE_URL", replaceOnce(smoke, guardLine, "const target = require('./lib/test-target-guard.cjs').requireSafeTarget();\r\nconst BASE = process.env.BASE_URL;"));
   omit("default server address", replaceOnce(smoke, "const BASE = target.baseUrl;", "const BASE = target.baseUrl || 'http://localhost:3000';"));
   omit("verifyServer()", replaceOnce(smoke, "await target.verifyServer();", ""));
-  omit("first step of main", replaceOnce(smoke, "await target.verifyServer();\r\n  const browser = await chromium.launch();", "const browser = await chromium.launch();\r\n  await target.verifyServer();"));
+  omit("first step of main", replaceOnce(smoke, "await target.verifyServer();\r\n  const browser = await chromium.launch(target.launchOptions('chromium'));", "const browser = await chromium.launch(target.launchOptions('chromium'));\r\n  await target.verifyServer();"));
   omit("without guardContext", replaceOnce(smoke, "await target.guardContext(await browser.newContext());", "await browser.newContext();"));
+  omit("without launchOptions", replaceOnce(smoke, "chromium.launch(target.launchOptions('chromium'))", "chromium.launch()"));
+  omit("outside the guarded launch", `${smoke}\nawait chromium.launchPersistentContext("x");`);
+  omit("outside the guarded launch", `${smoke}\nawait browser.newPage();`);
+  omit("outside the guarded launch", replaceOnce(smoke, "chromium.launch(target.launchOptions('chromium'))", "chromium.launch({ ...target.launchOptions('chromium'), proxy: undefined })"));
+  omit("reads the stub address", `${smoke}\nconst STUB = process.env.LABEL_STUB_URL;`);
   omit("doesn't call verifyServer", "const target = require('./lib/test-target-guard.cjs').requireSafeTarget(); // target.verifyServer() is only mentioned here\n(async () => {})();");
   omit("network before", `fetch("/x");\n${smoke}`);
   omit("unguarded client", `${smoke}\nrequire("node:http").get; http.request(u);`);
@@ -520,17 +707,6 @@ function runScript(file, env) {
 /** Runs in small batches: each script loads Prisma, and some load Playwright and sharp. */
 async function eachScript(files, fn) {
   for (let i = 0; i < files.length; i += 4) await Promise.all(files.slice(i, i + 4).map(fn));
-}
-function mockServer(respond) {
-  const requests = [];
-  const server = http.createServer((req, res) => {
-    requests.push(`${req.method} ${req.url}`);
-    respond(req, res);
-  });
-  return new Promise((resolve) => server.listen(0, "127.0.0.1", () => resolve({
-    url: `http://127.0.0.1:${server.address().port}`, requests,
-    close: () => new Promise((r) => { server.closeAllConnections(); server.close(r); }),
-  })));
 }
 const json = (res, status, body, headers = {}) => { res.writeHead(status, { "Content-Type": "application/json", ...headers }); res.end(JSON.stringify(body)); };
 const ALL_SCRIPTS = [...GUARDED, "live-provider-check.cjs"];

@@ -9,6 +9,8 @@
 // Reads only, through SAFETY_DB_URL (validated as a local test database first):
 //   SAFETY_DB_URL='postgresql://USER:PASSWORD@localhost:5432/fitdb_test' node --test scripts/test-db-guard.test.cjs
 // Optional: GUARD_DEV_DB_NAME (default "fitdb"), the dev database the tests try, and must fail, to mark.
+// Optional: GUARD_SNAPSHOT_SCOPE=designated reads markers for fitdb_test and fitdb_test_other only, so the
+// dev database's comment isn't read. The before-and-after comparison then doesn't cover other databases.
 "use strict";
 const { test, before, after } = require("node:test");
 const assert = require("node:assert/strict");
@@ -31,7 +33,7 @@ const noPassword = (out, label) => {
 /** Markers on every database in the cluster, plus user counts in the test databases. */
 async function clusterSnapshot() {
   const comments = await reader.$queryRawUnsafe(
-    "SELECT datname, shobj_description(oid, 'pg_database') AS marker FROM pg_database WHERE NOT datistemplate ORDER BY datname");
+    `SELECT datname, shobj_description(oid, 'pg_database') AS marker FROM pg_database WHERE NOT datistemplate ${process.env.GUARD_SNAPSHOT_SCOPE === "designated" ? "AND datname IN ('fitdb_test', 'fitdb_test_other') " : ""}ORDER BY datname`);
   const { PrismaClient } = require("@prisma/client");
   const users = {};
   for (const { datname } of comments) {
