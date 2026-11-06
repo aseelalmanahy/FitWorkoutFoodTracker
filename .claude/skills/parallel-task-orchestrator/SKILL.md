@@ -69,7 +69,7 @@ Never add a worker because capacity exists, or to summarize another worker's res
 
 8. **To cancel:** stop the worker with the `TaskStop` tool, then `S cancel <run-id> <task> "<reason>"`. Its partial changes stay on disk, for you to review.
 
-9. **Integrate.** List what changed, with `git status --porcelain`, and run `S reconcile <run-id> <files...>`. `sequential` is fine. **On `simultaneous`, `unowned` or `unexpected`, stop: keep both workers' changes, report it, and resolve it without deleting unrelated work.** Run the relevant tests yourself, as a worker's "passed" is a report, not your evidence. Before each, `S test-check <run-id> "<command>"`, then `S test-done <run-id> "<command>" passed|failed`. Add `required` to the check for security and data-integrity tests, which always run.
+9. **Integrate.** List what changed, with `git status --porcelain`, and run `S reconcile <run-id> <files...>`. `sequential` is fine. **On `simultaneous`, `unowned`, `unexpected` or `missingReports`, stop: keep both workers' changes, report it, and resolve it without deleting unrelated work.** Run the relevant tests yourself, as a worker's "passed" is a report, not your evidence. Before each, `S test-check <run-id> "<command>"`, then `S test-done <run-id> "<command>" passed|failed`. Add `required` to the check for security and data-integrity tests, which always run.
 
 10. **Finish:** `S dashboard <run-id>` and `S finish <run-id>`. Report the result to the owner, including anything failed, blocked or unverified. `reviewsOutstanding` lists high-risk changes with no finished review. Run it, or tell the owner it's still owed.
 

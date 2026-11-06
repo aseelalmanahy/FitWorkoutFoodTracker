@@ -91,7 +91,7 @@ owner -> main session -> orchestrate.cjs (what may start) -> Agent tool -> worke
 
 | Result | Meaning | Clean? |
 |---|---|---|
-| `sequential` | Two workers reported a file, one after the other | Yes |
+| `sequential` | Two workers that own a file reported it, one after the other. An outsider never counts as this | Yes |
 | `simultaneous` | Two workers reported a file while both ran, or their times aren't known | **No** |
 | `unowned` | Changed, and no task owns it | **No** |
 | `unexpected` | Reported by a worker that doesn't own it, whatever the timing, or owned but reported by nobody | **No** |
