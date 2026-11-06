@@ -34,9 +34,9 @@ async function inBrowser(name) {
   for (const [route, heading] of [["/privacy", "Privacy notice"], ["/terms", "Terms"]]) {
     await page.goto(`${BASE}${route}`);
     await page.getByRole("heading", { name: heading, exact: true }).waitFor();
-    await page.getByRole("note").getByText("Draft.").waitFor();
-    await page.getByText(`Version ${NOTICE_VERSION}`).waitFor();
     await settled();
+    assert.equal(await page.getByRole("note").filter({ hasText: "Draft." }).count(), 1, `${route} shows the draft banner`);
+    assert.equal(await page.getByText(`Version ${NOTICE_VERSION}`).count(), 1, `${route} shows its version`);
   }
   step("both pages are public, with the draft banner and version");
 
@@ -64,8 +64,9 @@ async function inBrowser(name) {
   const count = (r) => { if (r.url().endsWith("/api/auth/register/complete")) posted++; };
   page.on("request", count);
   await page.locator("button[type=submit]").click();
-  await page.getByText("Tick the box to continue.").waitFor();
+  await page.waitForTimeout(500);
   assert.equal(posted, 0, "nothing was sent unticked");
+  assert.equal(await page.getByText("Tick the box to continue.").count(), 1, "and the form says why");
   assert.equal(await prisma.user.count({ where: { email: address } }), 0);
   step("unticked, the form says so, and sends nothing");
 

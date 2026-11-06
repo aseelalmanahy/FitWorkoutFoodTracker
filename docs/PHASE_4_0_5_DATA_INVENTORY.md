@@ -31,6 +31,7 @@ Field-level export and deletion rules stay in `src/lib/account-data-map.json`, a
 | What | Period | State |
 |---|---|---|
 | Sign-in session | 30 days | Built. **An expired row stays until its owner returns, logs out or deletes the account** |
+| Device cookie | 90 days | Built. It holds no password, and stops working when the password changes |
 | Sign-up link | 24 hours | Built, a judgement (G-04). **An expired row stays until the next link is requested** (S-22) |
 | Password reset link | 60 minutes | Built, a judgement (G-04) |
 | Backups | **Unknown** | Decision 12 |
@@ -43,9 +44,9 @@ Field-level export and deletion rules stay in `src/lib/account-data-map.json`, a
 |---|---|---|
 | Models | `Prisma.dmmf`, which needs no database | One is added, removed or missing from the data map |
 | Fields named here | The same | One doesn't exist |
-| Call sites | Every non-test file under `src/`, scanned for network APIs | A new file uses one, or a listed file no longer does |
+| Call sites | Every non-test file under `src/`, and `next.config.ts`, scanned for network APIs and network packages | A new file uses one, a listed file no longer does, or the server and browser lists are mixed up |
 | Hosts | `http(s)://` literals in the same files | A new host appears, or a listed one is gone |
-| Mail | `MailTransport` implementations | A new one appears |
+| Mail | `MailTransport` implementations, and `mailTransport()` as the only factory | A new one appears, or a second factory does |
 | Dependencies | `package.json` | A new one isn't classified |
 | AI settings | `AI_SETTINGS` in `production-config.ts` | One isn't listed |
 | Periods marked built | The constants that set them | A constant changes |
@@ -57,6 +58,6 @@ Field-level export and deletion rules stay in `src/lib/account-data-map.json`, a
 
 **This is a tripwire, not proof.** It can't detect a host known only at run time, base URLs from the environment (`FDC_BASE_URL`, `OFF_BASE_URL`, and `ANTHROPIC_BASE_URL`, which the SDK reads with no mention in `src`), SDK defaults, calls inside dependencies (Next.js, Prisma, the SDK), build-time fetches, what a listed call really sends, the host's own processing, access logs, backups, DNS, or anything under `scripts/`.
 
-**Comments are skipped by simple rules,** so a line of code inside an unusual comment could be missed, and text in a string can match. A match only requires the file to be listed, and the list is reviewed by reading.
+**Comments are skipped by simple rules,** so a line of code inside an unusual comment could be missed, and text in a string can match. A match only requires the file to be listed, and the list is reviewed by reading. **Aliased calls are only partly caught:** `const f = fetch` is, and a function handed `fetch` as an argument isn't. A listed package's own use of another network library, such as the SDK's, can't be seen.
 
 **Read by hand:** `src/lib/server/foods/http.ts` logs provider errors, with their text sanitized. Console output otherwise goes through `safe-log.ts`.

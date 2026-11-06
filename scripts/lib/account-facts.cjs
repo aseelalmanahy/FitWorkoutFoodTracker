@@ -8,7 +8,12 @@ const MIN_ADULT_AGE = 18; // as src/lib/eligibility.ts
 const DAY = 86_400_000;
 const BANDS = [["under 30 days", 0, 30], ["30 to 90 days", 30, 90], ["90 to 365 days", 90, 365], ["over 365 days", 365, null]];
 
-const shown = (n) => (n > 0 && n < SMALL ? `under ${SMALL}` : n);
+// Zero is hidden too, as "0" beside "under 5" would show that someone is there. So is a complement, as a total
+// minus a hidden count would recover it.
+const shown = (n, total = Infinity) => {
+  if (n < SMALL) return `under ${SMALL}`;
+  return total - n < SMALL ? `all but under ${SMALL}` : n;
+};
 
 /** `reader` has one method, `count(model, where)`, which is the only thing this can do with a database. */
 async function reportAccountFacts(reader, now) {
@@ -26,7 +31,8 @@ async function reportAccountFacts(reader, now) {
   for (const [band, from, to] of BANDS) {
     const createdAt = { lte: new Date(now.getTime() - from * DAY), ...(to === null ? {} : { gt: new Date(now.getTime() - to * DAY) }) };
     const row = { "account age": band };
-    for (const [label, where] of Object.entries(facts)) row[label] = shown(await reader.count("user", { ...where, createdAt }));
+    const total = await reader.count("user", { createdAt });
+    for (const [label, where] of Object.entries(facts)) row[label] = label === "accounts" ? shown(total) : shown(await reader.count("user", { ...where, createdAt }), total);
     rows.push(row);
   }
   return { note: "Counts of what can be seen. These aren't classifications, and say nothing about why.", rows, "unexpired emailed links": shown(await reader.count("accountToken", { expiresAt: { gt: now } })) };

@@ -62,16 +62,17 @@ const isLoopbackOrigin = (origin: string | undefined) => {
 /**
  * Whether anyone can register under the current legal documents. A draft keeps real registration shut, and no
  * setting can change that on a real deployment. A designated test database needs this machine's own origin as well,
- * so a real host pointed at a local database named fitdb_test isn't exempt. Preflight confirms that database's marker.
- * Development needs that exact value and a database on this machine, so an unset NODE_ENV opens nothing.
- * FIT_TEST_OPEN_REGISTRATION has no part in this.
+ * so a real host pointed at a local database named fitdb_test isn't exempt. Startup confirms that database's marker.
+ * Development needs that exact value, the development database on this machine, and this machine's own origin, so
+ * neither an unset NODE_ENV nor a real host running in development mode opens anything. Startup refuses a real
+ * deployment with any other NODE_ENV. FIT_TEST_OPEN_REGISTRATION has no part in this.
  */
 export function noticeGateOpen(env: Env = process.env, notice: Notice = NOTICE): boolean {
   if (noticeIsFinal(notice)) return true;
   if (isLocalTestServer(env)) return isLoopbackOrigin(env.APP_ORIGIN);
-  if (env.NODE_ENV !== "development") return false;
+  if (env.NODE_ENV !== "development" || !isLoopbackOrigin(env.APP_ORIGIN)) return false;
   const url = parseDatabaseUrl(env.DATABASE_URL);
-  return !!url && !url.searchParams.has("host") && LOOPBACK.has(url.hostname);
+  return !!url && !url.searchParams.has("host") && LOOPBACK.has(url.hostname) && databaseName(url) === DEVELOPMENT_DATABASE;
 }
 
 /**
@@ -137,6 +138,9 @@ export function productionConfigProblems(env: Env = process.env): ConfigProblem[
   if (isLocalTestServer(env)) return [];
   const problems: ConfigProblem[] = [...originProblems(env), ...databaseProblems(env)];
   const add = (id: string, message: string) => problems.push({ id, message });
+
+  // `next start` keeps whatever it's given, and development mode relaxes registration.
+  if (env.NODE_ENV !== "production") add("node-env", "NODE_ENV must be production.");
 
   if (set(env, "FIT_LOCAL_TEST_SERVER")) add("test-server-flag", "FIT_LOCAL_TEST_SERVER is only for a test database on this machine.");
   if (set(env, "FIT_TEST_OPEN_REGISTRATION")) add("test-registration-flag", "FIT_TEST_OPEN_REGISTRATION is only for a test database on this machine.");

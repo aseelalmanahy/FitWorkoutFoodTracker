@@ -125,6 +125,13 @@ test("the pages are public, marked as drafts, show their version, and set no coo
   }
 });
 
+test("the report's transaction really refuses writes", async () => {
+  await assert.rejects(prisma.$transaction(async (tx) => {
+    await tx.$executeRawUnsafe("SET TRANSACTION READ ONLY");
+    await tx.$executeRawUnsafe(`UPDATE "User" SET email = email WHERE false`);
+  }), /read-only|25006/);
+});
+
 test("the account-facts report reads real rows, changes nothing, and names nobody", async () => {
   const before = await prisma.user.count();
   const r = spawnSync(process.execPath, [path.join(__dirname, "account-facts.cjs"), "--confirm=fitdb_test"], { encoding: "utf8", timeout: 120_000, env: { ...process.env, BASE_URL: "", NODE_TEST_CONTEXT: "" } });

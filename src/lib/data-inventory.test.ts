@@ -23,8 +23,8 @@ function walk(dir: string, out: string[] = []): string[] {
   }
   return out;
 }
-const sources = walk(path.join(ROOT, "src"))
-  .filter((f) => /\.tsx?$/.test(f) && !/\.test\.tsx?$/.test(f) && !f.includes(`${path.sep}src${path.sep}test${path.sep}`))
+const sources = [...walk(path.join(ROOT, "src")), path.join(ROOT, "next.config.ts")]
+  .filter((f) => /\.[cm]?[jt]sx?$/.test(f) && !/\.test\.tsx?$/.test(f) && !f.includes(`${path.sep}src${path.sep}test${path.sep}`))
   .map((f) => ({ path: path.relative(ROOT, f).split(path.sep).join("/"), text: readFileSync(f, "utf8") }));
 const pkg = JSON.parse(readFileSync(path.join(ROOT, "package.json"), "utf8")) as { dependencies: Record<string, string> };
 const facts: InventoryFacts = {
@@ -82,7 +82,7 @@ describe("each check can fail", () => {
   it("a new file calling fetch", () => {
     expect(problemsWith((_, f) => f.sources.push(FETCH)).join()).toMatch(/call site: src\/lib\/server\/new-thing.ts isn't in the inventory/);
   });
-  it.each(["new Anthropic({})", 'import x from "node:https";', "new WebSocket(u)", "navigator.sendBeacon(u)", 'await import("node:net")'])("a new file using %s", (code) => {
+  it.each(["new Anthropic({})", 'import x from "node:https";', 'import x from "https";', 'import "node:http";', "new WebSocket(u)", "navigator.sendBeacon(u)", 'await import("node:net")', "const f = fetch;", "fetch.call(null, u)", 'import A from "@anthropic-ai/sdk";', 'import { request } from "undici";'])("a new file using %s", (code) => {
     expect(problemsWith((_, f) => f.sources.push({ path: "src/lib/new.ts", text: code })).join()).toMatch(/call site: src\/lib\/new.ts/);
   });
   it("a stale entry in the call-site list", () => {
@@ -100,6 +100,16 @@ describe("each check can fail", () => {
   });
   it("an unlisted mail transport", () => {
     expect(problemsWith((_, f) => f.sources.push({ path: "src/lib/server/mail/smtp.ts", text: "const smtp: MailTransport = { async send() {} };" })).join()).toMatch(/mail transport: smtp/);
+  });
+  it("a mail transport declared with satisfies", () => {
+    expect(problemsWith((_, f) => f.sources.push({ path: "src/lib/server/mail/smtp.ts", text: "const smtp = { async send() {} } satisfies MailTransport;" })).join()).toMatch(/mail transport: smtp/);
+  });
+  it("a second mail factory", () => {
+    expect(problemsWith((_, f) => f.sources.push({ path: "src/lib/server/mail/other.ts", text: "export function mailTransport() { return null; }" })).join()).toMatch(/mail: the factory/);
+  });
+  it("server code listed as browser code, and the reverse", () => {
+    expect(problemsWith((inv) => { inv.callSites.browser["src/lib/server/foods/http.ts"] = "x"; }).join()).toMatch(/listed as browser code/);
+    expect(problemsWith((inv) => { inv.callSites.server["src/lib/client/api.ts"] = "x"; }).join()).toMatch(/listed as server code/);
   });
   it("an unclassified dependency", () => {
     expect(problemsWith((_, f) => f.dependencies.push("nodemailer")).join()).toMatch(/dependency: nodemailer/);
@@ -135,6 +145,15 @@ describe("the notice", () => {
     expect(noticeIsMalformed()).toBe(false);
     expect(text).toContain(DRAFT_MARKER);
   });
+  it("a date that doesn't exist, or a draft version in other case, can't pass", () => {
+    const badDate = reviewed();
+    badDate.review = { ...badDate.review!, date: "2026-99-99" };
+    expect(noticeIsFinal(badDate)).toBe(false);
+    const feb = reviewed();
+    feb.review = { ...feb.review!, date: "2026-02-30" };
+    expect(noticeIsFinal(feb)).toBe(false);
+    expect(noticeIsFinal(reviewed({ version: "DRAFT-x" }))).toBe(false);
+  });
   it("final needs every part of the review", () => {
     expect(noticeIsFinal(reviewed())).toBe(true);
     const good = reviewed();
@@ -144,6 +163,11 @@ describe("the notice", () => {
     expect(noticeIsFinal({ ...good, review: { ...good.review!, date: "soon" } })).toBe(false);
     expect(noticeIsFinal({ ...good, review: { ...good.review!, reviewer: " " } })).toBe(false);
     expect(noticeIsFinal({ ...good, review: { ...good.review!, textSha256: "0".repeat(64) } })).toBe(false);
+  });
+  it("a draft version can't pass, even with its own matching hash", () => {
+    const good = reviewed({ version: "draft-2027" });
+    expect(good.review!.textSha256).toBe(noticeHash(good));
+    expect(noticeIsFinal(good)).toBe(false);
   });
   it("a typed status over today's text isn't final, and is malformed", () => {
     const typed: Notice = { ...clone(NOTICE), status: "final", version: "2027-01-01", review: { date: "2027-01-01", reviewer: "Someone", textSha256: "x" } };
@@ -175,12 +199,8 @@ describe("the notice", () => {
   it.each(Object.entries(inventory.periods).filter(([, p]) => p.state === "built"))("states %s, as the code does", (_id, p) => {
     expect(text).toContain(p.noticeText);
   });
-  it("marks every period that isn't decided", () => {
-    const needs = Object.values(inventory.periods).filter((p) => p.state === "unknown").map((p) => p.needs!);
-    for (const need of needs) expect(text).toContain(need);
-  });
-  it("a period missing from the text would fail", () => {
-    const shorter = text.replaceAll("24 hours", "soon");
-    expect(shorter).not.toContain(inventory.periods["signup-link"].noticeText);
+  it.each(Object.entries(inventory.periods).filter(([, p]) => p.state === "unknown"))("marks %s as undecided, where it belongs", (_id, p) => {
+    expect(text).toContain(`${p.noticeLabel}: ${DRAFT_MARKER}`);
+    expect(text).toContain(p.needs);
   });
 });

@@ -209,7 +209,7 @@ beforeEach(() => {
   vi.setSystemTime(new Date("2026-11-06T12:00:00Z"));
   vi.stubEnv("TRUST_PROXY_HOPS", "1");
   vi.stubEnv("NODE_ENV", "development");
-  vi.stubEnv("DATABASE_URL", "postgresql://u:p@localhost:5432/fitdb_fake");
+  vi.stubEnv("DATABASE_URL", "postgresql://u:p@localhost:5432/fitdb");
   for (const list of [f.users, f.sessions, f.tokens, f.calls, f.sent, f.cookieSets, f.cookieDeletes]) list.length = 0;
   f.cookies.clear();
   f.send = null;
@@ -526,7 +526,7 @@ describe("recording acceptance", () => {
     expect(f.users[0].termsAcceptedAt).toEqual(new Date("2026-11-06T12:00:00Z"));
   });
 
-  it("is written with the account, so a failed transaction leaves neither", async () => {
+  it("is written by the same statement that creates the account, so one can't exist without the other", async () => {
     const token = await askSignup("new@example.com");
     f.calls.length = 0;
     await post("complete", { token, password: PASSWORD, acceptedVersion: VERSION });

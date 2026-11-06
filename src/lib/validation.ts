@@ -19,7 +19,7 @@ export const redeemTokenSchema = z.object({
   token: z.string().regex(/^[A-Za-z0-9_-]{43}$/, "This link isn't valid or has expired. Request a new one."),
   password: newPasswordField,
 });
-/** Which notice version the person saw. Its own schema, as reset shares the one above. Compared with the server's, and never stored. */
+/** Which notice version the page sent. Its own schema, as reset shares the one above. Compared with the server's, and never stored. */
 export const completeSignupSchema = redeemTokenSchema.extend({ acceptedVersion: z.string().min(1, "Tick the box to continue.").max(64) });
 // The current password is length-checked only, as a wrong one has to reach the rate-limited comparison.
 export const changePasswordSchema = z.object({ currentPassword: z.string().min(1).max(256), newPassword: newPasswordField });

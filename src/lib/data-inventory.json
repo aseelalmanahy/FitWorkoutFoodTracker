@@ -1,6 +1,6 @@
 {
   "categories": {
-    "account": "Email address, password hash, sign-in sessions, emailed links, and which notice version was shown and ticked",
+    "account": "Email address, password hash, sign-in sessions, emailed links, and which notice version was current at sign-up",
     "profile": "Name, date of birth, and the optional body and goal details the person chooses to store",
     "training": "Custom exercises, plans, schedule, workouts, sets, repetitions and weights",
     "nutrition": "Custom foods, food diary entries, and nutrition targets"
@@ -80,8 +80,9 @@
     "session": { "noticeText": "30 days", "state": "built", "source": "src/lib/server/auth.ts", "proof": "SESSION_TTL_MS = 30 \\* 24 \\* 60 \\* 60 \\* 1000" },
     "signup-link": { "noticeText": "24 hours", "state": "built", "source": "src/lib/server/account/access.ts", "proof": "SIGNUP: 24 \\* HOUR_MS" },
     "reset-link": { "noticeText": "60 minutes", "state": "built", "source": "src/lib/server/account/access.ts", "proof": "PASSWORD_RESET: HOUR_MS" },
-    "backups": { "state": "unknown", "needs": "Decision 12" },
-    "logs": { "state": "unknown", "needs": "Decision 5" },
-    "unused-accounts": { "state": "unknown", "needs": "R-06" }
+    "device-cookie": { "noticeText": "90 days", "state": "built", "source": "src/lib/server/auth.ts", "proof": "DEVICE_TTL_MS = 90 \\* 24 \\* 60 \\* 60 \\* 1000" },
+    "backups": { "state": "unknown", "noticeLabel": "Backups", "needs": "Decision 12" },
+    "logs": { "state": "unknown", "noticeLabel": "Logs", "needs": "Decision 5" },
+    "unused-accounts": { "state": "unknown", "noticeLabel": "Accounts that were never finished, or can't be used", "needs": "R-06" }
   }
 }

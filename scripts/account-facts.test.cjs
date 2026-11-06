@@ -25,12 +25,17 @@ test("makes no judgement: no label says abandoned, refused or eligible for remov
   assert.doesNotMatch(text, /abandon|refused|delete|remove|expired account|candidate|retention period/i);
 });
 
-test("hides small counts, but not zero", async () => {
-  const report = await reportAccountFacts(readerGiving((_m, where) => (where.profile?.is?.birthDate ? 1 : 0)), NOW);
+test("hides small counts, zero included, as 0 beside under 5 would show someone is there", async () => {
+  const report = await reportAccountFacts(readerGiving((_m, where) => (where.profile?.is?.birthDate ? 1 : where.profile ? 0 : 100)), NOW);
   assert.equal(report.rows[0]["stored date under the minimum today"], `under ${SMALL}`);
-  assert.equal(report.rows[0]["no profile row"], 0);
-  const atLimit = await reportAccountFacts(readerGiving(() => SMALL), NOW);
-  assert.equal(atLimit.rows[0].accounts, SMALL);
+  assert.equal(report.rows[0]["no profile row"], `under ${SMALL}`);
+  assert.equal(report.rows[0].accounts, 100);
+});
+
+test("hides a complement, as a total minus a hidden count would recover it", async () => {
+  const report = await reportAccountFacts(readerGiving((_m, where) => (where.sessions?.some ? 98 : where.sessions?.none ? 2 : 100)), NOW);
+  assert.equal(report.rows[0]["an unexpired session"], `all but under ${SMALL}`);
+  assert.equal(report.rows[0]["no unexpired session"], `under ${SMALL}`);
 });
 
 test("reads only through count, and asks for no field values", async () => {

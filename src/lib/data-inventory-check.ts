@@ -15,7 +15,7 @@ export interface Inventory {
   mail: { factory: string; transports: string[]; holdsLiveTokens: string };
   dependencies: Record<string, string>;
   processors: Record<string, { noticeName: string; receives: string; state: string; settings?: string[] }>;
-  periods: Record<string, { state: string; noticeText?: string; source?: string; proof?: string; needs?: string }>;
+  periods: Record<string, { state: string; noticeText?: string; noticeLabel?: string; source?: string; proof?: string; needs?: string }>;
 }
 
 export interface InventoryFacts {
@@ -31,6 +31,8 @@ const NETWORK_MODULES = "http|https|net|tls|dns|dgram|child_process|http2";
 /** Anything that can reach another host or process. Each match has to be in a listed file. */
 export const OUTBOUND_PATTERNS = [
   /\bfetch\(/,
+  /=\s*(?:globalThis\.)?fetch\b/,
+  /\bfetch\.(?:call|apply|bind)\b/,
   /\bhttps?\.(?:request|get)\(/,
   /\b(?:net|tls)\.connect\(/,
   /\bnew WebSocket\(/,
@@ -38,11 +40,12 @@ export const OUTBOUND_PATTERNS = [
   /\bsendBeacon\(/,
   /\bnew EventSource\(/,
   /\bnew Anthropic\(/,
-  new RegExp(`from ["']node:(?:${NETWORK_MODULES})["']`),
+  new RegExp(`(?:from|import)\\s+["'](?:node:)?(?:${NETWORK_MODULES})["']`),
   new RegExp(`(?:require|import)\\(["'](?:node:)?(?:${NETWORK_MODULES})["']\\)`),
+  /(?:from|import)\s+["'](?:@anthropic-ai\/sdk|undici|axios|got|node-fetch|ws|nodemailer|openai)["']/,
 ];
 const HOST_LITERAL = /\bhttps?:\/\/([a-z0-9][a-z0-9.-]*)/gi;
-const MAIL_IMPLEMENTATION = /:\s*MailTransport\s*=/g;
+const MAIL_IMPLEMENTATION = /(?::|\bsatisfies)\s*MailTransport\b/g;
 
 /** Comment lines say nothing about what runs. Trailing comments need a space, so a URL's `//` isn't one. */
 export function withoutComments(text: string): string {
@@ -76,14 +79,16 @@ export function inventoryProblems(inv: Inventory, facts: InventoryFacts): string
   }
 
   sameSet("call site", [...Object.keys(inv.callSites.server), ...Object.keys(inv.callSites.browser)], callSiteFiles(facts.sources), out);
+  for (const f of Object.keys(inv.callSites.server)) if (!f.startsWith("src/lib/server/")) out.push(`call site: ${f} is listed as server code, and isn't`);
+  for (const f of Object.keys(inv.callSites.browser)) if (f.startsWith("src/lib/server/")) out.push(`call site: ${f} is listed as browser code, and isn't`);
 
   const hosts = hostLiterals(facts.sources);
   for (const h of hosts) if (!inv.hosts[h] && !inv.notDestinations[h]) out.push(`host: ${h} isn't in the inventory`);
   for (const h of Object.keys(inv.hosts)) if (!hosts.includes(h)) out.push(`host: ${h} is listed, and wasn't found`);
   for (const [h, processor] of Object.entries(inv.hosts)) if (!inv.processors[processor]) out.push(`host: ${h} names no processor`);
 
-  const factory = facts.sources.find((s) => s.path === inv.mail.factory);
-  if (!factory) out.push(`mail: ${inv.mail.factory} wasn't found`);
+  const factories = facts.sources.filter((s) => /function\s+mailTransport\s*\(/.test(withoutComments(s.text))).map((s) => s.path);
+  if (factories.length !== 1 || factories[0] !== inv.mail.factory) out.push(`mail: the factory should be only in ${inv.mail.factory}, and is in ${factories.join(", ") || "nothing"}`);
   const transports: string[] = [];
   for (const s of facts.sources) {
     for (const line of withoutComments(s.text).split("\n")) {

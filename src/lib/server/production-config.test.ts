@@ -190,6 +190,8 @@ describe("the legal documents", () => {
     ["development with no database", { NODE_ENV: "development" }],
     ["development on another machine", { NODE_ENV: "development", DATABASE_URL: url("u:p@db.example.invalid:5432/fitdb") }],
     ["development with a host= redirect", { NODE_ENV: "development", DATABASE_URL: url("u:p@localhost:5432/fitdb?host=db.example.invalid") }],
+    ["development with a real origin", { NODE_ENV: "development", DATABASE_URL: localDb, APP_ORIGIN: "https://app.example.invalid" }],
+    ["development on another local database", { NODE_ENV: "development", DATABASE_URL: url("u:p@127.0.0.1:5432/fit_production") }],
     ["the open-registration flag alone", { NODE_ENV: "production", FIT_TEST_OPEN_REGISTRATION: "1", DATABASE_URL: testDb }],
     ["a test server with a real origin", { NODE_ENV: "production", FIT_LOCAL_TEST_SERVER: "1", FIT_TEST_OPEN_REGISTRATION: "1", DATABASE_URL: testDb, APP_ORIGIN: "https://app.example.invalid" }],
     ["a test server with an unreadable origin", { NODE_ENV: "production", FIT_LOCAL_TEST_SERVER: "1", DATABASE_URL: testDb, APP_ORIGIN: "not a url" }],
@@ -204,6 +206,10 @@ describe("the legal documents", () => {
     ["a designated test server on its own origin", { NODE_ENV: "production", FIT_LOCAL_TEST_SERVER: "1", DATABASE_URL: testDb, APP_ORIGIN: "http://localhost:3000" }],
   ])("a draft can be tested on %s", (_label, env) => {
     expect(noticeGateOpen(env)).toBe(true);
+  });
+  it("a real deployment in development mode refuses startup, as that mode relaxes registration", () => {
+    expect(ids({ ...VALID, NODE_ENV: "development" })).toEqual(["node-env"]);
+    expect(ids({ ...VALID, NODE_ENV: undefined })).toEqual(["node-env"]);
   });
   it("a notice that says it's final and isn't refuses startup", () => {
     expect(ids(VALID)).toEqual([]);

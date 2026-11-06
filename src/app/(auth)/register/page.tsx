@@ -12,7 +12,7 @@ export default async function RegisterPage() {
     <>
       <RegisterForm />
       {registrationIsClosed() && <p className="mt-4 text-center text-sm text-muted">Sign-up is by invitation.</p>}
-      <p className="mx-auto mt-4 max-w-sm px-5 text-center text-sm text-muted">Your address is used to send the sign-up link, and stored until the link is used or expires.</p>
+      <p className="mx-auto mt-4 max-w-sm px-5 text-center text-sm text-muted">Your address is used to send the sign-up link, and is stored with it. See the privacy notice for how long.</p>
       <LegalLinks className="mt-3 pb-8" />
     </>
   );
