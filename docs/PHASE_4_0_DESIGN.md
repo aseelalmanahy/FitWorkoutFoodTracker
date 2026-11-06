@@ -1,6 +1,20 @@
 # Phase 4.0 Design: Account Safety and Pre-Beta Safeguards
 
-**Status: proposal for independent review. Nothing here is approved for implementation.** No migration, paid service, dependency or infrastructure is authorized. A recommendation from the Product Strategy Agent or any reviewer isn't authorization. Base commit: `3f0fddc`.
+**Status: proposal for independent review. Nothing here is approved for implementation.**
+
+**Boundaries of this document:**
+
+- **Planning only.** Publishing it for review approves nothing.
+- **No implementation scope is approved.**
+- **No medical threshold is approved.**
+- **No database migration is approved.**
+- **No production deployment is approved.**
+- **No external service is approved.**
+- **Phase 4.0 remains unfinished.** Corrections for later milestones are still outstanding.
+
+No paid service, dependency or infrastructure is authorized either. A recommendation from the Product Strategy Agent or any reviewer isn't authorization. Base commit: `3f0fddc`.
+
+**Corrected on 2026-11-05 for milestone 4.0.1 only:** sections 11 to 16 and the appendices, where they conflicted with `docs/PHASE_4_0_1_IMPLEMENTATION_PLAN.md`. That plan is the detailed source for 4.0.1. **Corrections for later milestones are listed at the end of section 12's table and aren't applied yet.** Specialist summaries in section 3 and the agent's table in section 4 are unchanged, as records of what they said.
 
 **How much of this has been verified:** see the evidence classification below. No application, route, test suite or database was run for this review. **The expected deletion failure is inferred, and no one has observed it.**
 
@@ -44,7 +58,7 @@ These results show what a threshold-only change would do, not an observed produc
 ### Confirmed defects (read in source, not exercised)
 
 - **Eligibility:** age limit of 13 (`validation.ts:26-29`), checked only at profile save, after the account and session exist (`register/route.ts:23-24`). A second limit in `profile-form.tsx:99`.
-- **Targets:** `getTargets` writes a target from the suggestion on first read (`targets.ts:47-60`). A suggested target follows profile changes (`targets.ts:110-116`). `suggestCalories` receives no goal weight. `calorieTargetOverride` accepts 800 (`validation.ts:40`). Manual targets accept 800 with no warning (`validation.ts:183`).
+- **Targets:** `getTargets` writes a target from the suggestion on first read (`targets.ts:49-61`). A suggested target follows profile changes (`targets.ts:111-120`). `suggestCalories` receives no goal weight. `calorieTargetOverride` accepts 800 (`validation.ts:40`). Manual targets accept 800 with no warning (`validation.ts:183`).
 - **Wording and defaults:** "minimum safe floor" (`energy.ts:105`). Sex and activity default silently (`profile-form.tsx:55,57`).
 - **Accounts:** no reset, change-password, verification, deletion, export or email change. Register returns 409 for an existing email (`register/route.ts:14`). Logout ends one session only (`auth.ts:81-86`).
 - **Access:** registration is public, and no invite control exists. The onboarding page offers no logout, and `(app)/layout.tsx` sends profile-less accounts there.
@@ -104,7 +118,7 @@ The findings that most change the plan:
 5. **Reset links could be poisoned** (INFERRED RISK), as `APP_ORIGIN` is optional and falls back to the Host header (CONFIRMED DEFECT). This must be fixed before any reset email exists.
 6. **No deployment configuration exists at all,** and the test guard wouldn't stop write-capable test scripts hitting a production `BASE_URL` (CONFIRMED DEFECT).
 
-**Recommendation:** seven milestones, in a changed order. Start with a decisions step, then build the safety rules, which need no service or migration. Infrastructure moves before email and notices, because they depend on it. **Recommended first implementation milestone: 4.0.1, adults-only eligibility and calorie safeguards, once approved.**
+**Recommendation:** seven milestones plus a small test-safety guard, in a changed order. Start with a decisions step and the guard, then build the safety rules, which need no service or migration. Infrastructure moves before email and notices, because they depend on it. **Recommended first implementation milestone: 4.0.1, adults-only eligibility and calorie safeguards, once approved.**
 
 ## 2. Existing architecture
 
@@ -120,7 +134,7 @@ Verified at `3f0fddc`.
 | Origin check | Required on mutations. `APP_ORIGIN` optional, with fallback to Host | `api.ts:27-35,41-53` |
 | Age | Profile only, from 13, using 365.25-day division | `validation.ts:26-29` |
 | Calendar age | `ageFromBirthDate`, correct calendar logic on the UTC date | `energy.ts:39-44` |
-| Target seeding | `getTargets` writes a target from the suggestion on first read | `targets.ts:47-60` |
+| Target seeding | `getTargets` writes a target from the suggestion on first read | `targets.ts:49-61` |
 | Throttles | In memory, per process | `login-throttle.ts`, `auth.ts` |
 | Cascades | Most from `User`, with `ON DELETE RESTRICT` on `TemplateExercise` and `SessionExercise` to `Exercise` | `init/migration.sql:209,227` |
 
@@ -263,7 +277,7 @@ The evidence column uses the labels defined above.
 | **A deficit at any weight.** Female, 40 kg, 170 cm, active, fat loss gives 1,690 against 1,986 TDEE, at BMI 13.8 by arithmetic | REPRODUCED AT MODULE LEVEL |
 | **A floor can raise intake above TDEE** while still saying "Moderate deficit": 1,200 against 1,112 | REPRODUCED AT MODULE LEVEL |
 | **Macros can collapse.** 800 kcal at 100 kg on fat loss gives protein 200 g, carbs 0, fat 0, contradicting a documented fat floor | REPRODUCED AT MODULE LEVEL |
-| **Targets apply without a choice,** and move silently on profile edits | `targets.ts:47-60,111` (CONFIRMED DEFECT) |
+| **Targets apply without a choice,** and move silently on profile edits | `targets.ts:49-61,111-120` (CONFIRMED DEFECT) |
 | **A second low path.** `calorieTargetOverride` accepts 800 through the API, with no UI field | `validation.ts:40`, `targets.ts:54` (CONFIRMED DEFECT) |
 | **Manual targets save down to 800 with no warning** | `validation.ts:183` (CONFIRMED DEFECT) |
 | **"Minimum safe floor"** claims safety, and the floors are uncited in the code | `energy.ts:36,105` (CONFIRMED DEFECT) |
@@ -414,7 +428,7 @@ This adapts Review B's design, which assumed a user always exists. Tokens are pu
 | Release | Migrate as a separate step, then swap the image. Expand-and-contract, as Prisma has no down migrations. A written runbook, including a failed migration |
 | Install | Handle dev-only `prisma` and `tsx`. Prove a clean `npm ci` on Linux. Seed the exercise library |
 | Environments | `NODE_ENV=production` on any deployed environment. Separate credentials. A disposable rehearsal server, no permanent staging |
-| Test guard | All write-capable scripts refuse a non-loopback `BASE_URL`, unless explicitly allowlisted |
+| Test guard | All write-capable scripts refuse a non-loopback `BASE_URL`, with no allowlist. Moved to 4.0.0a, as the hazard already exists against the development database |
 | Logs | Retention period set, and checked after each deploy for the proxy warning, which appears only once per process |
 | AI | Stays off with no key. Disable `/api/images/validate` while AI is off |
 | Data | Production starts empty, with no test accounts. `noindex` |
@@ -429,6 +443,7 @@ This adapts Review B's design, which assumed a user always exists. Tokens are pu
 | Order | Milestone | Migration | Paid or new service | New dependency |
 |---|---|---|---|---|
 | 1 | 4.0.0 Decisions and inputs | No | Legal and clinical review, possibly paid | No |
+| 1a | 4.0.0a Test-target guard | No | No | No |
 | 2 | 4.0.1 Eligibility and calorie safeguards | No | No | No |
 | 3 | 4.0.2 Deletion and export | No | No | No |
 | 4 | 4.0.3 Production foundation | No | **Host, database, domain, monitor** | No |
@@ -438,6 +453,16 @@ This adapts Review B's design, which assumed a user always exists. Tokens are pu
 
 4.0.1 and 4.0.2 can run alongside 4.0.3. Then come Phase 4.1, a repeat of device testing for new screens, and the beta.
 
+**Final-round findings for later milestones, reviewed but not yet applied here.** They come from the agent's final review and the specialist re-reviews, and these sections still need correcting:
+
+| Milestone | Finding |
+|---|---|
+| Order | Registration must close before any deployment, with an allowlist on the existing route in 4.0.3. Final go/no-go moves after Phase 4.1's device retest |
+| 4.0.2 | The opening test observes plain `user.delete`. A profile-less account needs a route outside `(app)/layout.tsx`. Help resource, and a home for underweight warnings, are unassigned |
+| 4.0.3 | Preflight design and added environment rules, health route, restore pass criteria, baseline security headers |
+| 4.0.4 | Decision 11's one-page sign-up: **the agent recommends rejecting it for the beta, against section 8.** Token rules change: drop `@@unique([email, purpose])`, several live tokens, and a purge for sign-up tokens, which user cascades miss |
+| Monitoring | "Basic error monitoring" in the roadmap isn't defined here |
+
 ### 4.0.0 Decisions and inputs
 
 - **Objective:** settle what later milestones depend on.
@@ -446,29 +471,33 @@ This adapts Review B's design, which assumed a user always exists. Tokens are pu
 - **Rollback:** none needed.
 - **Approvals:** owner.
 
+### 4.0.0a Test-target guard
+
+- **Objective:** no write-capable test script can reach a non-loopback server or an unmarked database.
+- **Scope:** one shared guard and a meta-test. Hardening, so product review can be skipped under the workflow. It needs its own detailed plan.
+- **Why first:** the hazard already exists, and 4.0.1 rewrites these tests.
+- **Rollback:** code only.
+
 ### 4.0.1 Adults-only eligibility and calorie safeguards
+
+**The detailed plan is `docs/PHASE_4_0_1_IMPLEMENTATION_PLAN.md`. If this summary and that plan differ, the plan is correct.**
 
 - **Objective:** no misleading targets for minors, and no automatic low intake for anyone.
 - **Scope:**
-  - One shared calendar-age rule at 18, for the schema, the form and profile edits. Neutral refusal that doesn't reveal the threshold.
-  - No automatic target. A suggestion needs explicit acceptance (decision 9).
-  - No deficit suggestion for an underweight current or goal weight, once the threshold is reviewed. Until then, no suggested deficits at all during the beta, and no threshold is needed.
-  - Server-computed warnings on manual targets. Stop the API accepting `calorieTargetOverride`.
-  - Require sex and activity to be chosen. Fix the floor-above-TDEE text, the macro collapse, and the listed wording.
-  - Static "who this isn't for" and "not medical advice" text.
-- **Reuse:** `ageFromBirthDate`, `MIN_INTAKE_KCAL`, existing no-target handling on the nutrition page, `ErrorText`.
-- **Code changes:** `validation.ts`, `energy.ts`, `targets.ts`, `targets-editor.tsx`, `profile-form.tsx`, `api.ts` client message.
-- **Database and dependencies:** none. **Existing target rows don't change.**
-- **Security:** no logging of warning events.
-- **Acceptance criteria:**
-  - A declared date under 18 is refused on every profile path, tested on the day before, the birthday and the day after, including 29 February. Described as declared age, never verification.
-  - No code path creates a target without an explicit action, covered by tests on page loads and profile edits.
-  - No suggested deficit is created for a profile in the refused range, or at all if decision 9 picks maintenance-only.
-  - A manual target under the floors shows a warning with no floor number, and saves only on a second, deliberate step. 799 and 800 boundaries are tested.
-  - "Minimum safe floor" no longer appears.
-  - All existing suites pass, with the 800 kcal sites still passing or changed for a stated reason.
+  - One shared calendar-age rule, enforced on the server for onboarding and profile edits. Neutral refusal.
+  - No target written except by an explicit `PUT`. Seeding, syncing, the override and the suggestion route are removed.
+  - `suggestCalories` and `suggestMacros` are removed, which removes deficits, surpluses, macro collapse and floor wording. Whether any estimate is shown is decision 9.
+  - Require units to be chosen. Sex and activity follow decision 25, and goal follows decision 21.
+  - A working no-target state, a logout on onboarding, and readable errors on the profile form.
+  - Static "not medical advice" text. Final wording: decision 7.
+- **Not in this milestone:** warnings on manual targets or goal weights (decision 23), as each needs an unreviewed number. **So 800 kcal stays accepted with no warning, which is a known gap and not a safe state.**
+- **Reuse:** `ageFromBirthDate`, existing no-target handling in `entries.ts` and the nutrition page, `Field`, `ErrorText`.
+- **Code changes:** see the plan's section 11.
+- **Database and dependencies:** none. **No automatic path changes target rows.** The person's own removal, under decision 20, is the only exception.
+- **Acceptance criteria:** see the plan's section 14.
 - **Rollback:** code only, by reverting the commit.
-- **Approvals:** owner on age and decision 9. Qualified reviewer on floors, threshold and wording before the beta.
+- **Agent, on the revised plan:** MODIFY, see the plan's Annex G. A recommendation, not approval.
+- **Approvals:** owner on decisions 1, 9, 15, 19, 20, 21, 22 and 25 to 31. Qualified reviewer on wording before the beta, and on any threshold.
 
 ### 4.0.2 Account deletion and data export
 
@@ -490,7 +519,7 @@ This adapts Review B's design, which assumed a user always exists. Tokens are pu
 
 - **Objective:** a restorable private service, with no real data yet.
 - **Scope:** section 11.
-- **Code changes:** preflight, `/api/health`, mandatory `APP_ORIGIN` in production, disabling image validation while AI is off, Node pin, HSTS, and the test guard.
+- **Code changes:** preflight, `/api/health`, mandatory `APP_ORIGIN` in production, disabling image validation while AI is off, Node pin and HSTS.
 - **Database and dependencies:** none in code. **New infrastructure flagged.**
 - **Acceptance criteria:**
   - Each preflight condition refuses startup, tested individually.
@@ -498,7 +527,7 @@ This adapts Review B's design, which assumed a user always exists. Tokens are pu
   - The database has no public port.
   - **A timed restore has been completed and written down.**
   - A release and a rollback have each been rehearsed once.
-  - Write-capable test scripts refuse a non-loopback `BASE_URL`.
+  - **Production starts empty,** checked, as 4.0.1's handling of legacy targets and under-18 profiles depends on it.
 - **Rollback:** previous image. Migrations follow the runbook.
 - **Approvals:** owner on host, database, domain, cost ceiling and data access rule.
 
@@ -539,6 +568,7 @@ This adapts Review B's design, which assumed a user always exists. Tokens are pu
 - **Objective:** evidence that it works on real phones, and a defined meaning of "safeguards complete".
 - **Scope:** the scripted flows on one iPhone and one Android phone against the deployed build, the owner using it for a real week of training, and a written checklist.
 - **Decide here:** whether lost responses when logging a set need a fix first, as `POST .../sets` has no idempotency key.
+- **Proposed go/no-go items, from the agent's review of 4.0.1, not approved:** decision 23 has a reviewed number, or a recorded accepted gap with the register amended. Decision 26 has nullable macro columns, or that choice recorded.
 - **Acceptance criteria:** every flow recorded pass or fail per device, including a link opened from a mail app, date entry, a screen lock between sets, a network drop while saving, session persistence, reset, export and deletion. No open blocker. Checklist signed by the owner. Database reset before the first participant.
 - **Rollback:** none needed.
 - **Approvals:** owner signs go or no-go.
@@ -550,7 +580,7 @@ This adapts Review B's design, which assumed a user always exists. Tokens are pu
 | Area | Unit | API integration on a guarded test database | Browser |
 |---|---|---|---|
 | Age | All boundary cases with a fixed clock, across host time zones | Direct `PUT /api/profile` refused | Refusal screen |
-| Calorie goals | Floors, every target path | 799, 800, 8000, 8001; no target written on read | Warning on save |
+| Calorie goals | Removed functions stay removed | No target written on read, first save or profile edit | Blank editor, no progress bar with no target |
 | Tokens | Expiry, hash only | Reuse, wrong purpose, parallel use | Through the mail stub |
 | Resets | Older token policy | Racing passwords, all sessions revoked | |
 | Cross-user | | A's token with B's session, `?userId=` ignored, B's password can't delete A | Two contexts |
@@ -587,11 +617,12 @@ Each must fail on its named assertion. A crash, 429 or 500 doesn't count, and ea
 | Over-deletion | Also delete built-in exercises | Survivor count |
 | Atomic deletion | Remove the transaction | Partial rows found |
 | 18+ | Threshold back to 13 | 17-year-old accepted |
-| Calendar age | Restore 365.25 | 2008-02-28 case |
+| Calendar age | Restore 365.25 | 2008-11-05 at 2026-11-05 00:00 UTC |
 | No automatic target | Restore seeding | Target row after a page load |
-| Calorie warning | Remove the check | 799 shows no warning |
 | Preflight | Remove each condition | Server starts |
 | Mail isolation | Non-loopback mail URL | Startup refusal |
+
+The full list for 4.0.1 is in the plan's section 13. A "799 shows no warning" control was removed: the schema rejects 799, so it could never reach a warning, and 4.0.1 has no warning.
 
 **Past mistakes to avoid here:** harnesses reporting success on failure, tests that couldn't fail, controls caught for the wrong reason, stale builds, and suites with no guard. WebKit sign-up currently bypasses the UI, so it wouldn't prove a UI gate.
 
@@ -605,7 +636,7 @@ Each must fail on its named assertion. A crash, 429 or 500 doesn't count, and ea
 | Data loss with no working restore | Medium | High | Timed restore before first invite |
 | Beta opens publicly by accident | Medium | High | Allowlist |
 | Notice doesn't match behaviour | Medium | High | Written last, from the inventory |
-| No qualified reviewer found | Medium | High | Maintenance-only suggestions, no threshold, and a recorded gap |
+| No qualified reviewer found | Medium | High | No suggested numbers and no threshold warnings. **Whether the beta may proceed with that gap recorded is decision 7** |
 | Legal review delayed or costly | Medium | Medium to High | One country, invited beta, stated in the go/no-go |
 | Email provider delay | Medium | Medium | Invite links and scripted reset fallback |
 | Test rewrite larger than predicted | Medium | Medium | One shared helper |
@@ -615,10 +646,11 @@ Each must fail on its named assertion. A crash, 429 or 500 doesn't count, and ea
 | Test script hits production | Low | High | Guard change |
 | Self-declared age is false | Medium | Medium | Accepted, and stated openly |
 | Warnings read as approval | Medium | Medium | No numbers, professional wording |
+| 800 kcal manual target accepted with no warning after 4.0.1 | Unknown | **High, health** | Stated gap, decision 23 |
 
 ## 15. Open decisions
 
-**For the owner. None is decided by this document.**
+**For the owner. None is decided by this document.** These numbers are permanent, and `PRODUCT_STRATEGY.md` section 12 has its own separate list. Decisions 19 to 31 were added during 4.0.1 planning, and earlier numbers are unchanged.
 
 | # | Decision | Recommendation | Blocks |
 |---|---|---|---|
@@ -630,7 +662,7 @@ Each must fail on its named assertion. A crash, 429 or 500 doesn't count, and ea
 | 6 | Legal reviewer and budget | Needed for 4.0.5 | 4.0.5 |
 | 7 | Qualified safety reviewer | Needed for floors, wording and help resource | Beta |
 | 8 | Sign-up model | Link-first with allowlist. Fallback: invite links | 4.0.4 |
-| 9 | Calorie default | Explicit acceptance, with maintenance-only suggestions until a threshold is reviewed | 4.0.1 |
+| 9 | Calorie default: A, no estimate. B, estimate on request, never applied. C, suggestion with explicit acceptance | **A, changed from C,** reopened only once a named reviewer has seen it. The agent's review of the revised plan also recommends A, withdrawing its earlier on-request position. See the plan's section 8 | 4.0.1 |
 | 10 | Whether emailed recovery is required for the beta | Yes, as you've said. Review A disagrees | 4.0.4 |
 | 11 | One-page sign-up with profile | Yes, subject to review | 4.0.4 |
 | 12 | Backup retention | About 14 days, to confirm | 4.0.5 |
@@ -640,6 +672,19 @@ Each must fail on its named assertion. A crash, 429 or 500 doesn't count, and ea
 | 16 | End-of-beta data, and support contact | Decide before invites | 4.0.6 |
 | 17 | Which phones | One iPhone and one Android | 4.0.6 |
 | 18 | Project-wide secret deny rules (earlier decision 12) | Separate small change | None |
+| 19 | Remove date backfill, where a first target moves back over earlier entries | Remove | 4.0.1 |
+| 20 | How to stop using a target, as `kcal` can't be null | Person deletes their target rows, with confirmation. Earlier days lose their comparison | 4.0.1 |
+| 21 | Require a chosen goal | Yes, if Phase 4.1 keeps its goal card | 4.0.1 |
+| 22 | State 18+ openly at sign-up and in terms | Yes. The refusal stays neutral | 4.0.1 |
+| 23 | Warnings on manual targets and underweight goals, which the register requires before the beta | Needs a reviewed number, or an accepted gap. No milestone yet | Beta |
+| 24 | Over-target colour | Neutral. No milestone yet | Beta |
+| 25 | Whether sex, activity, height, current weight, experience and workout days stay required if nothing reads them | Keep for 4.0.1 as a stopgap, with honest text, as the columns are non-null. By the beta, each needs a named reader or stops being required. Legal to advise | 4.0.1 |
+| 26 | Calories-only targets, as the schema can't separate zero from unspecified macros | Nullable columns as their own migration before any real user, which needs approval, with required numbers until then. See the plan's section 8 | 4.0.1 |
+| 27 | Who removes a refused person's account. The register requires it, and no milestone does it | Assign to 4.0.2, or amend the register | 4.0.1 authorization |
+| 28 | What an under-18 date on a profile edit does | Refuse and keep access, for development data only | 4.0.1 |
+| 29 | How an adult who mistyped a date recovers | Support contact once decision 16 names one, with no "try again" wording | 4.0.1 |
+| 30 | Legacy `SUGGESTED` rows: blank editor, and a label on the Nutrition page | Yes to both | 4.0.1 |
+| 31 | What the target editor says below 800 kcal | Fixed text calling it a data range, never safe. Wording to the reviewer | 4.0.1 |
 
 **Proposed corrections to existing documents, not made here,** since the register and strategy mustn't be changed without approval:
 
@@ -652,16 +697,16 @@ Each must fail on its named assertion. A crash, 429 or 500 doesn't count, and ea
 
 ## 16. Recommended first implementation milestone
 
-**After 4.0.0's blocking decisions, and only once approved: 4.0.1.**
+**After 4.0.0's blocking decisions and the 4.0.0a guard, and only once approved: 4.0.1.**
 
 **Why first:**
 
 - It's the only area where a failure can harm someone's health rather than their data.
 - Its calculation defects are REPRODUCED AT MODULE LEVEL, and its target-path defects are confirmed in the source.
-- It needs no service, dependency or migration, and it breaks no test by predicted count, apart from possibly the 800 kcal sites.
+- It needs no service, dependency or migration. **It does change existing tests,** contrary to an earlier version of this section: seeding is asserted in `nutrition-api.test.cjs` and `release-workflow.test.cjs`, and six browser flows need updating. See the plan's section 12.
 - It's useful even if every other decision takes time.
 
-**Decisions it needs:** 1, 9 and 15.
+**Decisions it needs:** 1, 9, 15, 19, 20, 21, 22 and 25 to 31.
 
 **Also recommended, as the first test written:** the deletion test that opens 4.0.2, on a designated test database. It's small, and settles whether the readiness report is wrong.
 
@@ -672,7 +717,7 @@ Each must fail on its named assertion. A crash, 429 or 500 doesn't count, and ea
 | Requirement | Product | Architecture | Security | Fitness safety | UX | Testing | Infrastructure | Depends on | Size | Final |
 |---|---|---|---|---|---|---|---|---|---|---|
 | Adults-only | Agent MODIFY, P0 | Shared calendar rule. No migration | Self-declared, never "verified" | Formula is for adults | Neutral refusal, no threshold shown | Boundaries, fixed clock | None | Decisions 1, 15 | S | **Build in 4.0.1** |
-| Calorie and goal safeguards | Agent MODIFY, P0 | `getTargets`, `energy.ts`. No migration | No logging of warnings | **Main health risk** | Warn on save, no numbers | Every target path | None | Decision 9, reviewer | M | **Build in 4.0.1** |
+| Calorie and goal safeguards | Agent MODIFY, P0 | `getTargets`, `energy.ts`. No migration | Refused date not logged | **Main health risk** | No suggestions, no-target states. Warnings wait for decision 23 | Every target write path | None | Decisions 9, 19, 20, 26 | M | **Build in 4.0.1, without warnings** |
 | Closed registration | Missing from roadmap; A and agent essential | Env allowlist | Prevents public exposure | Keeps participants known | Same response | Non-listed address | None | Sign-up model | S | **Build in 4.0.4** |
 | Password recovery | Agent BUILD; A defer | Token table | Blockers 1, 2, 4 | None | Expired link recovery | Tokens, races, controls | Email, `APP_ORIGIN` | 4.0.3 | M | **Build in 4.0.4** |
 | Change password | Agent, A add | Shares reset code | Revokes other sessions | None | In settings | Revocation | None | 4.0.4 | S | **Build in 4.0.4** |
@@ -698,10 +743,10 @@ These are stated rather than averaged. **Resolutions are recommendations for the
 | 3 | **Self-service export before the beta?** | **A:** defer, as operator export covers it. **Agent:** keep, P1. **C:** protect it if built | **Keep.** Small, and operator export means routine owner access to personal data, which is worse |
 | 4 | **Order** | **Your draft:** infrastructure last. **A and agent:** earlier | **Earlier.** Notices, email links and device tests all depend on it |
 | 5 | **Export method** | **B:** `GET`. **C:** `POST`, no sensitive `GET` | **POST,** as it needs password re-entry |
-| 6 | **Age date** | **D:** local "today". **F:** client-supplied time zone mustn't move the result. **Agent:** `ageFromBirthDate`, on UTC | **UTC.** One rule that the client can't influence. Someone may pass hours early or late by local time, which is acceptable given that age is self-declared. Legal to confirm |
+| 6 | **Age date** | **D:** local "today". **F:** client-supplied time zone mustn't move the result. **Agent:** `ageFromBirthDate`, on UTC | **UTC.** One rule that the client can't influence. Someone may pass hours early or late by local time, which is acceptable given that age is self-declared. Legal to confirm. Decision 15 |
 | 7 | **Under-18 handling** | **D:** a stored minor keeps access unless blocked at route level. **A and agent:** cut it | **Cut, on one condition: production starts empty.** D's finding stands if any data carries over |
 | 8 | **Email abuse limits** | **C:** durable caps are a blocker. **Agent:** tolerable for invited users | **Middle, on evidence:** the allowlist stops third-party bombing for sign-up, and the token row gives a durable cooldown at no extra cost. Add a provider cap |
-| 9 | **Hard floor or warning** | **F:** a hard floor breaks tests. **D:** a professional decision. **Register:** person stays in control | **Warn, for now.** Test impact isn't a reason, and this could change after clinical review |
+| 9 | **Hard floor or warning** | **F:** a hard floor breaks tests. **D:** a professional decision. **Register:** person stays in control | **Neither in 4.0.1, changed from "warn".** The agent's final review found that reusing the uncited floors as a warning trigger is an unreviewed threshold in disguise. Decision 23. Test impact isn't a reason either way |
 | 10 | **Database hosting** | **G:** self-hosted in Compose. **Agent:** managed | **Managed,** see section 11 |
 | 11 | **Email change** | **B:** include. **Agent:** after beta | **After beta,** manually until then |
 | 12 | **Does deletion actually fail?** | No disagreement, but **nobody has run it.** Reviews differ only on detail, such as the error code | **Test first.** It's an inferred risk, not a known failure |
@@ -715,7 +760,7 @@ These are stated rather than averaged. **Resolutions are recommendations for the
 | **Already implemented** | Argon2id hashing, hashed sessions, device cookie invalidated by a password change, login throttling and uniform login errors, Origin checks, owner-scoped routes (reviewed sample), estimate labels, deficit caps and floors for deficits, no-target handling on the nutrition page, `Sheet` focus and locking, body limits, secret-safe Prisma logging, 3-browser E2E harness, database guard, AI off without a key |
 | **Missing** | Reset, change-password, verification, allowlist, deletion, export, re-authentication, privacy and terms pages, acceptance record, target warnings, "who this isn't for" text, help resource, preflight, health route, HSTS, Node pin, deployment files, backups, runbooks, mail stub, coverage check, two-user workout tests, real-phone tests |
 | **Needs correction** (confirmed or reproduced, per the evidence classification, except the inferred items named there) | Age rule and arithmetic, two age rules, `profile-form.tsx` age gate, floors only on deficits, automatic targets, deficit at any weight, floor above TDEE text, macro collapse, `calorieTargetOverride` API path, "minimum safe floor" and other wording, default sex and activity, register 409 and timing, raw validation text, light-theme contrast, `APP_ORIGIN` fallback, test guard, safe logging for mail, stale documents |
-| **Requires design approval** | Link-first sign-up, one-page sign-up with profile, token schema, deletion order, export format, target default and no-target state, warning design, allowlist storage, preflight rules, release runbook |
+| **Requires design approval** | Link-first sign-up, one-page sign-up with profile, token schema, deletion order, export format, target default and no-target state, allowlist storage, preflight rules, release runbook |
 | **Requires owner approval** | Section 15. **Every migration, paid service, new dependency and piece of infrastructure.** Each milestone's start and merge |
 | **Requires legal or professional review** | Age, health-data status, consent, retention, breach duties, medical-device question, notice wording, ODbL. Floors, underweight threshold, warning wording, help resource, sex field |
-| **Blocked by another milestone** | 4.0.1 by decisions 1, 9, 15. 4.0.3 by decisions 4, 5. 4.0.4 by 4.0.3 and decisions 8, 11. 4.0.5 by 4.0.3, 4.0.4 and legal review. 4.0.6 by all earlier. Phase 4.1 by 4.0.2's coverage check. The beta by everything, and by 4.1 |
+| **Blocked by another milestone** | 4.0.1 by the 4.0.0a guard, and decisions 1, 9, 15, 19, 20, 21, 22 and 25 to 31. 4.0.3 by decisions 4, 5. 4.0.4 by 4.0.3 and decisions 8, 11. 4.0.5 by 4.0.3, 4.0.4 and legal review. 4.0.6 by all earlier. Phase 4.1 by 4.0.2's coverage check. The beta by everything, and by 4.1 |
