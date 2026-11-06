@@ -1,0 +1,87 @@
+{
+  "categories": {
+    "account": "Email address, password hash, sign-in sessions, emailed links, and which notice version was shown and ticked",
+    "profile": "Name, date of birth, and the optional body and goal details the person chooses to store",
+    "training": "Custom exercises, plans, schedule, workouts, sets, repetitions and weights",
+    "nutrition": "Custom foods, food diary entries, and nutrition targets"
+  },
+  "models": {
+    "User": "account",
+    "Session": "account",
+    "AccountToken": "account",
+    "Profile": "profile",
+    "Exercise": "training",
+    "WorkoutTemplate": "training",
+    "TemplateExercise": "training",
+    "ScheduleSlot": "training",
+    "WorkoutSession": "training",
+    "SessionExercise": "training",
+    "SetEntry": "training",
+    "Food": "nutrition",
+    "FoodServing": "nutrition",
+    "FoodEntry": "nutrition",
+    "NutritionTarget": "nutrition"
+  },
+  "possiblyHealthRelated": [
+    "Profile.birthDate", "Profile.sex", "Profile.heightCm", "Profile.currentWeightKg", "Profile.goalWeightKg", "Profile.goal", "Profile.activityLevel",
+    "FoodEntry.foodName", "FoodEntry.kcal", "NutritionTarget.kcal", "SetEntry.weightKg"
+  ],
+  "callSites": {
+    "server": {
+      "src/lib/server/foods/http.ts": "The one server fetch, used for food search and barcode lookup",
+      "src/lib/server/labels/anthropic.ts": "The one Anthropic client, used for label and meal photos",
+      "src/lib/server/login-throttle.ts": "Imports node:net for isIP only, and opens no connection"
+    },
+    "browser": {
+      "src/lib/client/api.ts": "Same origin, by CSP",
+      "src/lib/client/pdf-browser.ts": "Same origin, by CSP",
+      "src/components/account/data-controls.tsx": "Same origin, by CSP",
+      "src/components/nutrition/label-scanner.tsx": "Same origin, by CSP",
+      "src/components/nutrition/meal-photo.tsx": "Same origin, by CSP"
+    }
+  },
+  "hosts": {
+    "api.nal.usda.gov": "usda",
+    "world.openfoodfacts.org": "open-food-facts",
+    "search.openfoodfacts.org": "open-food-facts"
+  },
+  "notDestinations": {
+    "github.com": "Named inside the User-Agent sent to Open Food Facts, and never called",
+    "www.w3.org": "An SVG namespace",
+    "localhost": "A development and test default, never a real deployment"
+  },
+  "mail": {
+    "factory": "src/lib/server/mail/transport.ts",
+    "transports": ["fileStub", "notConfigured"],
+    "holdsLiveTokens": "The file stub writes addresses and live links to MAIL_STUB_DIR, on development and designated test databases only"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "anthropic",
+    "@node-rs/argon2": "none",
+    "@prisma/client": "database",
+    "next": "none",
+    "pdfjs-dist": "none",
+    "react": "none",
+    "react-dom": "none",
+    "recharts": "none",
+    "server-only": "none",
+    "sharp": "none",
+    "zod": "none"
+  },
+  "processors": {
+    "usda": { "noticeName": "USDA FoodData Central", "receives": "Food search text, and food ids", "state": "built" },
+    "open-food-facts": { "noticeName": "Open Food Facts", "receives": "Food search text and barcodes", "state": "built" },
+    "anthropic": { "noticeName": "Anthropic", "receives": "Label or meal photos, only if its settings are present", "state": "conditional", "settings": ["ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "LABEL_EXTRACTION_MODEL", "LABEL_EXTRACTION_EFFORT", "MEAL_IDENTIFICATION_MODEL", "MEAL_IDENTIFICATION_EFFORT"] },
+    "host": { "noticeName": "hosting provider", "receives": "Everything the server handles, and its logs", "state": "unknown" },
+    "database": { "noticeName": "database provider", "receives": "Everything stored", "state": "unknown" },
+    "email-provider": { "noticeName": "email provider", "receives": "Addresses, and the links sent to them", "state": "unknown" }
+  },
+  "periods": {
+    "session": { "noticeText": "30 days", "state": "built", "source": "src/lib/server/auth.ts", "proof": "SESSION_TTL_MS = 30 \\* 24 \\* 60 \\* 60 \\* 1000" },
+    "signup-link": { "noticeText": "24 hours", "state": "built", "source": "src/lib/server/account/access.ts", "proof": "SIGNUP: 24 \\* HOUR_MS" },
+    "reset-link": { "noticeText": "60 minutes", "state": "built", "source": "src/lib/server/account/access.ts", "proof": "PASSWORD_RESET: HOUR_MS" },
+    "backups": { "state": "unknown", "needs": "Decision 12" },
+    "logs": { "state": "unknown", "needs": "Decision 5" },
+    "unused-accounts": { "state": "unknown", "needs": "R-06" }
+  }
+}
