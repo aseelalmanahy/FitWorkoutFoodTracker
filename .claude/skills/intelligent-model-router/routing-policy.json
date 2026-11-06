@@ -17,6 +17,8 @@
     "protectedWritePatterns": [
       "(^|/)\\.claude/agents/",
       "(^|/)\\.claude/skills/intelligent-model-router/",
+      "(^|/)\\.claude/skills/parallel-task-orchestrator/",
+      "(^|/)\\.claude/orchestrator/",
       "(^|/)\\.claude/model-router\\.project\\.json$",
       "(^|/)\\.claude/settings(\\.local)?\\.json$",
       "(^|/)CLAUDE\\.md$"
@@ -26,7 +28,7 @@
       { "label": "database seed", "pattern": "prisma\\s+db\\s+seed|db:seed|\\bseed\\.(ts|js)\\b" },
       { "label": "direct database client", "pattern": "\\b(psql|pg_restore|pg_dump|dropdb|createdb|mysql|mongosh)\\b" },
       { "label": "deployment", "pattern": "\\b(kubectl|terraform|helm|vercel|flyctl|netlify)\\b|docker\\s+(push|compose\\s+.*\\bup\\b|run\\b)|\\bnpm\\s+publish\\b" },
-      { "label": "publishing or rewriting Git history", "pattern": "\\bgit\\s+(push|merge(?!-base)|rebase|commit|reset\\s+--hard|clean\\s+-[a-z]*f|branch\\s+-D|filter-branch|config)\\b|\\bgh\\s+(pr\\s+merge|repo\\s+delete|release)\\b" },
+      { "label": "committing, publishing, rewriting history or reading Git settings", "pattern": "\\bgit\\s+(push|merge(?!-base)|rebase|commit|reset\\s+--hard|clean\\s+-[a-z]*f|branch\\s+-D|filter-branch|config)\\b|\\bgh\\s+(pr\\s+merge|repo\\s+delete|release)\\b" },
       { "label": "starting another Claude session", "pattern": "(^|[;&|(]\\s*)(npx\\s+)?claude(\\.exe)?(\\s|$)" },
       { "label": "reaching an external service", "pattern": "\\b(curl|wget|ssh|scp|rsync)\\b|Invoke-WebRequest|Invoke-RestMethod|api\\.anthropic\\.com" },
       { "label": "reading a secret file", "pattern": "(^|[\\s=/\"'])\\.env(\\.(?!example\\b)[\\w-]+)?(?=$|[\\s\"';|&])" },

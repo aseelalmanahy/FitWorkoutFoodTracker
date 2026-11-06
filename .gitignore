@@ -10,5 +10,9 @@ out
 next-env.d.ts
 coverage
 
+# The parallel orchestrator's run records, and Claude Code's subagent worktrees
+.claude/orchestrator/
+.claude/worktrees/
+
 # Live provider check output (scripts/live-provider-check.cjs)
 live-provider-report.json
