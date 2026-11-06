@@ -17,6 +17,9 @@ coverage
 # Live provider check output (scripts/live-provider-check.cjs)
 live-provider-report.json
 
+# QA fixture passwords, from scripts/qa-fixtures.cjs.
+qa-test-accounts.local.md
+
 # Development email, which holds live sign-up and reset links.
 .mail-outbox/
 

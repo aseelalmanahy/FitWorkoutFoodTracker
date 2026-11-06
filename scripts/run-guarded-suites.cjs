@@ -96,7 +96,7 @@ async function withoutMarkerWrite(run) {
 }
 
 // Only when asked for by name: these bracket applying a migration, which needs the owner's approval.
-const ON_DEMAND = new Set(["migration-snapshot", "migration-verify", "profile-migration-snapshot", "profile-migration-verify"]);
+const ON_DEMAND = new Set(["qa-fixtures-e2e", "migration-snapshot", "migration-verify", "profile-migration-snapshot", "profile-migration-verify"]);
 const SUITES = {
   guard: () => runNode(nodeTest("test-target-guard.test.cjs"), { DATABASE_URL: "" }, 300_000),
   "guard-browser": () => runNode(nodeTest("test-target-guard.browser.test.cjs"), { DATABASE_URL: "" }, 300_000),
@@ -123,6 +123,8 @@ const SUITES = {
   // TRUST_PROXY_HOPS lets each request in the suite name its own client in X-Forwarded-For, so the 10-per-15-minutes limits on sign-up and
   // on redeeming a link apply per case and not to the whole suite. Nothing is loosened: every case stays under the limit.
   "account-tokens": () => withApp("account-tokens", { appEnv: { TRUST_PROXY_HOPS: "1" } }, ({ url, serverLog }) => runNode(nodeTest("account-tokens.test.cjs"), { BASE_URL: url, SERVER_LOG_FILE: serverLog }, 590_000)),
+  // Needs scripts/qa-fixtures.cjs --create first, so only when asked for by name.
+  "qa-fixtures-e2e": () => withApp("qa-fixtures-e2e", {}, ({ url }) => runNode([script("e2e-qa-fixtures.cjs")], { BASE_URL: url }, 590_000)),
   "account-data-e2e": () => withApp("account-data-e2e", {}, ({ url }) => runNode([script("e2e-account-data.cjs")], { BASE_URL: url }, 590_000)),
   "production-startup": () => runNode(nodeTest("production-startup.test.cjs"), { DATABASE_URL: "" }, 590_000),
   "production-security": () => {

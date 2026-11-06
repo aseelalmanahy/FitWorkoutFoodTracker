@@ -569,10 +569,11 @@ test("the guard has no import-time side effects", () => {
 // ─── Coverage: every script is classified, and write-capable ones use the guard ─
 
 const GUARDED = [
-  "account-data.test.cjs", "account-tokens.test.cjs", "e2e-account-data.cjs", "e2e-eligibility.cjs", "e2e-production-security.cjs", "e2e-hardening.cjs", "e2e-label-pdf.cjs", "e2e-label-scan.cjs", "e2e-meal.cjs", "e2e-nutrition-targets.cjs", "e2e-nutrition.cjs", "e2e-profile-minimization.cjs", "e2e-smoke.cjs",
+  "account-data.test.cjs", "account-tokens.test.cjs", "e2e-qa-fixtures.cjs", "e2e-account-data.cjs", "e2e-eligibility.cjs", "e2e-production-security.cjs", "e2e-hardening.cjs", "e2e-label-pdf.cjs", "e2e-label-scan.cjs", "e2e-meal.cjs", "e2e-nutrition-targets.cjs", "e2e-nutrition.cjs", "e2e-profile-minimization.cjs", "e2e-smoke.cjs",
   "nutrition-api.test.cjs", "nutrition-target-migration-check.cjs", "nutrition-targets.test.cjs", "production-security.test.cjs", "profile-migration-check.cjs", "profile-minimization.test.cjs", "profile-nulls.test.cjs", "provider-config.test.cjs", "provider-malformed.test.cjs", "provider-protection.test.cjs", "release-workflow.test.cjs",
 ];
 const OTHER_WRITE_CAPABLE = {
+  "qa-fixtures.cjs": { must: ["databaseUrlProblem(", "environmentProblems(", "readDatabaseIdentity(", "assertConnectedTarget("], reason: "writes directly with no server to verify, by hand, on fitdb_test only" },
   "live-provider-check.cjs": { must: ["checkTarget("], reason: "shared static checks, plus its own stricter server verification" },
   "usda-missing-nutrients.test.cjs": { must: ["databaseUrlProblem(", "verifyServerIdentity("], reason: "starts its own app, then verifies it" },
   "live-provider-check.safety.test.cjs": { must: ["databaseUrlProblem("], reason: "starts its own apps, and tests the live check's refusals" },
@@ -580,6 +581,7 @@ const OTHER_WRITE_CAPABLE = {
   "run-guarded-suites.cjs": { must: ["databaseUrlProblem(", "verifyServerIdentity("], reason: "starts apps for the suites, and verifies each one first" },
 };
 const NOT_GUARDED = {
+  "qa-fixtures.test.cjs": "the fixture's data rules, and spawns the script for what it must refuse, with no database",
   "production-startup.test.cjs": "starts the server only with fake settings it must refuse, with a host that can't resolve",
   "mark-test-database.cjs": "changes only the marker comment, with validateTargetUrl and an exact --confirm",
   "test-db-guard.test.cjs": "reads through a validated URL, and spawns tools that must refuse",
@@ -589,7 +591,7 @@ const NOT_GUARDED = {
   "stub-food-apis.cjs": "a local stand-in server, sends no requests",
   "stub-label-provider.cjs": "a local stand-in server, sends no requests",
 };
-const NOT_GUARDED_MAY_WRITE = new Set(["mark-test-database.cjs", "test-db-guard.test.cjs", "live-check.units.test.cjs", "test-target-guard.test.cjs", "test-target-guard.browser.test.cjs"]);
+const NOT_GUARDED_MAY_WRITE = new Set(["qa-fixtures.test.cjs", "mark-test-database.cjs", "test-db-guard.test.cjs", "live-check.units.test.cjs", "test-target-guard.test.cjs", "test-target-guard.browser.test.cjs"]);
 const WRITE_CAPABLE = /\bfetch\(|PrismaClient|newContext\(|require\(["']playwright["']\)|\/api\/auth\/register|http\.request\(/;
 
 /** Problems in a guarded script's source. Comments are ignored, so a mention can't satisfy this. */
