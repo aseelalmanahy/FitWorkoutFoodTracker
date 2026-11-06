@@ -444,8 +444,10 @@ This adapts Review B's design, which assumed a user always exists. Tokens are pu
 |---|---|---|---|---|
 | 1 | 4.0.0 Decisions and inputs | No | Legal and clinical review, possibly paid | No |
 | 1a | 4.0.0a Test-target guard | No | No | No |
-| 2 | 4.0.1 Eligibility and calorie safeguards | No | No | No |
-| 3 | 4.0.2 Deletion and export | No | No | No |
+| 2 | 4.0.1 Eligibility and calorie safeguards (Stage A) | No | No | No |
+| 2a | 4.0.1b Target stop and calories-only, **proposed** | **Yes, own approval** | No | No |
+| 2b | 4.0.1c Profile data reduction, **proposed, can slip alone** | **Yes, own approval** | No | No |
+| 3 | 4.0.2 Deletion and export. **Proposed: export ships after 4.0.1b** | No | No | No |
 | 4 | 4.0.3 Production foundation | No | **Host, database, domain, monitor** | No |
 | 5 | 4.0.4 Email-proven access | **Yes** | **Email provider** | **Possibly an email SDK** |
 | 6 | 4.0.5 Notice and acceptance | **Shares 4.0.4's** | Legal review | No |
@@ -482,6 +484,8 @@ This adapts Review B's design, which assumed a user always exists. Tokens are pu
 
 **The detailed plan is `docs/PHASE_4_0_1_IMPLEMENTATION_PLAN.md`. If this summary and that plan differ, the plan is correct.**
 
+**Proposed by the plan's Annex H, not approved:** this milestone becomes Stage A with no migration, and adds a fail-closed access gate for no-profile and stored under-minimum accounts, plus neutral over-target colour. 4.0.1b adds one `NutritionTarget` migration (Decisions 20, 26). 4.0.1c adds one separate `Profile` migration (Decisions 21, 25). **Stage A alone must not admit real users.**
+
 - **Objective:** no misleading targets for minors, and no automatic low intake for anyone.
 - **Scope:**
   - One shared calendar-age rule, enforced on the server for onboarding and profile edits. Neutral refusal.
@@ -502,6 +506,7 @@ This adapts Review B's design, which assumed a user always exists. Tokens are pu
 ### 4.0.2 Account deletion and data export
 
 - **Objective:** people can leave, and take their data.
+- **Proposed by the plan's Annex H, not approved:** deletion is also offered from the refusal and restricted screens, reachable without a complete profile. Export follows 4.0.1b, and includes stopped target rows and nulls as null.
 - **Scope:** first, a test proving or disproving the expected failure. Then ordered deletion, export, password re-entry, `/profile/account` page, and the coverage check.
 - **Reuse:** `Sheet`, throttle and Argon2 slots, `isUncertainFailure`, `SAVE_TIMEOUT_MS`.
 - **Database and dependencies:** none.
@@ -569,6 +574,7 @@ This adapts Review B's design, which assumed a user always exists. Tokens are pu
 - **Scope:** the scripted flows on one iPhone and one Android phone against the deployed build, the owner using it for a real week of training, and a written checklist.
 - **Decide here:** whether lost responses when logging a set need a fix first, as `POST .../sets` has no idempotency key.
 - **Proposed go/no-go items, from the agent's review of 4.0.1, not approved:** decision 23 has a reviewed number, or a recorded accepted gap with the register amended. Decision 26 has nullable macro columns, or that choice recorded.
+- **Also proposed by the plan's Annex H2, not approved:** decisions 6, 7 and 24 meet their acceptance conditions there. 4.0.1b is merged, and 4.0.1c is merged or its gap is accepted by the owner. A retention rule for abandoned profile-less accounts exists, from 4.0.5.
 - **Acceptance criteria:** every flow recorded pass or fail per device, including a link opened from a mail app, date entry, a screen lock between sets, a network drop while saving, session persistence, reset, export and deletion. No open blocker. Checklist signed by the owner. Database reset before the first participant.
 - **Rollback:** none needed.
 - **Approvals:** owner signs go or no-go.
@@ -652,6 +658,8 @@ The full list for 4.0.1 is in the plan's section 13. A "799 shows no warning" co
 
 **For the owner. None is decided by this document.** These numbers are permanent, and `PRODUCT_STRATEGY.md` section 12 has its own separate list. Decisions 19 to 31 were added during 4.0.1 planning, and earlier numbers are unchanged.
 
+**The final engineering recommendations are in the plan's Annex H1 and H2, with legal and clinical dependencies in H7. They replace this table's recommendations for decisions 6, 7, 20, 21, 23, 24, 25, 26, 27, 29 and 31. The table below is kept as the earlier position. All remain recommendations.**
+
 | # | Decision | Recommendation | Blocks |
 |---|---|---|---|
 | 1 | Minimum age | 18, subject to legal review | 4.0.1 |
@@ -703,7 +711,7 @@ The full list for 4.0.1 is in the plan's section 13. A "799 shows no warning" co
 
 - It's the only area where a failure can harm someone's health rather than their data.
 - Its calculation defects are REPRODUCED AT MODULE LEVEL, and its target-path defects are confirmed in the source.
-- It needs no service, dependency or migration. **It does change existing tests,** contrary to an earlier version of this section: seeding is asserted in `nutrition-api.test.cjs` and `release-workflow.test.cjs`, and six browser flows need updating. See the plan's section 12.
+- It needs no service, dependency or migration, **as Stage A under the plan's Annex H. 4.0.1b and 4.0.1c each propose one migration, with their own approval.** **It does change existing tests,** contrary to an earlier version of this section: seeding is asserted in `nutrition-api.test.cjs` and `release-workflow.test.cjs`, and six browser flows need updating. See the plan's section 12.
 - It's useful even if every other decision takes time.
 
 **Decisions it needs:** 1, 9, 15, 19, 20, 21, 22 and 25 to 31.
@@ -730,7 +738,7 @@ The full list for 4.0.1 is in the plan's section 13. A "799 shows no warning" co
 | Real-device testing | Agent MODIFY, P1 | None unless defects | Test accounts, reset after | None | Date entry, mail links | Written script | Deployed build | 4.0.3 to 4.0.5 | S to M | **Run in 4.0.6, repeat after 4.1** |
 | Sign out everywhere | Review C blocker | Delete user's sessions | Stolen session | None | Settings | Revocation | None | 4.0.4 | S | **Via change-password. Separate control later** |
 | Email change | B include; agent later | `EMAIL_CHANGE` token purpose | Notify old address | None | Settings | Token tests | Email | 4.0.4 | M | **Defer, manual during beta** |
-| Under-18 remediation flow | A cut; D documents the state | Route-level block | Stored minors | Stops formulas | Blocked page | Boundary | None | Empty production database | M | **Don't build. Manual procedure** |
+| Under-18 remediation flow | A cut; D documents the state | Route-level block | Stored minors | Stops formulas | Blocked page | Boundary | None | Empty production database | M | **Don't build. Manual procedure.** Superseded in part, as proposed by the plan's Annex H: a derived, fail-closed restriction with no stored flag |
 
 ### Disagreements, and how each was resolved
 

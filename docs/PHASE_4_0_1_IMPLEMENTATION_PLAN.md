@@ -14,6 +14,8 @@
 
 It also takes no legal position. Application code is the same on `main` (`3f0fddc`) and this plan's branch (`1960eec`), and all references were checked against it on 2026-11-05.
 
+**Current recommendations are in Annex H, which supersedes earlier recommendations where they differ. They split this work into Stage A (no migration), 4.0.1b and 4.0.1c. The owner hasn't approved them, and the no-migration boundaries above remain in force until the owner decides.**
+
 **Decision numbers** are those in `docs/PHASE_4_0_DESIGN.md`, section 15, written "Decision 9". `docs/PRODUCT_STRATEGY.md` has its own list, always written "Strategy decision 8".
 
 **For the independent reviewer:**
@@ -30,6 +32,8 @@ It also takes no legal position. Application code is the same on `main` (`3f0fdd
 | Open owner decisions | Section 16 |
 | Contradictions between documents | Annex E |
 | Product Strategy Agent's review of this revision | Annex G |
+| **Final engineering recommendations and decision matrix** | **Annex H** |
+| Product Strategy Agent's review of the scope change | Annex I |
 
 **How to read this plan:**
 
@@ -89,6 +93,8 @@ Stop the app from giving people calorie or macro targets they didn't choose, and
 **Maintenance estimates aren't safe just because they aren't deficits.** 1,990 kcal at BMI 13.8 reads as "stay here". A fixture at BMI 20 gets the same 1,110 kcal as a person at 35 kg. So calories alone can't separate a plausible result from an alarming one, and any cutoff would be an invented threshold. **This plan sets none.**
 
 ## 3. Exact implementation boundaries
+
+**Annex H3 proposes the current boundaries. It adds an access gate and neutral over-target colour to this list, and gives Decisions 20, 21, 25 and 26's schema work to 4.0.1b and 4.0.1c.**
 
 **TECHNICAL DESIGN, in scope:**
 
@@ -277,9 +283,13 @@ The review behind these rules is in Annex A.
 
 ### BLOCKED: stopping a target (Decision 20)
 
+**SUPERSEDED by Annex H: the deletion recommendation below is withdrawn in favour of a stopped row with null `kcal`. Kept as the record.**
+
 `kcal` is non-null (`schema.prisma:390`), so no row can say "no target from today". **Recommended: `DELETE /api/nutrition/targets` removes all the user's target rows,** after a `Sheet` confirmation: "Stop using a target? Your food log stays, but past days will no longer be compared with a target." **Consequence:** earlier days lose their target comparison, which departs from "changing a target never rewrites past days" (`schema.prisma:385`). The alternative is a nullable column, which needs a migration and isn't authorized. **The agent notes that Decisions 20 and 26 touch the same table:** if nullable macros are approved, decide nullable `kcal` at the same time, which could preserve history (INFERRED RISK, untested). **Doing nothing leaves no way back to tracking without a target,** which undermines the opt-out for pregnancy, illness or eating concerns.
 
 ### BLOCKED: calories-only targets (Decision 26)
+
+**Annex H recommends option B, in one migration with Decision 20's nullable `kcal`, as 4.0.1b, and C in Stage A. Option A isn't proposed.**
 
 **A new finding from removing suggested macros.** Protein and fat are required, and all macro columns are non-null (`schema.prisma:391-393`). Today's editor opens filled in. With blank fields, someone who wants only a calorie target must invent macro numbers or type 0.
 
@@ -320,12 +330,16 @@ Three options exist for manual targets: block, warn, or require added confirmati
 
 ## 9. Backward compatibility
 
+**This section describes Stage A. Annex H covers 4.0.1b and 4.0.1c, and their migrations.**
+
 - **No schema or migration change.** No new dependency or service.
 - `NutritionTarget` rows are unchanged, and `SUGGESTED` stays a valid value.
 - `calorieTargetOverride` becomes unused.
 - **API changes, all internal:** `suggestion` is removed from `GET /api/nutrition/targets`. The suggestion route is removed. `calorieTargetOverride` is ignored. Under Decision 20, a `DELETE` is added.
 
 ## 10. Existing targets and accounts
+
+**Annex H changes two rows below: a stored under-18 profile is now restricted by a derived rule, and accounts with no profile lose API access through the same gate. The only proposed removal of target rows, under Decision 20, is withdrawn.**
 
 | Situation | Behaviour |
 |---|---|
@@ -473,6 +487,8 @@ Three options exist for manual targets: block, warn, or require added confirmati
 
 ## 14. Acceptance criteria
 
+**These apply to Stage A, with the changes in Annex H: T33 to T37 and NC26 and NC27 are added, and criterion 3's `DELETE` no longer applies. 4.0.1b and 4.0.1c have their tests in Annex H, and their own acceptance when authorized. Criterion 11 applies to Stage A only.**
+
 All objectively testable:
 
 1. Every row of section 6's date table passes.
@@ -492,6 +508,8 @@ All objectively testable:
 
 ## 15. Rollback strategy
 
+**This section describes Stage A. Rollback for the proposed migrations is in Annex H6, and is one-way once nulls exist. The Decision 20 line below is withdrawn with deletion.**
+
 Code only: revert the merge. **No data migration occurs and no rows are rewritten,** so nothing needs restoring.
 
 - After a revert, seeding returns, so accounts with no target would get one on the next read.
@@ -501,6 +519,8 @@ Code only: revert the merge. **No data migration occurs and no rows are rewritte
 ## 16. Open decisions
 
 All are the owner's. **None is decided here.** The plan's earlier D-numbers are retired: Annex F maps them.
+
+**The recommendations below are as they stood before the final round. The current ones are in Annex H1, and differ on Decisions 20, 21, 25, 26, 27, 29 and 31's detail. Decision 24 moves to Stage A.**
 
 **Blocking this milestone:**
 
@@ -553,8 +573,9 @@ All are the owner's. **None is decided here.** The plan's earlier D-numbers are 
 
 1. The owner has decided the fourteen blocking decisions in section 16.
 2. The owner has explicitly authorized 4.0.1.
-3. The 4.0.0a test-target guard has been merged.
+3. The 4.0.0a test-target guard has been merged. **Done: on `main` at `56606ee`.**
 4. This plan has passed independent review.
+5. **Added by Annex H, as proposed:** each of 4.0.1b and 4.0.1c has its own explicit approval, including its migration. Approving Stage A approves neither.
 
 **A Product Strategy Agent recommendation isn't authorization.**
 
@@ -660,6 +681,8 @@ DELETE /api/nutrition/targets → DELETE own rows (Decision 20 only)
 
 ## Annex E: Contradictions between documents
 
+**Annex H8 gives the current reconciliation, including which document is authoritative. This table stays as the earlier position.**
+
 **`docs/PHASE_4_0_DESIGN.md` was corrected in this round** for its 4.0.1 scope, decisions and tests. **`PRODUCT_STRATEGY.md`, `FEATURE_DECISIONS.md` and `DEVELOPMENT_WORKFLOW.md` weren't changed:** the design records that the register and strategy need approval first. These remain for the owner:
 
 | # | Where | Says | This plan | Proposed resolution |
@@ -762,3 +785,271 @@ DELETE /api/nutrition/targets → DELETE own rows (Decision 20 only)
 | Facts | Defect 17 incomplete. "4.0.2 removes refused accounts" unsupported. Design scope conflicted on sex and activity | | All corrected, after checking them against the code and design |
 
 **What it couldn't verify, by its own account:** it ran nothing and re-derived 1,690, 8,510, 8,860 and the macro collapse by hand. Test-breakage predictions, test and script references, UI behaviour and Zod's message text are unchecked. Prisma's behaviour with nulls after a revert is unobserved. No database was inspected, and all claims about user value are assumptions.
+
+## Annex H: Final engineering recommendations
+
+**Status: RECOMMENDATIONS, dated 2026-11-05, checked against `main` at `56606ee`. The owner has approved none of them. No implementation, migration or schema change is authorized.** Where this annex differs from an earlier section, this annex is the current recommendation, and the earlier text stays as the record of how the thinking moved. The principal engineer wrote this for ChatGPT's independent review. No application, test, migration or database was run for it.
+
+### H1. Decision matrix
+
+"Stage" is defined in H3. Every row needs owner approval, and nothing here has it.
+
+| Decision | Recommended resolution | Reason | Implementation impact | Risk | Owner approval |
+|---|---|---|---|---|---|
+| **1** Minimum age | 18+, from a declared date of birth. Never called verification | The register's target user is adults, and identity checks are out of proportion | Stage A: `eligibility.ts`. No schema change | Declared age can be false. Legal may change the number | Pending. Legal dependency |
+| **15** Age calculation | UTC calendar dates, one server-side rule. 365.25 removed. Client `timezone` has no effect. Born 29 February turns 18 on 1 March in a common year | `ageFromBirthDate` already does this, and the client time zone is untrusted | Stage A: removes `validation.ts:26-29` and `profile-form.tsx:95-102` | Up to about a day's difference from local time | Pending. Leap-day rule goes to legal |
+| **9** Calorie default | Option A. No estimates or macro suggestions. Reopening needs its own review and approval | No honest withholding rule exists without a threshold, and no range width is validated | Stage A: removals in section 5 | People may copy worse numbers from elsewhere (UNTESTED ASSUMPTION) | Pending |
+| **19** Backfill | Remove. A target starts on its effective date. Food entries aren't touched | It writes during reads, and judges earlier days against a later target | Stage A: `targets.ts:66-73` removed, tests in section 12 | Averages change for development data. Dates already moved earlier stay as they are | Pending |
+| **20** Stop a target | **Changed:** no row deletion. A row with null `kcal` and source `MANUAL`, effective today, means "no target from here" | Keeps past comparisons, and `targetForDate`'s "latest row wins" rule stays true | 4.0.1b: migration, `POST /api/nutrition/targets/stop`, Sheet confirmation | One-way rollback once nulls exist (H6) | Pending. **Separate migration approval** |
+| **21** Required goal | **Changed:** not required, as no implemented feature reads it | A required unread field fails data minimisation | 4.0.1c. Stage A keeps the column required, with no preselected value | Phase 4.1's goal card needs a state for no goal | Pending. Migration approval |
+| **22** State 18+ | Yes, at sign-up and in terms. Declared, never verified | Honest. The number isn't secret, as repeated attempts reveal it | Stage A: `auth-form.tsx` | Wording needs legal review | Pending |
+| **25** Unread profile fields | **Changed:** stop collecting sex, height, current weight, activity, experience and workout days at onboarding, and let people clear stored values. Conditional on Decision 9 = A | Nothing in product logic reads them. Non-null columns mean "optional" needs a migration, or invented defaults | Stage A: unselected, with honest text, as an interim. 4.0.1c: migration and form change | Form defaults at `profile-form.tsx:55-57,60-61` would invent values if left in. `:64-65` break on null height | Pending. Migration approval. Legal to advise |
+| **26** Calories-only | Nullable macros. Blank is null, zero stays zero. Carbs are derived only when protein and fat were both supplied | The only option that's truthful for later export | 4.0.1b, in the same migration as Decision 20. Stage A keeps required numbers | Every macro reader needs null handling (H4) | Pending. **Separate migration approval** |
+| **27** Refused accounts | Restrict in 4.0.1, delete in 4.0.2. No automatic deletion at refusal | 21 route files have no profile check, by search, so a refused session has access now. Deletion has an unobserved failure risk, and restriction doesn't depend on it | Stage A: fail-closed gate (H4). 4.0.2: delete from refusal screen. 4.0.5: retention rule | Refused email and password hash persist until deleted or purged | Pending. **Amends the register.** Legal dependency |
+| **28** Under-18 date on edit | Reject, change nothing, keep access. Only a *stored* under-minimum date restricts | An uncommitted value establishes nothing, and a typo mustn't lock an account | Stage A: `PUT /api/profile` | A true statement of being under 18 is refused but not acted upon. Legal to say if that's acceptable | Pending. Legal dependency |
+| **29** Date recovery | Confirm the date in words before submitting. Refusal offers one neutral correction path. Existing short-window limit on refused attempts. No stored refusal record | Today's "no retry" is cosmetic (H5). A durable record stores data about likely minors, and a new email bypasses it | Stage A: form and route. No schema change | It's friction, not enforcement. **The agent disagrees on the limit** (H5) | Pending. Legal dependency |
+| **30** Legacy `SUGGESTED` rows | Never converted automatically. Editor starts blank, and Targets and Nutrition label them "Set automatically earlier". Only the person's own save replaces today's row | Prevents "Set by you" on a value nobody chose (defect 8) | Stage A: editor, labels, T25, T32 | They stay in force, and may hold defective values, until replaced. No stop path until 4.0.1b | Pending. Production-empty check at 4.0.3 |
+| **31** Below 800 message | Neutral fixed text. Interim: "Enter a number from 800 to 8,000. This is the range the app accepts, not a recommendation." | 800 is a data boundary, and no evidence makes it a safety limit | Stage A: editor and field mapping | A printed limit can still read as advice. Wording goes to the reviewer | Pending. Clinical dependency |
+
+### H2. Beta safety gates
+
+**None of these claims compliance or sets a clinical threshold.**
+
+| Decision | Proposed milestone | Objective acceptance condition | Responsible | Blocks beta |
+|---|---|---|---|---|
+| **6** Legal review | Name in 4.0.0. Advice before 4.0.5 merges | Dated written advice, for the country chosen under Decision 2, answering every legal question in H7. The notice's final text matches it | Owner appoints, qualified legal reviewer advises | **Yes** |
+| **7** Fitness and nutrition review | Name in 4.0.0. Review before 4.0.6 sign-off | Reviewer's name and qualification recorded by the owner, and a dated written review of named text at a stated commit: interim copy, the 800 message, the help resource and Decision 23. **Or** a recorded gap signed by the owner, allowed only if the app contains no suggested numbers, thresholds or nutrition safety advice | Owner appoints, qualified reviewer reviews | **Yes,** until one of the two exists |
+| **23** Low-target and underweight-goal safeguards | Decide before 4.0.6, as a go/no-go item, and before any Phase 4.1 goal card ships | Either the reviewer supplies each number with its source and wording, and it's built with tests. Or the owner signs an accepted gap, amends the register, and tells participants the app doesn't assess targets or goals | Owner decides, reviewer supplies any number, engineer builds | **Yes,** until recorded |
+| **24** Over-target colour | **4.0.1, Stage A** | No over-target state uses `text-down`, `bg-down` or `var(--down)` at `macro-bar.tsx:16,22,24`, `nutrition/page.tsx:18,50,58` or `history/page.tsx:73`. "Over" stays in text. Source search test T37 | Engineer builds, owner approves. Reviewer may revisit it | **Yes,** until merged |
+
+### H3. Implementation scope
+
+**A. Required for Phase 4.0.1 (Stage A: no migration, `prisma/` unchanged)**
+
+- Decisions 1, 9, 15, 19, 22, 24, 28, 29, 30 and 31, the restriction half of Decision 27, and section 3's technical design.
+- Interim form: units, sex, activity and goal start unselected and are required, with honest text. Macros stay required. There's no stop action.
+- Defect 24 is fixed by applying the same `proteinG > 0` condition `summarizePeriod` already uses.
+- **Stage A alone must not admit real users.**
+
+**B. Required before the beta, outside 4.0.1**
+
+| Item | Contents | Depends on |
+|---|---|---|
+| **4.0.1b** | NutritionTarget migration, stopping a target, calories-only targets | Stage A, migration approval |
+| **4.0.1c** | Profile migration. Onboarding asks only name, birth date, units and time zone. **Can slip independently,** and if refused, the Stage A interim needs an owner-accepted data-minimisation gap | Decision 9 = A, migration approval |
+| **4.0.2** | Self-service deletion, including from the refusal and restricted screens. Export ships after 4.0.1b, so its target shape is stable. Deletion doesn't need to wait. If 4.0.1c lands later, the versioned export format changes version | Stage A |
+| **4.0.3** | Read-only production-empty check, with approval | |
+| **4.0.5** | Retention rule for abandoned profile-less accounts, once legal gives a period | Decision 6 |
+| **4.0.6** | Go/no-go items in H2. Database reset before the first participant | |
+
+**C. Optional future improvements**
+
+- Any estimate, reopened only through section 8's consent rule.
+- Email notice to a restricted account, once 4.0.4 exists.
+- Dropping unused columns, including `calorieTargetOverride`.
+- Durable abuse limits if the app ever runs on several instances.
+
+### H4. Technical specification
+
+**Expected source files.** Stage A: section 11, plus `src/lib/server/api.ts`, `src/lib/server/profile.ts`, `src/lib/server/nutrition/profile.ts`, `src/middleware.ts`, a restricted page outside `(app)`, and every route file named as an exception. 4.0.1b: `prisma/schema.prisma`, one migration, `nutrition.ts`, `targets.ts`, `entries.ts`, `validation.ts`, `targets/route.ts`, a new `targets/stop/route.ts`, `targets-editor.tsx`, `macro-bar.tsx`, `targets/page.tsx`, `nutrition/page.tsx`, `history/page.tsx`. 4.0.1c: `prisma/schema.prisma`, one migration, `validation.ts`, `serialize.ts`, `profile-form.tsx`, `onboarding/page.tsx`, `profile/page.tsx`, `scripts/lib/e2e-onboarding.cjs`.
+
+**Access rule, Stage A.** One shared function returns `no_profile`, `restricted` (stored date is under the minimum, derived on each check, with no flag stored) or `ok`.
+
+| Caller | `no_profile` | `restricted` |
+|---|---|---|
+| `route()`, by default, so a new route is closed unless named | 409 "Complete your profile first" | 403 `account_restricted`. No date or number in the body |
+| `requireProfile`, for pages. It checks presence only today (`profile.ts:8-13`) | Onboarding | Restricted page, outside `(app)` to avoid a redirect loop |
+
+- **Exceptions, through a separately named wrapper:** `GET` and `PUT /api/profile` and logout, then export and delete from 4.0.2. A meta-test classifies every route file.
+- **Login still works,** so that a person can reach export, deletion and correction. The session isn't revoked.
+- **A restricted person can correct a stored date** through `PUT /api/profile`, under the same rule. Stored under-minimum dates can't arise once this ships, as refused dates aren't written and age only rises. This path covers legacy rows.
+- **Register item "notify":** the restricted page is the notice in 4.0.1. Email can't exist before 4.0.4.
+
+**Target schema, 4.0.1b, one migration, for approval. A design sketch, not applied:**
+
+```sql
+ALTER TABLE "NutritionTarget"
+  ALTER COLUMN "kcal" DROP NOT NULL,
+  ALTER COLUMN "proteinG" DROP NOT NULL,
+  ALTER COLUMN "carbsG" DROP NOT NULL,
+  ALTER COLUMN "fatG" DROP NOT NULL,
+  ADD CONSTRAINT "NutritionTarget_stop_shape" CHECK (
+    "kcal" IS NOT NULL
+    OR ("proteinG" IS NULL AND "carbsG" IS NULL AND "fatG" IS NULL AND "source" = 'MANUAL')),
+  ADD CONSTRAINT "NutritionTarget_carbs_derived" CHECK (
+    "carbsG" IS NULL OR ("proteinG" IS NOT NULL AND "fatG" IS NOT NULL));
+```
+
+| Row | `kcal` | Protein, fat | Carbs |
+|---|---|---|---|
+| Full target | Number | Numbers, 0 allowed | Derived |
+| Calories only | Number | Null | Null |
+| Partly set | Number | One null | Null |
+| Stopped | Null | Null | Null |
+
+**Why one migration for Decisions 20 and 26:** same table, same statement, same readers, same export shape, same rollback hazard. Two migrations would add a deployment state with no value. **The Profile migration stays separate:** different table, different decision, and it can be refused or slip alone. Neither joins 4.0.4's token migration.
+
+**Why not the alternatives for stopping:** deleting rows loses history and breaks `schema.prisma:385`. A boolean still needs an invented `kcal`. An `effectiveTo` column adds a second way to work out which target applies, and an awkward same-day case. A new enum value adds nothing, as null `kcal` already says it.
+
+**Rules:**
+
+- **`targetForDate` returns null for a stopped row.** So `kcal` stays a number for every active target, and existing no-target handling covers stopped days, including `calories`, `avgTargetKcal`, and the chart's target line, which has no `connectNulls` (`history-charts.tsx:18`).
+- **Partial nulls need their own handling,** which `targetForDate` doesn't cover: `entries.ts:184-186` gives a null macro block per macro, and `summarizePeriod`, `history/page.tsx:64-65`, `MacroBar`, `targets-editor.tsx` and the target history list treat a null as "not set", never 0.
+- **Writing is one path each.** `PUT` requires `kcal` and refuses null. Stopping happens only through `/stop`, so a blank form or client bug can't stop a target.
+- **Confirmation, interim wording:** "Stop using a target? Your food log and past targets stay. Days from today won't be compared with a target."
+- **Stopping with no target in force writes nothing,** and returns success, so repeating it is harmless.
+- **Past rows are never rewritten. Today's row can be.** The unique key on `userId, effectiveFrom` means setting or stopping twice in a day replaces today's row, which is existing behaviour and always the person's own act. **The earlier claim that rows are never rewritten was too broad.**
+- **Effective date:** the later of the local date and the latest row's `effectiveFrom`. After moving to an earlier time zone, a row could be dated tomorrow, and it would silently undo a stop made today.
+- **Blank, omitted and zero differ.** Blank in the form is sent as explicit `null`. An omitted key is still 400. Zero is stored as 0. With protein and fat both typed as 0, carbs are `kcal/4`, shown in the preview before saving, since both values were supplied.
+- **Existing rows aren't touched.** Legacy zeros stay zeros, as they can't be told from deliberate ones. Comparison at a 0 target stays arithmetic, in neutral colour. Consistency counts keep excluding `proteinG` of 0.
+
+**Profile, 4.0.1c.** `DROP NOT NULL` on `sex`, `heightCm`, `currentWeightKg`, `goal`, `activityLevel`, `experience`, `workoutDaysPerWeek`. No backfill and no invented default.
+
+- `PUT`: an omitted field is unchanged, explicit null clears it, and saving a null row keeps it null.
+- Remove the defaults at `profile-form.tsx:55-57,60-61`, and guard `:64-65`.
+- Profile page: stored values show with a clear action. Nothing asks for unset ones.
+- `name`, `birthDate`, `unitSystem` and `timezone` stay required, as they're used.
+
+**API changes:**
+
+| Stage | Change |
+|---|---|
+| A | Section 5's removals. Under-minimum 422. Most routes gain 409 and 403. Refused attempts over the limit get 429 |
+| 4.0.1b | `POST /api/nutrition/targets/stop`, new. `PUT` accepts null `proteinG`, `fatG`. `current` may have null macros. `history` rows may have null `kcal` and macros |
+| 4.0.1c | Profile fields may be null in `GET`. `PUT` semantics above |
+
+The earlier `DELETE /api/nutrition/targets` isn't proposed. All clients are internal, so there's no external contract to protect.
+
+**UI changes:** section 4, plus the date confirmation, correction path and restricted page (Stage A), Stop action and history "Stopped" rows (4.0.1b), shorter onboarding (4.0.1c).
+
+**Tests.** Section 12 applies, except that T27, T28, T31, NC19, NC20, NC21 and NC22 are retired with the options they served, and T30's blank case changes in 4.0.1b, from an error to null, never 0. **Fixtures with no profile will likely fail against the gate (INFERRED RISK, not counted).**
+
+| ID | Stage | Test |
+|---|---|---|
+| T33 | A | Every route file: no-profile session 409, stored under-minimum date 403, named exceptions work. A route file not classified fails |
+| T34 | A | Under-minimum stored date reaches the restricted page from every `(app)` route, with no redirect loop |
+| T35 | A | Date shown in words, from UTC parts, before any `PUT`. Declining sends nothing |
+| T36 | A | Refused attempts past the limit get 429, if the limit is kept. No date is logged or held. An adult date succeeds after the window |
+| T37 | A | No over-target state uses the `down` colour, and text still says "over" |
+| T38 | 4.0.1b | Direct inserts breaking either CHECK are refused |
+| T39 | 4.0.1b | Stop: rows dated earlier unchanged in every column, past days keep their targets, today's target null, user B unaffected, 401 anonymously |
+| T40 | 4.0.1b | Stop with no target, and twice in a row: no added row |
+| T41 | 4.0.1b | `PUT`: calories only, protein only, both, explicit 0, omitted key (400), null `kcal` (400) |
+| T42 | 4.0.1b | Effective date with a row dated tomorrow: the stop still holds tomorrow |
+| T43 | 4.0.1b | Day, history, chart and targets pages return 200 with each row shape, and never display a null as 0 |
+| T44 | 4.0.1b, 4.0.1c | Migration on seeded rows, including legacy zero, `SUGGESTED` and override rows: all values identical afterward. Drift check on a designated test database |
+| T45 | 4.0.1c | Onboarding completes with four fields. Null row re-saved stays null. Explicit null clears |
+
+| Control | Change | Must fail on |
+|---|---|---|
+| NC26 | Remove the gate from `route()` | T33 |
+| NC27 | `requireProfile` checks presence only | T34 |
+| NC28 | Stop deletes rows | T39 |
+| NC29 | `targetForDate` returns stopped rows | T39, T43 |
+| NC30 | Coalesce a null macro to 0 | T41, T43 |
+| NC31 | Drop a CHECK | T38 |
+| NC32 | Write the stop at the local date only | T42 |
+| NC33 | Restore a form default | T45 |
+
+**Security and privacy:**
+
+- The gate closes food, workout, label-scan and meal-identification routes to refused sessions. **The last two matter if AI is ever configured.**
+- Identity stays session-only, and `route()` keeps the Origin check.
+- Refused dates aren't stored or logged. The limiter holds a user id and times in process memory only, and resets on restart.
+- 4.0.2's export field allowlist must add stopped rows and nulls, written as null.
+- No new personal data category, and 4.0.1c reduces what's collected.
+
+### H5. Challenges to the recommendations
+
+| Question | Judgment |
+|---|---|
+| Nullable `kcal` over deleting rows? | **Yes.** Agree with the owner. The earlier deletion recommendation is withdrawn |
+| Macros in the same migration? | **Yes,** the same one as `kcal`. This doesn't contradict the earlier objection, which was to sharing 4.0.4's |
+| Make unread profile fields optional now? | **Partly disagree on form and timing.** Stopping collection is better than optional, as an optional field with no reader still invites data. Not in Stage A, since it needs a migration on a different table. Applies only with Decision 9 = A |
+| Restriction before deletion? | **Yes,** and the two aren't truly dependent. It needs no schema change and closes a real hole |
+| Existing recovery design sufficient? | **No.** It promises no retry, yet the date isn't saved, so reload or logging back in already gives unlimited retries. It relies on a support contact that doesn't exist |
+| Does this expand 4.0.1? | **Yes, if kept as one milestone.** The expansion is mostly beta work arriving earlier, but two migrations don't belong in one approval. Hence Stage A, 4.0.1b and 4.0.1c |
+
+**Where a true retry limit fails:** someone can type a false date first time, or register with another email. A durable counter also creates a record about likely minors, and can trap an adult with no support route. **So this is friction only.**
+
+**Disagreement left for the owner:** the Product Strategy Agent recommends cutting the limit, as it mainly burdens people who mistype. The engineer recommends keeping it only by reusing `isRateLimited` and `recordAttempt` at their existing 10 attempts in 15 minutes (`auth.ts:121-139`). That adds no new number, doesn't affect anyone mistyping a date once or twice, and meets the owner's stated wish to avoid unlimited retries. Cutting it is also acceptable, and nothing else depends on it.
+
+**Refusal copy, interim, replacing section 4's refusal row:** heading "We can't set up an account with that date of birth." Actions "Check the date" and "Log out". No number. Final wording goes to legal.
+
+### H6. Migration and rollback
+
+**Order:** apply a migration, verify, then deploy code. Old code keeps working until a null row exists (INFERRED RISK, unobserved).
+
+| Situation | Rollback |
+|---|---|
+| Stage A | Revert. Section 15 applies, and the gate goes with it, reopening the hole |
+| Migration applied, no nulls written | Count nulls, then restore NOT NULL and drop CHECKs, in a separately approved down migration |
+| Nulls exist | **Forward fix only.** PostgreSQL refuses NOT NULL while nulls exist, and filling with 0 would invent targets. Deleting stopped rows changes history. Old code against null rows is unobserved, and must be assumed unsafe |
+| After real users | Never fill or delete without owner approval and a tested backup |
+
+**To verify when authorized, on a designated test database only:** this would be the repository's first raw CHECK, invisible in `schema.prisma`, so whether `prisma migrate` reports drift is unobserved. The constraint names need a comment in the schema. **Never `fitdb`.**
+
+**Production-empty assumption:** the repository has no deployment files, and no database was inspected. It stays an UNTESTED ASSUMPTION until the read-only count at 4.0.3, confirmed by 4.0.6's reset. If any row carries over, stop and return to Decisions 27 and 30.
+
+### H7. Legal and clinical dependencies
+
+**Not concluded here. Each goes to the named reviewer.**
+
+**Legal (Decision 6):**
+
+1. Minimum age for the chosen country, and the 29 February rule.
+2. Whether being refused, or typing an under-18 date on an edit, creates a duty to act.
+3. Whether a correction path after refusal is acceptable, with or without a limit.
+4. Retention period for refused and abandoned accounts, including in backups.
+5. Replacing the register's immediate removal with self-service deletion and a retention rule.
+6. Whether birth date, weight and food data are health data, and what consent follows.
+7. Notice and terms wording on declared age.
+
+**Clinical (Decision 7):**
+
+1. The interim "not medical advice" text and the 800 message.
+2. Help resource for eating concerns.
+3. Whether any manual target or goal weight safeguard is warranted, and its number and source (Decision 23).
+4. The 90 % "Protein on target" display.
+5. Neutral over-target colour, as a later check on the Decision 24 change.
+6. Any reopening of Decision 9.
+
+### H8. Document reconciliation
+
+**Rule proposed:** `CLAUDE.md`'s principles take precedence. `FEATURE_DECISIONS.md` remains the record of what's approved, and is **added to, with a dated entry, not rewritten.** `PRODUCT_STRATEGY.md` owns roadmap and beta gates. `PHASE_4_0_DESIGN.md` owns milestones and decision numbers. This plan owns 4.0.1's technical detail. `DEVELOPMENT_WORKFLOW.md` owns process. **Only this plan and the design were changed in this round.**
+
+| # | Where | Conflict | Authoritative | Update needed | Owner decision |
+|---|---|---|---|---|---|
+| 1 | `FEATURE_DECISIONS.md:458` | Refused account removed immediately, against no automatic deletion | Register, until amended | Dated amendment under Decision 27 | **Yes** |
+| 2 | `FEATURE_DECISIONS.md:461`, `PRODUCT_STRATEGY.md:171` | Block, notify, offer export, delete. Now: derived block in Stage A, in-page notice, export and delete in 4.0.2 | Register, until amended | Amendment. This replaces the earlier "no blocked state" position | **Yes** |
+| 3 | `FEATURE_DECISIONS.md:463`, `PRODUCT_STRATEGY.md:173` | Warn on low targets and underweight goals, though no reviewed number exists | Register | Stays required unless Decision 23 amends it | **Yes** |
+| 4 | `FEATURE_DECISIONS.md:463` | Describes floors as protective, against reproduced defects | This plan, for the facts | Dated correction | **Yes,** with Decision 9 |
+| 5 | `PRODUCT_STRATEGY.md:236` | "Can't complete sign-up" overstates declared age | Strategy | Reword | **Yes** |
+| 6 | `PRODUCT_STRATEGY.md:81,99`, `README.md:12,26` | Describe estimates that would go | Code, once merged | Update at Stage A merge | With Decision 9 |
+| 7 | Strategy decision 8 | The weight log "feeds calorie suggestions" | Strategy | Update | **Yes,** with Decision 9 |
+| 8 | `DEVELOPMENT_WORKFLOW.md:37` | Agent results belong in the register, and Phase 4.0's aren't there. This round's is only in Annex I | Workflow | Add records | **Yes** |
+| 9 | `schema.prisma:97` | Stale comment | Code | Fix in 4.0.1c's migration | No |
+| 10 | Design section 12, "Migration: No" for 4.0.1 | True for Stage A only | Design | **Updated in this round, as proposed** | **Yes** |
+| 11 | Design section 12, 4.0.2 and export order | Export must follow 4.0.1b | Design | **Updated in this round, as proposed** | **Yes** |
+| 12 | Design Appendix A, "Under-18 remediation: don't build" | Conflicts with the derived restriction | Design | **Marked, as proposed** | **Yes** |
+| 13 | Design risk register against the register, on Decision 7 | Recorded gap or required review | Register | Resolved as proposed in H2 | **Yes** |
+| 14 | This plan's sections 3, 8, 9, 10, 14 to 17 | No migration, deletion, no blocked state | This annex, once approved | **Marked in this round** | **Yes** |
+
+## Annex I: Product Strategy Agent review of this scope change
+
+**Run once on 2026-11-05, because `CLAUDE.md` requires review of a major scope change.** It read the source and ran nothing. **A recommendation, not approval.** Summarized here, as the register isn't changed in this round.
+
+**Overall: MODIFY,** P0, MVP essential.
+
+| Item | Its position | Treatment |
+|---|---|---|
+| Targets | Build, with changes. `targetForDate` covers stops only, not partial nulls. `route.ts:18` exposes stop rows | Adopted, H4 |
+| Profile | Stop collecting rather than make optional. Conditional on Decision 9 = A. Null rows must not be re-saved with invented defaults | Adopted, H4 |
+| Restriction | `route()` misses pages, as `requireProfile` checks presence only. One shared rule | Adopted, H4 |
+| Refusal | Keep confirmation and correction. **Cut the limit** | **Disagreement, H5.** Owner decides |
+| Colour | Build, in Stage A | Adopted |
+| Staging | Split the two migrations. Only export waits, not deletion | Adopted, H3 |
+| Withdrawn by it | Interim deletion, required macros until a later migration, and the profile stopgap as an end state | Recorded |
+| Other findings | Same-day overwrite, `PUT` refusing null `kcal`, stopping with no target, `MANUAL` not enforced, Stage A mustn't admit real users, 403 must leave edits open, retention rule needs a milestone, Phase 4.1 goal card needs a null state | Each addressed in H1 to H6 |
+
+**What it couldn't verify:** it ran nothing, didn't count fixtures without profiles, and hasn't reviewed this annex as written.
