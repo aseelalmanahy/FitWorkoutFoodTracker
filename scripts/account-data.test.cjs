@@ -49,7 +49,11 @@ before(async () => {
     include: { servings: true },
   });
 });
-after(() => prisma.$disconnect());
+after(async () => {
+  // Links seeded for people this run left in place. Nothing else removes a sign-up link until it expires.
+  await prisma.accountToken.deleteMany({ where: { email: { endsWith: `x${run}@test.dev` } } });
+  await prisma.$disconnect();
+});
 
 /** One row in every model the person can own, with their tag in every text field that takes one. */
 async function seed({ user, tag }) {
