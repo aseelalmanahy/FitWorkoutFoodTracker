@@ -1,6 +1,6 @@
-| E-07 | 4.0.2 | Independent review, then the owner's merge approval | IN PROGRESS | P0 | Owner | The independent review conditionally approved `dbf5773`, pending N23's correction, now made. **Merge review of the corrected commit, and the owner's merge approval, are still needed** || N23 | The restricted page has no way out | A restricted account has a link to its data controls. Corrected from a timeout to this named assertion, and rerun against the mutation. The test also asserts the export and deletion controls on the page |# Project Completion Tracker
+# Project Completion Tracker
 
-**The single source of truth for what's done and what isn't.** Last updated 2026-11-06, on branch `feature/phase-4.0.2-account-data-controls`, from `main` at `9b6a57a`.
+**The single source of truth for what's done and what isn't.** Last updated 2026-11-06, on `main`, after Phase 4.0.2 merged at `b79331d`.
 
 **Rules:**
 
@@ -22,7 +22,7 @@
 | M-07 | 4.0.1 | Stage A: eligibility, access gate, automatic targets removed | COMPLETE | Merged at `429d961`. All guarded suites and 26 of 26 negative controls, with independent review. Not for real users on its own |
 | M-08 | 4.0.1b | Nullable targets, calories-only, stopping a target | COMPLETE for development | Merged at `38c4a37`, and verified on `fitdb_test`, section 3. **The migration is on `fitdb_test` only, so `fitdb` can't run this yet (B-07).** Not for real users on its own |
 | M-09 | 4.0.1c | Profile data minimization | COMPLETE for development | Merged at `899e54c`, and verified on `fitdb_test`, section 3. **The migration is on `fitdb_test` only, so `fitdb` can't run this yet (C-08, B-07).** `safety-no-marker` and `db-guard-scoped` weren't run on the final code (T-14). Not for real users on its own |
-| M-10 | 4.0.2 | Account deletion and export | **IN PROGRESS** | Implemented on this branch, and verified on `fitdb_test`, sections 2b and 3. **Not COMPLETE until independent review and merge** |
+| M-10 | 4.0.2 | Account deletion and export | COMPLETE for development | Merged at `b79331d`, and verified on `fitdb_test`, sections 2b and 3. **Not for real users on its own:** real-device testing (T-15), backup and log retention (S-14) and legal decisions (E-06) stay open. `safety-no-marker` and `db-guard-scoped` weren't run (T-14) |
 | M-11 | 4.0.3 | Production foundation | NOT STARTED | Needs decisions 4, 5 and 14 |
 | M-12 | 4.0.4 | Email-proven access | NOT STARTED | Needs 4.0.3 and decisions 8, 10, 11. Has a migration |
 | M-13 | 4.0.5 | Notice, acceptance, retention | NOT STARTED | Needs legal review. Shares 4.0.4's migration |
@@ -93,13 +93,13 @@
 
 | ID | Phase | Description | Status | Priority | Dependency | Acceptance Criteria |
 |---|---|---|---|---|---|---|
-| E-01 | 4.0.2 | Deletion: `POST /api/account/delete`, in one transaction, with a row lock, explicit owner-scoped steps, session identity, password and the word DELETE | IN PROGRESS | P0 | E-07 | **Verified on `fitdb_test`:** `account-data`. **Left:** review and merge |
-| E-02 | 4.0.2 | Export: `POST /api/account/export`, versioned JSON, from a field allowlist, in one snapshot, counted first, with password re-entry as the design requires | IN PROGRESS | P0 | E-07 | **Verified on `fitdb_test`:** every mapped field of every model compared with the row. **Left:** review and merge |
-| E-03 | 4.0.2 | `/account` page and public `/account-deleted` page, reachable from the profile, onboarding, refusal and restricted screens | IN PROGRESS | P0 | E-07 | **Verified:** 3 browsers. **Left:** review, merge, real phones |
-| E-04 | 4.0.2 | Every model and field classified in `account-data-map.json`, so a new one fails the unit tests | IN PROGRESS | P1 | E-07 | **Verified:** checked against Prisma's own model list, control N24. **Left:** review and merge |
-| E-05 | 4.0.2 | Stage A gate unchanged: both routes are named exceptions, and everything else stays closed | IN PROGRESS | P0 | E-07 | **Verified:** T33, `nutrition-api`, `eligibility`. **Left:** review and merge |
+| E-01 | 4.0.2 | Deletion: `POST /api/account/delete`, in one transaction, with a row lock, explicit owner-scoped steps, session identity, password and the word DELETE | COMPLETE for development | P0 | None | Merged at `b79331d`. `account-data` on `fitdb_test`. Limits: S-10, S-12, S-14 |
+| E-02 | 4.0.2 | Export: `POST /api/account/export`, versioned JSON, from a field allowlist, in one snapshot, counted first, with password re-entry as the design requires | COMPLETE for development | P0 | None | Merged at `b79331d`. Every mapped field of every model compared with the row, on `fitdb_test`. Limit: S-13 |
+| E-03 | 4.0.2 | `/account` page and public `/account-deleted` page, reachable from the profile, onboarding, refusal and restricted screens | COMPLETE for development | P0 | None | Merged at `b79331d`. 3 browsers at a phone-sized viewport. **Real phones are T-15** |
+| E-04 | 4.0.2 | Every model and field classified in `account-data-map.json`, so a new one fails the unit tests | COMPLETE | P1 | None | Merged at `b79331d`. Checked against Prisma's own model list, control N24 |
+| E-05 | 4.0.2 | Stage A gate unchanged: both routes are named exceptions, and everything else stays closed | COMPLETE | P0 | None | Merged at `b79331d`. T33, `nutrition-api`, `eligibility` |
 | E-06 | 4.0.2 | Owner's decision on export fallback, and legal advice on timing (design section 4.0.2's approvals). The "backups may keep a copy" wording is interim | BLOCKED | P1 | Owner, R-01 | Recorded, with final wording |
-| E-07 | 4.0.2 | Independent review, then the owner's merge approval | NOT STARTED | P0 | ChatGPT review, owner | A specific reviewed commit is approved |
+| E-07 | 4.0.2 | Independent review, then the owner's merge approval | COMPLETE | P0 | None | Independent review approved `b79331d`, as recorded by the owner on 2026-11-06, and it was fast-forwarded to `main`. The review's own findings aren't recorded here |
 
 **Deletion map, from the schema:**
 
@@ -151,7 +151,7 @@
 | N19 | Password attempts unlimited | Even the right password waits |
 | N20 | A reference conflict isn't reported as one | A failure part-way |
 | N21, N22 | The form sends without the word or password | Nothing is sent |
-| N23 | The restricted page has no way out | **A timeout waiting for the link, and not a named assertion** |
+| N23 | The restricted page has no way out | A restricted account has a link to its data controls: a named assertion, replacing an earlier browser timeout. Rerun against the mutation and restored, and the unmutated `account-data-e2e` passes in 3 browsers, also asserting the export and deletion controls on the page |
 | N24, N25 | A field left out of the map, or a step left out of the code | Their unit tests |
 
 **Corrected along the way:** the first run reported 3 misses. N7 was caught, on the control user's assertion, which fires first, so its expected text was widened. N10 wasn't caught, as the race rarely happens, so a new test holds the row so both requests queue every time, and that catches it. N9 removed one step plus the user row, so it only repeated N8, and it's retired. **A missing step alone can't fail at runtime, as the cascade still removes those rows.** N25 is what catches that, in the source.
@@ -315,8 +315,8 @@ The merged documents hold **recommendations.** Stage A's authorization covered i
 | R-01 | 4.0 | Legal review (Decision 6) | BLOCKED | P0 | Reviewer, Decision 2 | Dated advice answers every question in Annex H7 |
 | R-02 | 4.0 | Clinical and nutrition safety review (Decision 7) | BLOCKED | P0 | Reviewer | Written review at a stated commit, or a signed gap under Annex H2's conditions |
 | R-03 | 4.0.6 | Low-target and underweight-goal safeguards (Decision 23). **800 kcal is still accepted with no warning** | BLOCKED | P0 | R-02 | Reviewed number and source, or a signed gap with the register amended. **No threshold is invented here** |
-| R-04 | 4.0.2 | Self-service deletion, including from refusal and restricted screens | IN PROGRESS | P0 | E-07 | Built and verified on this branch. The expected failure on custom exercises is now observed: a plain delete is refused by the foreign key. **Left:** review, merge, real phones |
-| R-05 | 4.0.2 | Self-service export | IN PROGRESS | P0 | E-07 | Built and verified on this branch, with stopped rows and nulls as null, including cleared profile fields. **Left:** review, merge, a real iPhone download (T-15) |
+| R-04 | 4.0.2 | Self-service deletion, including from refusal and restricted screens | IN PROGRESS | P0 | T-15, S-14, E-06 | Merged at `b79331d`. A plain delete was observed to be refused by the foreign key, and the ordered deletion works. **Left before the beta:** real phones, and backup and log retention |
+| R-05 | 4.0.2 | Self-service export | IN PROGRESS | P0 | T-15, E-06 | Merged at `b79331d`, with stopped rows and nulls as null, including cleared profile fields. **Left before the beta:** a real iPhone download, and the export policy decision |
 | R-06 | 4.0.5 | Retention rule for refused and abandoned accounts. Their email and password hash persist until then | BLOCKED | P0 | R-01 | Rule stated in the notice, and applied |
 | R-07 | 4.0.3 | Deployment, HTTPS, one instance, backups with a tested restore | NOT STARTED | P0 | Decisions 4, 5 | Design section 12 |
 | R-08 | 4.0.3 | Read-only check that production starts empty. **Currently an untested assumption** | NOT STARTED | P0 | R-07 | Counts recorded, and 4.0.6's reset done. Otherwise return to Decisions 27 and 30 |
