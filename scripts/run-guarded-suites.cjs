@@ -99,6 +99,7 @@ async function withoutMarkerWrite(run) {
 const ON_DEMAND = new Set(["migration-snapshot", "migration-verify", "profile-migration-snapshot", "profile-migration-verify"]);
 const SUITES = {
   guard: () => runNode(nodeTest("test-target-guard.test.cjs"), { DATABASE_URL: "" }, 300_000),
+  "mig-04-refusals": () => runNode(nodeTest("mig-04.test.cjs"), { DATABASE_URL: "" }, 120_000),
   "guard-browser": () => runNode(nodeTest("test-target-guard.browser.test.cjs"), { DATABASE_URL: "" }, 300_000),
   units: () => runNode(nodeTest("live-check.units.test.cjs"), {}, 120_000),
   "live-identity": () => withoutMarkerWrite(() => runNode(nodeTest("live-check.identity.test.cjs"), {}, 300_000)),
@@ -126,6 +127,8 @@ const SUITES = {
   "privacy-consent": () => withApp("privacy-consent", { appEnv: { TRUST_PROXY_HOPS: "1" } }, ({ url }) => runNode(nodeTest("privacy-consent.test.cjs"), { BASE_URL: url }, 590_000)),
   "privacy-e2e": () => withApp("privacy-e2e", {}, ({ url }) => runNode([script("e2e-privacy.cjs")], { BASE_URL: url }, 590_000)),
   "privacy-cleanup": () => withApp("privacy-cleanup", {}, ({ url }) => runNode(nodeTest("e2e-privacy-cleanup.test.cjs"), { BASE_URL: url }, 590_000)),
+  "weight-progress": () => withApp("weight-progress", {}, ({ url }) => runNode(nodeTest("weight-progress.test.cjs"), { BASE_URL: url }, 300_000)),
+  "weight-e2e": () => withApp("weight-e2e", {}, ({ url }) => runNode([script("e2e-weight.cjs")], { BASE_URL: url }, 590_000)),
   "account-data-e2e": () => withApp("account-data-e2e", {}, ({ url }) => runNode([script("e2e-account-data.cjs")], { BASE_URL: url }, 590_000)),
   "production-startup": () => runNode(nodeTest("production-startup.test.cjs"), { DATABASE_URL: "" }, 590_000),
   "production-security": () => {

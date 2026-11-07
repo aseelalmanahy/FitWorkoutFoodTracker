@@ -7,6 +7,7 @@ const { completeOnboarding } = require('./lib/e2e-onboarding.cjs');
 const { signUpInBrowser } = require('./lib/signup.cjs');
 const target = require('./lib/test-target-guard.cjs').requireSafeTarget();
 const BASE = target.baseUrl;
+let describeFailure = async () => {};
 (async () => {
   await target.verifyServer();
   const browser = await chromium.launch(target.launchOptions('chromium'));
@@ -15,6 +16,17 @@ const BASE = target.baseUrl;
   const errors = [];
   page.on('pageerror', e => errors.push('pageerror: ' + e.message));
   page.on('console', m => m.type() === 'error' && errors.push('console: ' + m.text()));
+  // T-27: reported on a failure, as a wait that runs out says nothing about what was on the screen. Paths only, so no token.
+  const recent = [];
+  const note = (line) => { recent.push(line); if (recent.length > 20) recent.shift(); };
+  page.on('response', (r) => { const u = new URL(r.url()); if (!u.pathname.startsWith('/_next/static')) note(`${r.status()} ${r.request().method()} ${u.pathname}${u.searchParams.has('_rsc') ? ' [rsc]' : ''}`); });
+  page.on('requestfailed', (r) => note(`failed ${new URL(r.url()).pathname} ${r.failure()?.errorText ?? ''}`));
+  page.on('framenavigated', (f) => { if (f === page.mainFrame()) note(`at ${new URL(f.url()).pathname}`); });
+  describeFailure = async () => {
+    console.error('WHEN IT FAILED: at', new URL(page.url()).pathname, '| headings:', JSON.stringify(await page.getByRole('heading').allInnerTexts().catch(() => [])));
+    console.error('WHEN IT FAILED: browser errors:', JSON.stringify(errors), '| last activity:', JSON.stringify(recent));
+    await page.screenshot({ path: SHOTS + 'failure.png', fullPage: true }).catch(() => {});
+  };
   page.on('dialog', d => d.accept());
   const email = `e2e${Date.now()}@test.dev`;
 
@@ -131,4 +143,4 @@ const BASE = target.baseUrl;
   assert.deepEqual(errors, [], 'no browser errors');
   console.log('ALL PHASE 1 CHECKS PASSED');
   await browser.close();
-})().catch(e => { console.error(e); process.exit(1); });
+})().catch(async e => { console.error(e); await describeFailure().catch(() => {}); process.exit(1); });

@@ -10,6 +10,10 @@ import { ButtonLink, Card, SectionTitle, Stat, cx } from "@/components/ui";
 import { ChevronRight } from "@/components/icons";
 import { PrBadge } from "@/components/overload-badge";
 import { StartWorkoutButton } from "@/components/workouts/start-workout-button";
+import { GoalCard } from "@/components/progress/goal-card";
+import { goalProgress } from "@/lib/goal-progress";
+import { getWeightEntries } from "@/lib/server/weight";
+import { weightTrend } from "@/lib/weight-trend";
 
 export const metadata = { title: "Today" };
 
@@ -30,7 +34,7 @@ export default async function DashboardPage() {
   const tz = profile.timezone;
   const now = new Date();
   const today = localParts(now, tz).weekday;
-  const [active, schedule, week, recentSessions] = await Promise.all([
+  const [active, schedule, week, recentSessions, weightEntries] = await Promise.all([
     prisma.workoutSession.findFirst({ where: { userId: user.id, status: "IN_PROGRESS" } }),
     getSchedule(user.id),
     getWeekStats(user.id, tz, now),
@@ -39,6 +43,7 @@ export default async function DashboardPage() {
       select: { id: true, name: true, startedAt: true, exercises: { select: { exerciseId: true, exercise: { select: { name: true } } } } },
       orderBy: { startedAt: "desc" },
     }),
+    getWeightEntries(user.id),
   ]);
 
   // Personal records set in the last 30 days.
@@ -134,6 +139,10 @@ export default async function DashboardPage() {
           <Stat label="Time" value={formatDuration(week.seconds)} />
         </div>
       </Card>
+
+      {/* Goal */}
+      <SectionTitle>Goal</SectionTitle>
+      <GoalCard progress={goalProgress({ goal: profile.goal, goalWeightKg: profile.goalWeightKg, trend: weightTrend(weightEntries), recentRecords: recentPrs.length })} units={profile.unitSystem} />
 
       {/* PRs */}
       <SectionTitle action={<Link href="/progress" className="text-sm font-medium text-accent-ink">Progress</Link>}>Recent PRs</SectionTitle>

@@ -10,6 +10,7 @@
     "Session": "account",
     "AccountToken": "account",
     "Profile": "profile",
+    "BodyMetric": "profile",
     "Exercise": "training",
     "WorkoutTemplate": "training",
     "TemplateExercise": "training",
@@ -23,7 +24,7 @@
     "NutritionTarget": "nutrition"
   },
   "possiblyHealthRelated": [
-    "Profile.birthDate", "Profile.sex", "Profile.heightCm", "Profile.currentWeightKg", "Profile.goalWeightKg", "Profile.goal", "Profile.activityLevel",
+    "Profile.birthDate", "Profile.sex", "Profile.heightCm", "Profile.currentWeightKg", "Profile.goalWeightKg", "Profile.goal", "Profile.activityLevel", "BodyMetric.value",
     "FoodEntry.foodName", "FoodEntry.kcal", "NutritionTarget.kcal", "SetEntry.weightKg"
   ],
   "callSites": {

@@ -571,9 +571,11 @@ test("the guard has no import-time side effects", () => {
 const GUARDED = [
   "account-data.test.cjs", "account-tokens.test.cjs", "privacy-consent.test.cjs", "e2e-privacy.cjs", "e2e-privacy-cleanup.test.cjs", "e2e-account-data.cjs", "e2e-eligibility.cjs", "e2e-production-security.cjs", "e2e-hardening.cjs", "e2e-label-pdf.cjs", "e2e-label-scan.cjs", "e2e-meal.cjs", "e2e-nutrition-targets.cjs", "e2e-nutrition.cjs", "e2e-profile-minimization.cjs", "e2e-smoke.cjs",
   "nutrition-api.test.cjs", "nutrition-target-migration-check.cjs", "nutrition-targets.test.cjs", "production-security.test.cjs", "profile-migration-check.cjs", "profile-minimization.test.cjs", "profile-nulls.test.cjs", "provider-config.test.cjs", "provider-malformed.test.cjs", "provider-protection.test.cjs", "release-workflow.test.cjs",
+  "weight-progress.test.cjs", "e2e-weight.cjs",
 ];
 const OTHER_WRITE_CAPABLE = {
   "account-facts.cjs": { must: ["databaseUrlProblem(", "environmentProblems(", "readDatabaseIdentity(", "SET TRANSACTION READ ONLY"], reason: "reads counts only, by hand, on fitdb_test, in a read-only transaction" },
+  "mig-04.cjs": { must: ["databaseUrlProblem(", "environmentProblems(", "readDatabaseIdentity(", "--owner-authorized=MIG-04", "process.env.DATABASE_URL !== fromFile"], reason: "by hand, only with the owner's authorization, on fitdb_test: reads and backs up, and applies only with the flag" },
   "live-provider-check.cjs": { must: ["checkTarget("], reason: "shared static checks, plus its own stricter server verification" },
   "usda-missing-nutrients.test.cjs": { must: ["databaseUrlProblem(", "verifyServerIdentity("], reason: "starts its own app, then verifies it" },
   "live-provider-check.safety.test.cjs": { must: ["databaseUrlProblem("], reason: "starts its own apps, and tests the live check's refusals" },
@@ -582,6 +584,7 @@ const OTHER_WRITE_CAPABLE = {
 };
 const NOT_GUARDED = {
   "account-facts.test.cjs": "the report's rules, and spawns the script for what it must refuse, with no database",
+  "mig-04.test.cjs": "what mig-04.cjs must refuse, spawning it, with no database",
   "production-startup.test.cjs": "starts the server only with fake settings it must refuse, with a host that can't resolve",
   "mark-test-database.cjs": "changes only the marker comment, with validateTargetUrl and an exact --confirm",
   "test-db-guard.test.cjs": "reads through a validated URL, and spawns tools that must refuse",

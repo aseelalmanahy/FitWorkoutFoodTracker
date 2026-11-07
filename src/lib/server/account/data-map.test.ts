@@ -42,6 +42,15 @@ describe("every model and field is classified", () => {
       expect(code, m).toMatch(new RegExp(`tx\\.${accessor}\\.deleteMany\\(\\{ where: \\{ userId \\} \\}\\)`));
     }
   });
+  it("the export writes every model with exported fields, and its size check counts all but the single rows", () => {
+    const code = readFileSync(path.join(SRC, "lib/server/account/export.ts"), "utf8");
+    const exported = Object.keys(map).filter((m) => map[m].export.length > 0);
+    expect(exported.length).toBeGreaterThan(8);
+    for (const m of exported) {
+      expect(code, m).toContain(`exportRow("${m}"`);
+      if (m !== "User" && m !== "Profile") expect(code, m).toContain(`tx.${m[0].toLowerCase() + m.slice(1)}.count(`);
+    }
+  });
   it("deletion removes sign-up tokens by address, as they have no user for a cascade to follow", () => {
     const code = readFileSync(path.join(SRC, "lib/server/account/delete.ts"), "utf8");
     expect(code).toMatch(/tx\.accountToken\.deleteMany\(\{ where: \{ email: locked\[0\]\.email \} \}\)/);

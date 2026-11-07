@@ -68,7 +68,7 @@ describe("the real code matches the inventory", () => {
 describe("each check can fail", () => {
   const FETCH = { path: "src/lib/server/new-thing.ts", text: 'await fetch("https://api.example.test/x");' };
   it("a model added to the schema", () => {
-    expect(problemsWith((_, f) => f.models.push({ name: "BodyMetric", fields: ["id"] })).join()).toMatch(/model: BodyMetric isn't in the inventory/);
+    expect(problemsWith((_, f) => f.models.push({ name: "SomethingNew", fields: ["id"] })).join()).toMatch(/model: SomethingNew isn't in the inventory/);
   });
   it("a model with its category removed", () => {
     expect(problemsWith((inv) => { delete inv.categories.training; }).join()).toMatch(/has no category/);

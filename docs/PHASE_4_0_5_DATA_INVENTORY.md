@@ -7,7 +7,7 @@ What the app stores and sends, read from the code. `src/lib/data-inventory.json`
 | Category | Models | Contents |
 |---|---|---|
 | Account | `User`, `Session`, `AccountToken` | Email, password hash, session hashes, hashed emailed links, notice version and time |
-| Profile | `Profile` | Name and date of birth. Optional: sex, height, weight, goal weight, goal, activity, experience, training days, units, time zone |
+| Profile | `Profile`, `BodyMetric` | Name and date of birth. Optional: sex, height, weight, goal weight, goal, activity, experience, training days, units, time zone, and dated weight entries |
 | Training | `Exercise`, `WorkoutTemplate`, `TemplateExercise`, `ScheduleSlot`, `WorkoutSession`, `SessionExercise`, `SetEntry` | Custom exercises, plans, schedule, workouts, sets, repetitions, weights |
 | Nutrition | `Food`, `FoodServing`, `FoodEntry`, `NutritionTarget` | Custom foods, diary entries, targets |
 

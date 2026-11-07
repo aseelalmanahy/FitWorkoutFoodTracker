@@ -41,6 +41,9 @@ export default async function ProgressPage() {
   return (
     <>
       <PageHeader title="Progress" subtitle="Per-exercise performance over time" />
+      <Link href="/progress/weight" className="mb-4 flex items-center justify-between rounded-2xl border border-line px-4 py-3 font-semibold">
+        Weight log <ChevronRight width={18} height={18} className="shrink-0 text-muted" />
+      </Link>
       {rows.length === 0 ? (
         <EmptyState title="No progress data yet" body="Complete a workout to start tracking progressive overload and personal records." action={<ButtonLink href="/workouts">Go to workouts</ButtonLink>} />
       ) : (

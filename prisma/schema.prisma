@@ -27,6 +27,7 @@ model User {
 
   sessions         Session[]
   accountTokens    AccountToken[]
+  bodyMetrics      BodyMetric[]
   profile          Profile?
   exercises        Exercise[]
   templates        WorkoutTemplate[]
@@ -71,6 +72,26 @@ model AccountToken {
   @@index([userId])
   @@index([expiresAt])
   @@index([createdAt])
+}
+
+enum BodyMetricKind {
+  WEIGHT
+}
+
+/// A dated body measurement, in SI units: kilograms for weight. Only weight is built, and the kind leaves room.
+/// One a day. It's separate from Profile.currentWeightKg, which nothing changes when this is written.
+model BodyMetric {
+  id        String         @id @default(cuid())
+  userId    String
+  kind      BodyMetricKind @default(WEIGHT)
+  date      DateTime       @db.Date
+  value     Float
+  createdAt DateTime       @default(now())
+  updatedAt DateTime       @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, kind, date])
 }
 
 // ─── Profile ────────────────────────────────────────────────────────────────

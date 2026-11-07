@@ -27,7 +27,7 @@ export const DRAFT_MARKER = "[TO CONFIRM";
 const gap = (what: string) => `${DRAFT_MARKER}: ${what}]`;
 
 export const NOTICE: Notice = {
-  version: "draft-2026-11-06",
+  version: "draft-2026-11-06b",
   status: "draft",
   review: null,
   names: {
@@ -41,7 +41,7 @@ export const NOTICE: Notice = {
       paragraphs: [
         "Your email address, a hash of your password (never the password itself), and your sign-in sessions. Links we email you are stored only as a hash, with the address they were sent to.",
         "Your name and date of birth, your units and time zone, and any other details you choose to add to your profile: sex, height, weight, goal weight, goal, activity level, experience and training days. Those others are optional.",
-        "What you log: custom exercises, plans, your schedule, workouts, sets, repetitions, weights, effort ratings and notes, custom foods, your food diary and any nutrition targets.",
+        "What you log: your dated body-weight entries, custom exercises, plans, your schedule, workouts, sets, repetitions, weights, effort ratings and notes, custom foods, your food diary and any nutrition targets.",
         "Which version of this notice was current when your account was created, and when that was.",
         "Your browser keeps a sign-in cookie, and a cookie that remembers this device for 90 days, so that someone else's failed logins can't lock you out. Neither holds your password.",
         gap("whether birth date, weight and food count as health data, and what follows from that"),

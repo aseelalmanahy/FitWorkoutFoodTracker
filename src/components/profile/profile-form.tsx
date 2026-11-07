@@ -33,7 +33,7 @@ const GOALS: { v: FitnessGoal; label: string }[] = [
 ];
 
 // Details nothing in the product reads. Nobody is asked for them: a stored one can be edited or cleared.
-type StoredKey = "sex" | "height" | "weight" | "goal" | "activity" | "experience" | "days";
+type StoredKey = "sex" | "height" | "weight" | "activity" | "experience" | "days";
 const STORED_HINT = "Stored with your profile. Not used for any calculation at the moment. Clearing one removes it when you save.";
 const BIRTH_DATE_REFUSED = "This date of birth can't be used.";
 
@@ -94,7 +94,7 @@ function StoredRow({ id, label, cleared, onToggle, children }: { id: StoredKey; 
   );
 }
 
-export function ProfileForm({ initial, submitLabel, redirectTo }: { initial: ProfileValues | null; submitLabel: string; redirectTo?: string }) {
+export function ProfileForm({ initial, submitLabel, redirectTo, hideGoals }: { initial: ProfileValues | null; submitLabel: string; redirectTo?: string; hideGoals?: boolean }) {
   const router = useRouter();
   // Nothing is preselected for a new profile. A default here would save a value the person never chose.
   const [units, setUnits] = useState<UnitSystem | null>(initial?.unitSystem ?? null);
@@ -161,7 +161,7 @@ export function ProfileForm({ initial, submitLabel, redirectTo }: { initial: Pro
   }
 
   const isStored: Record<StoredKey, boolean> = {
-    sex: initial?.sex != null, height: initCm != null, weight: initial?.currentWeightKg != null, goal: initial?.goal != null,
+    sex: initial?.sex != null, height: initCm != null, weight: initial?.currentWeightKg != null,
     activity: initial?.activityLevel != null, experience: initial?.experience != null, days: initial?.workoutDaysPerWeek != null,
   };
 
@@ -196,7 +196,7 @@ export function ProfileForm({ initial, submitLabel, redirectTo }: { initial: Pro
     add("sex", "sex", sex !== initial?.sex, () => sex);
     add("height", "heightCm", !!edited.height, () => round(computedHeightCm, 2));
     add("weight", "currentWeightKg", !!edited.weight, () => round(toKg(weight), 3));
-    add("goal", "goal", goal !== initial?.goal, () => goal);
+    if (initial && goal !== (initial.goal ?? null)) body.goal = goal;
     add("activity", "activityLevel", activity !== initial?.activityLevel, () => activity);
     add("experience", "experience", experience !== initial?.experience, () => experience);
     add("days", "workoutDaysPerWeek", days !== String(initial?.workoutDaysPerWeek), () => Number(days));
@@ -293,9 +293,21 @@ export function ProfileForm({ initial, submitLabel, redirectTo }: { initial: Pro
       <Field label="Date of birth" {...fieldProps("birthDate")}>
         <Input type="date" value={birthDate} onChange={(e) => { setBirthDate(e.target.value); setConfirming(false); }} {...inputProps("birthDate")} />
       </Field>
-      {initial && (
-        <Field label={`Goal weight (${mu})`} hint="Optional" {...fieldProps("goalWeight")}>
+      {initial && !hideGoals && (
+        <Field label={`Goal weight (${mu})`} hint="Optional. The goal card on your dashboard uses it." {...fieldProps("goalWeight")}>
           <Input inputMode="decimal" value={goalWeight} onChange={(e) => { setGoalWeight(e.target.value); setEdited((x) => ({ ...x, goalWeight: true })); }} {...inputProps("goalWeight")} />
+        </Field>
+      )}
+      {initial && !hideGoals && (
+        <Field label="Goal" hint="Optional. It decides what the goal card on your dashboard shows. Tap the chosen one again to clear it." group>
+          <div className="grid grid-cols-2 gap-2">
+            {GOALS.map((g) => (
+              <button key={g.v} type="button" onClick={() => setGoal(goal === g.v ? null : g.v)} aria-pressed={goal === g.v}
+                className={cx("h-11 rounded-xl border text-sm font-medium transition", goal === g.v ? "border-fg bg-fg text-bg" : "border-line bg-surface-2 text-fg")}>
+                {g.label}
+              </button>
+            ))}
+          </div>
         </Field>
       )}
       {(Object.keys(isStored) as StoredKey[]).some((k) => isStored[k]) && (
@@ -326,20 +338,6 @@ export function ProfileForm({ initial, submitLabel, redirectTo }: { initial: Pro
           {isStored.weight && (
             <StoredRow id="weight" label="Current weight" cleared={!!cleared.weight} onToggle={() => toggle("weight")}>
               <Field label={`Current weight (${mu})`} {...fieldProps("weight")}><Input inputMode="decimal" value={weight} onChange={(e) => { setWeight(e.target.value); setEdited((x) => ({ ...x, weight: true })); }} {...inputProps("weight")} /></Field>
-            </StoredRow>
-          )}
-          {isStored.goal && (
-            <StoredRow id="goal" label="Goal" cleared={!!cleared.goal} onToggle={() => toggle("goal")}>
-              <Field label="Goal" group>
-                <div className="grid grid-cols-2 gap-2">
-                  {GOALS.map((g) => (
-                    <button key={g.v} type="button" onClick={() => setGoal(g.v)} aria-pressed={goal === g.v}
-                      className={cx("h-11 rounded-xl border text-sm font-medium transition", goal === g.v ? "border-fg bg-fg text-bg" : "border-line bg-surface-2 text-fg")}>
-                      {g.label}
-                    </button>
-                  ))}
-                </div>
-              </Field>
             </StoredRow>
           )}
           {isStored.activity && (

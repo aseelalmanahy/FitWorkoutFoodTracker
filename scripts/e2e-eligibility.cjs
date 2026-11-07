@@ -270,6 +270,9 @@ async function inBrowser(name) {
     for (const p of ["/dashboard", "/workouts", "/nutrition", "/profile", "/progress"]) {
       await page.goto(`${BASE}${p}`);
       await page.waitForURL("**/account-restricted");
+      await page.getByRole("button", { name: "Save changes" }).waitFor();
+      assert.equal(await page.locator("button[aria-pressed]").count(), 0, "a restricted account isn't offered goals");
+      assert.equal(await page.getByLabel(/^Goal weight/).count(), 0, "or a goal weight");
     }
     await page.getByRole("heading", { name: "Your account is restricted" }).waitFor();
     await page.getByRole("button", { name: "Log out" }).waitFor();

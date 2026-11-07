@@ -34,7 +34,8 @@ const isValidTimeZone = (tz: string) => {
 };
 
 // Omitted leaves a stored value alone, and null clears it. Neither supplies a default, as a value here
-// has to be one the person chose. These fields are stored only: nothing in the product reads them.
+// has to be one the person chose. Most of these are stored only, and nothing in the product reads them. The goal card
+// reads goal and goalWeightKg.
 const clearable = <T extends z.ZodType>(field: T) => field.nullable().optional();
 
 export const profileSchema = z.object({
@@ -124,6 +125,9 @@ export const updateSetSchema = setSchema.partial();
 // ─── Nutrition (Phase 2) ────────────────────────────────────────────────────
 
 export const isoDateSchema = z.iso.date();
+
+/** The same range as the profile's weight, which is about data entry, and isn't a health limit. */
+export const weightEntrySchema = z.object({ date: isoDateSchema, weightKg: z.number().min(30).max(300) });
 export const mealTypeSchema = z.enum(["BREAKFAST", "LUNCH", "DINNER", "SNACK"]);
 export const externalSourceSchema = z.enum(["USDA", "OPEN_FOOD_FACTS"]);
 

@@ -19,7 +19,7 @@ const yearsAgo = (n) => { const d = new Date(); d.setUTCFullYear(d.getUTCFullYea
 const LEGACY = { name: "Row", birthDate: dbDate("1990-01-01"), sex: "FEMALE", heightCm: 170.33, currentWeightKg: 60.125, goalWeightKg: 55.5, goal: "MAINTENANCE", activityLevel: "LIGHT", experience: "BEGINNER", workoutDaysPerWeek: 0, unitSystem: "METRIC", timezone: "UTC" };
 const REQUIRED_KEYS = ["birthDate", "name", "timezone", "unitSystem"];
 const UNREAD_LABELS = ["Sex", "Height (cm)", "Height (ft)", "Height (in)", /^Current weight/, /^Goal weight/, "Goal", "Activity level", "Training experience", "Workout days / week"];
-const CLEARS = ["sex", "height", "current weight", "goal", "activity level", "training experience", "workout days / week"];
+const CLEARS = ["sex", "height", "current weight", "activity level", "training experience", "workout days / week"];
 
 async function signedIn(ctx, row) {
   const { user, token } = await createSignedInUser(prisma, `pmui${++counter}x${Date.now()}@test.dev`);
@@ -218,7 +218,7 @@ async function inBrowser(name, partB) {
     await page.goto(`${BASE}/profile`);
     const save = page.getByRole("button", { name: "Save changes" });
     await hydrated(page, save);
-    assert.equal(await page.getByRole("heading", { name: "Other details on your profile" }).count(), 0, "nothing asks for unset details");
+    assert.equal(await page.getByRole("heading", { name: "Other details on your profile" }).count(), 0, "no section of stored details when none are stored");
     assert.equal(await page.getByRole("button", { name: /^Clear / }).count(), 0, "nothing to clear");
     await page.getByLabel("Name").fill("Sam Two");
     await save.click();
@@ -235,11 +235,15 @@ async function inBrowser(name, partB) {
     const legacySave = legacy.page.getByRole("button", { name: "Save changes" });
     await hydrated(legacy.page, legacySave);
     for (const c of CLEARS) await legacy.page.getByRole("button", { name: `Clear ${c}`, exact: true }).click();
+    const legacyGoal = legacy.page.getByRole("button", { name: "Maintenance", exact: true });
+    assert.equal(await legacyGoal.getAttribute("aria-pressed"), "true", "the stored goal shows as chosen");
+    await legacyGoal.click();
     await legacySave.click();
     await legacy.page.getByText("Saved.").waitFor();
     await legacy.page.reload();
     await hydrated(legacy.page, legacySave);
     assert.equal(await legacy.page.getByRole("heading", { name: "Other details on your profile" }).count(), 0, "they stay cleared");
+    assert.equal(await legacyGoal.getAttribute("aria-pressed"), "false", "and the goal stays deselected");
     const cleared = await prisma.profile.findUnique({ where: { userId: legacyUser.id } });
     for (const f of ["sex", "heightCm", "currentWeightKg", "goal", "activityLevel", "experience", "workoutDaysPerWeek"]) assert.equal(cleared[f], null, `T45: ${f} cleared`);
     assert.equal(cleared.goalWeightKg, 55.5, "the goal weight has its own control");
