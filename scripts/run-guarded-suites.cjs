@@ -123,6 +123,9 @@ const SUITES = {
   // TRUST_PROXY_HOPS lets each request in the suite name its own client in X-Forwarded-For, so the 10-per-15-minutes limits on sign-up and
   // on redeeming a link apply per case and not to the whole suite. Nothing is loosened: every case stays under the limit.
   "account-tokens": () => withApp("account-tokens", { appEnv: { TRUST_PROXY_HOPS: "1" } }, ({ url, serverLog }) => runNode(nodeTest("account-tokens.test.cjs"), { BASE_URL: url, SERVER_LOG_FILE: serverLog }, 590_000)),
+  "privacy-consent": () => withApp("privacy-consent", { appEnv: { TRUST_PROXY_HOPS: "1" } }, ({ url }) => runNode(nodeTest("privacy-consent.test.cjs"), { BASE_URL: url }, 590_000)),
+  "privacy-e2e": () => withApp("privacy-e2e", {}, ({ url }) => runNode([script("e2e-privacy.cjs")], { BASE_URL: url }, 590_000)),
+  "privacy-cleanup": () => withApp("privacy-cleanup", {}, ({ url }) => runNode(nodeTest("e2e-privacy-cleanup.test.cjs"), { BASE_URL: url }, 590_000)),
   "account-data-e2e": () => withApp("account-data-e2e", {}, ({ url }) => runNode([script("e2e-account-data.cjs")], { BASE_URL: url }, 590_000)),
   "production-startup": () => runNode(nodeTest("production-startup.test.cjs"), { DATABASE_URL: "" }, 590_000),
   "production-security": () => {

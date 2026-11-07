@@ -1,4 +1,4 @@
-import { databaseIdentityProblems, isLocalTestServer, mailStubDir, productionConfigProblems, type ConfigProblem } from "./production-config";
+import { databaseIdentityProblems, isLocalTestServer, mailStubDir, noticeGateOpen, productionConfigProblems, testDatabaseMarkerProblems, type ConfigProblem } from "./production-config";
 import { installSafeConsole } from "./safe-log";
 
 const IDENTITY_SQL = `SELECT current_database() AS name, shobj_description((SELECT oid FROM pg_database WHERE datname = current_database()), 'pg_database') AS comment`;
@@ -13,7 +13,13 @@ async function readIdentity(): Promise<{ name: string; comment: string | null }>
 
 /** Every reason this server must not start. An unreadable database counts, as nothing shows it's safe. */
 export async function preflightProblems(env: Record<string, string | undefined> = process.env, identity: IdentityReader = readIdentity): Promise<ConfigProblem[]> {
-  if (isLocalTestServer(env)) return [];
+  if (isLocalTestServer(env)) {
+    try {
+      return testDatabaseMarkerProblems(await identity());
+    } catch {
+      return [{ id: "database-unverified", message: "The database couldn't be reached to check what it is." }];
+    }
+  }
   const problems = productionConfigProblems(env);
   if (problems.length) return problems;
   try {
@@ -29,6 +35,7 @@ export async function runProductionPreflight(): Promise<void> {
   const problems = await preflightProblems();
   if (!problems.length) {
     if (!mailStubDir()) console.warn("[preflight] No email provider exists yet, so sign-up and password reset emails won't be sent.");
+    if (!noticeGateOpen()) console.warn("[preflight] The privacy notice and terms are drafts, so registration is closed.");
     return;
   }
   for (const p of problems) console.error(`[preflight] ${p.id}: ${p.message}`);

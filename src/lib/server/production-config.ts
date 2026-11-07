@@ -6,6 +6,8 @@
  * providers and open sign-up. FIT_LOCAL_TEST_SERVER permits that only for a designated test database on this
  * machine, so setting it on a real deployment is itself a refusal.
  */
+import { noticeIsFinal, noticeIsMalformed, type Notice, NOTICE } from "../legal/notice";
+
 type Env = Record<string, string | undefined>;
 export interface ConfigProblem { id: string; message: string }
 
@@ -19,7 +21,7 @@ const WEAK_PASSWORD = /^(password|postgres|admin|root|secret|changeme|change_me|
 const SAFE_DATABASE_TLS = new Set(["require", "verify-ca", "verify-full"]);
 const PLACEHOLDER_KEY = /^(demo_key|stub|test|fake|changeme|example)/i;
 
-const AI_SETTINGS = ["ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "LABEL_EXTRACTION_MODEL", "LABEL_EXTRACTION_EFFORT", "MEAL_IDENTIFICATION_MODEL", "MEAL_IDENTIFICATION_EFFORT"];
+export const AI_SETTINGS = ["ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "LABEL_EXTRACTION_MODEL", "LABEL_EXTRACTION_EFFORT", "MEAL_IDENTIFICATION_MODEL", "MEAL_IDENTIFICATION_EFFORT"];
 const STUB_SETTINGS = ["FDC_BASE_URL", "OFF_BASE_URL", "LABEL_STUB_URL", "STUB_LOG_FILE", "MAIL_STUB_DIR"];
 const TEST_SETTINGS = ["FOOD_RATE_LIMIT_MULTIPLIER", "SAFETY_DB_URL", "SAFETY_DB_CONFIRM", "SAFETY_OTHER_DB_URL", "GUARD_SNAPSHOT_SCOPE", "BASE_URL", "SHOTS_DIR", "SERVER_LOG_FILE", "EXPECT_UNCONFIGURED", "NODE_TEST_CONTEXT"];
 
@@ -48,8 +50,41 @@ const allowlistEntries = (env: Env) => (env.REGISTRATION_ALLOWLIST ?? "").split(
 export const registrationIsClosed = (env: Env = process.env) =>
   env.NODE_ENV === "production" && !(isLocalTestServer(env) && env.FIT_TEST_OPEN_REGISTRATION === "1");
 
-/** Closed by default in production. `email` has been normalized by the shared schema, and the match is exact. */
+const isLoopbackOrigin = (origin: string | undefined) => {
+  if (!origin) return true;
+  try {
+    return LOOPBACK.has(new URL(origin).hostname);
+  } catch {
+    return false;
+  }
+};
+
+/**
+ * Whether anyone can register under the current legal documents. A draft keeps real registration shut. A designated
+ * test database needs this machine's own origin as well, so a real host pointed at a local database named fitdb_test,
+ * with its real origin set, isn't exempt. Startup confirms that database's marker. One deliberate misconfiguration still
+ * opens it: the test-server flag, a marked local fitdb_test, and no real origin set, behind a host others can reach. Its
+ * mail only reaches a local file or nowhere, so nobody could finish signing up, S-28.
+ * Development needs that exact value, the development database on this machine, and no real origin, so an unset
+ * NODE_ENV opens nothing. Startup refuses a real deployment with any other NODE_ENV. `next dev` skips that check, so
+ * `next dev` with a local fitdb on a machine others can reach would still be open, with its mail only in a local file.
+ * FIT_TEST_OPEN_REGISTRATION has no part in this.
+ */
+export function noticeGateOpen(env: Env = process.env, notice: Notice = NOTICE): boolean {
+  if (noticeIsFinal(notice)) return true;
+  if (isLocalTestServer(env)) return isLoopbackOrigin(env.APP_ORIGIN);
+  if (env.NODE_ENV !== "development" || !isLoopbackOrigin(env.APP_ORIGIN)) return false;
+  const url = parseDatabaseUrl(env.DATABASE_URL);
+  return !!url && !url.searchParams.has("host") && LOOPBACK.has(url.hostname) && databaseName(url) === DEVELOPMENT_DATABASE;
+}
+
+/**
+ * Closed by default in production, and while the documents are drafts. `email` has been normalized by the shared
+ * schema, and the match is exact. Issuing a link and creating an account both come through here, so a link sent
+ * earlier can't get past a gate that has since closed.
+ */
 export function registrationAllowed(email: string, env: Env = process.env): boolean {
+  if (!noticeGateOpen(env)) return false;
   if (!registrationIsClosed(env)) return true;
   return allowlistEntries(env).filter((e) => ALLOWLIST_ENTRY.test(e)).includes(email.trim().toLowerCase());
 }
@@ -107,6 +142,9 @@ export function productionConfigProblems(env: Env = process.env): ConfigProblem[
   const problems: ConfigProblem[] = [...originProblems(env), ...databaseProblems(env)];
   const add = (id: string, message: string) => problems.push({ id, message });
 
+  // `next start` keeps whatever it's given, and development mode relaxes registration.
+  if (env.NODE_ENV !== "production") add("node-env", "NODE_ENV must be production.");
+
   if (set(env, "FIT_LOCAL_TEST_SERVER")) add("test-server-flag", "FIT_LOCAL_TEST_SERVER is only for a test database on this machine.");
   if (set(env, "FIT_TEST_OPEN_REGISTRATION")) add("test-registration-flag", "FIT_TEST_OPEN_REGISTRATION is only for a test database on this machine.");
   if (set(env, "EXPOSE_DB_IDENTITY")) add("db-identity", "EXPOSE_DB_IDENTITY must not be set: it publishes the database's identity.");
@@ -119,12 +157,18 @@ export function productionConfigProblems(env: Env = process.env): ConfigProblem[
 
   if (allowlistEntries(env).some((e) => !ALLOWLIST_ENTRY.test(e))) add("allowlist-invalid", "REGISTRATION_ALLOWLIST must hold exact email addresses only.");
   if (set(env, "FDC_API_KEY") && PLACEHOLDER_KEY.test(env.FDC_API_KEY as string)) add("placeholder-key", "FDC_API_KEY is a placeholder.");
+  if (noticeIsMalformed()) add("notice-malformed", "The notice says it's final, and doesn't pass as final.");
   if (env.NODE_TLS_REJECT_UNAUTHORIZED === "0") add("tls-disabled", "NODE_TLS_REJECT_UNAUTHORIZED must not disable certificate checks.");
   if (/--inspect/.test(env.NODE_OPTIONS ?? "")) add("debugger", "NODE_OPTIONS must not enable the debugger.");
   return problems;
 }
 
 const MARKER_FAMILY = "fitworkoutfoodtracker:test-database:";
+
+/** A designated test database has to carry its own marker, so a tunnel with that name isn't treated as one. */
+export function testDatabaseMarkerProblems(identity: { name: string; comment: string | null }): ConfigProblem[] {
+  return identity.comment === MARKER_FAMILY + `v1:${identity.name}` ? [] : [{ id: "test-database-unmarked", message: "This test server's database doesn't carry its own test marker." }];
+}
 
 /** The database as it reports itself, so an alias or proxy can't hide a test database behind another name. */
 export function databaseIdentityProblems(identity: { name: string; comment: string | null }): ConfigProblem[] {

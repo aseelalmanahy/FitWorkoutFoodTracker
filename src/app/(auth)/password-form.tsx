@@ -19,10 +19,12 @@ interface Props {
   /** Where to ask for a new link. */
   retryHref: string;
   retryText: string;
+  /** The notice version to accept, when this form creates an account. */
+  acceptVersion?: string;
 }
 
 /** Reads a one-time token from the URL fragment, clears it from the address bar at once, and keeps it in memory only. */
-export function PasswordForm({ endpoint, doneUrl, heading, button, note, retryHref, retryText }: Props) {
+export function PasswordForm({ endpoint, doneUrl, heading, button, note, retryHref, retryText, acceptVersion }: Props) {
   const router = useRouter();
   const [token, setToken] = useState<string | null>(null);
   const [ready, setReady] = useState(false);
@@ -47,10 +49,14 @@ export function PasswordForm({ endpoint, doneUrl, heading, button, note, retryHr
     e.preventDefault();
     if (!token) return;
     const fd = new FormData(e.currentTarget);
+    if (acceptVersion && !fd.get("accept")) {
+      setError("Tick the box to continue.");
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
-      await api("POST", endpoint, { token, password: fd.get("password") }, { timeoutMs: AUTH_TIMEOUT_MS });
+      await api("POST", endpoint, { token, password: fd.get("password"), ...(acceptVersion ? { acceptedVersion: acceptVersion } : {}) }, { timeoutMs: AUTH_TIMEOUT_MS });
       setToken(null);
       router.replace(doneUrl);
     } catch (err) {
@@ -77,6 +83,12 @@ export function PasswordForm({ endpoint, doneUrl, heading, button, note, retryHr
           <Field label="Password" hint="At least 8 characters. A passphrase works well.">
             <Input name="password" type="password" autoComplete="new-password" required minLength={8} />
           </Field>
+          {acceptVersion && (
+            <label className="flex items-start gap-3 text-sm">
+              <input name="accept" type="checkbox" className="mt-0.5 h-5 w-5 shrink-0" />
+              <span>I&apos;ve read the <Link href="/privacy" target="_blank" className={LINK}>Privacy notice</Link> and <Link href="/terms" target="_blank" className={LINK}>Terms</Link>.</span>
+            </label>
+          )}
           <ErrorText>{error}</ErrorText>
           {rejected && <p className="text-sm text-muted"><Link href={retryHref} className={LINK}>{retryText}</Link></p>}
           <Button type="submit" size="lg" className="w-full" disabled={busy}>{busy ? "Please wait…" : button}</Button>

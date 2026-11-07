@@ -1,6 +1,17 @@
-import { afterEach, describe, expect, it, vi } from "vitest";
-import { databaseIdentityProblems, isLocalTestServer, productionConfigProblems, registrationAllowed, registrationIsClosed, accountLinkOrigin, mailStubDir } from "./production-config";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { noticeGateOpen, databaseIdentityProblems, isLocalTestServer, productionConfigProblems, registrationAllowed, registrationIsClosed, accountLinkOrigin, mailStubDir } from "./production-config";
 import { preflightProblems } from "./production-preflight";
+
+// The real notice is a draft, which closes registration everywhere real. These tests choose its state.
+const legal = vi.hoisted(() => ({ final: false, malformed: false }));
+vi.mock("../legal/notice", async (original) => {
+  const actual = await original<typeof import("../legal/notice")>();
+  return {
+    ...actual,
+    noticeIsFinal: (n?: never) => legal.final || actual.noticeIsFinal(n),
+    noticeIsMalformed: (n?: never) => legal.malformed || actual.noticeIsMalformed(n),
+  };
+});
 
 // Fake values only. example.invalid is reserved and never resolves.
 const SECRET = "fake-sentinel-password-5f3a9c1e";
@@ -135,15 +146,82 @@ describe("the whole preflight, with a stand-in database", () => {
     expect(problems.map((p) => p.id)).toEqual(["database-unverified"]);
     expect(JSON.stringify(problems)).not.toContain(SECRET);
   });
-  it("skips the checks for a local test server", async () => {
-    const identity = vi.fn(healthy);
-    await expect(preflightProblems({ FIT_LOCAL_TEST_SERVER: "1", DATABASE_URL: url("u:p@localhost:5432/fitdb_test") }, identity)).resolves.toEqual([]);
-    expect(identity).not.toHaveBeenCalled();
+  describe("a local test server", () => {
+    const local = { FIT_LOCAL_TEST_SERVER: "1", DATABASE_URL: url("u:p@localhost:5432/fitdb_test") };
+    const marked = async () => ({ name: "fitdb_test", comment: "fitworkoutfoodtracker:test-database:v1:fitdb_test" });
+    it("skips the other checks, once its database carries its own marker", async () => {
+      await expect(preflightProblems({ ...local, EXPOSE_DB_IDENTITY: "1" }, marked)).resolves.toEqual([]);
+    });
+    it.each([
+      ["no marker", async () => ({ name: "fitdb_test", comment: null })],
+      ["another database's marker", async () => ({ name: "fitdb_test", comment: "fitworkoutfoodtracker:test-database:v1:fitdb_test_other" })],
+      ["a different database behind the name", async () => ({ name: "fit_production", comment: "fitworkoutfoodtracker:test-database:v1:fitdb_test" })],
+    ])("refuses %s, so a tunnel with that name isn't treated as a test database", async (_label, identity) => {
+      expect((await preflightProblems(local, identity)).map((p) => p.id)).toEqual(["test-database-unmarked"]);
+    });
+    it("refuses a database it can't reach, as nothing shows it's safe", async () => {
+      expect((await preflightProblems(local, async () => { throw new Error("no"); })).map((p) => p.id)).toEqual(["database-unverified"]);
+    });
+  });
+});
+
+describe("the legal documents", () => {
+  beforeEach(() => { legal.final = false; legal.malformed = false; });
+  afterEach(() => { legal.final = false; legal.malformed = false; });
+  const listed = { REGISTRATION_ALLOWLIST: "sam@example.invalid" };
+  const localDb = url("u:p@localhost:5432/fitdb");
+  const testDb = url("u:p@localhost:5432/fitdb_test");
+
+  it("a draft keeps a real deployment shut, for a listed address too", () => {
+    const real = { ...VALID, ...listed };
+    expect(noticeGateOpen(real)).toBe(false);
+    expect(registrationAllowed("sam@example.invalid", real)).toBe(false);
+  });
+  it("a final notice opens it, and the allowlist still decides", () => {
+    legal.final = true;
+    const real = { ...VALID, ...listed };
+    expect(registrationAllowed("sam@example.invalid", real)).toBe(true);
+    expect(registrationAllowed("lee@example.invalid", real)).toBe(false);
+  });
+  it.each([
+    ["no NODE_ENV", { DATABASE_URL: localDb }],
+    ["an empty NODE_ENV", { NODE_ENV: "", DATABASE_URL: localDb }],
+    ["NODE_ENV test", { NODE_ENV: "test", DATABASE_URL: localDb }],
+    ["development with no database", { NODE_ENV: "development" }],
+    ["development on another machine", { NODE_ENV: "development", DATABASE_URL: url("u:p@db.example.invalid:5432/fitdb") }],
+    ["development with a host= redirect", { NODE_ENV: "development", DATABASE_URL: url("u:p@localhost:5432/fitdb?host=db.example.invalid") }],
+    ["development with a real origin", { NODE_ENV: "development", DATABASE_URL: localDb, APP_ORIGIN: "https://app.example.invalid" }],
+    ["development on another local database", { NODE_ENV: "development", DATABASE_URL: url("u:p@127.0.0.1:5432/fit_production") }],
+    ["the open-registration flag alone", { NODE_ENV: "production", FIT_TEST_OPEN_REGISTRATION: "1", DATABASE_URL: testDb }],
+    ["a test server with a real origin", { NODE_ENV: "production", FIT_LOCAL_TEST_SERVER: "1", FIT_TEST_OPEN_REGISTRATION: "1", DATABASE_URL: testDb, APP_ORIGIN: "https://app.example.invalid" }],
+    ["a test server with an unreadable origin", { NODE_ENV: "production", FIT_LOCAL_TEST_SERVER: "1", DATABASE_URL: testDb, APP_ORIGIN: "not a url" }],
+    ["a test flag on a real database", { ...VALID, FIT_LOCAL_TEST_SERVER: "1", FIT_TEST_OPEN_REGISTRATION: "1" }],
+  ])("a draft stays shut with %s", (_label, env) => {
+    expect(noticeGateOpen(env)).toBe(false);
+    expect(registrationAllowed("sam@example.invalid", { ...env, ...listed })).toBe(false);
+  });
+  it.each([
+    ["development on this machine", { NODE_ENV: "development", DATABASE_URL: localDb }],
+    ["a designated test server", { NODE_ENV: "production", FIT_LOCAL_TEST_SERVER: "1", DATABASE_URL: testDb }],
+    ["a designated test server on its own origin", { NODE_ENV: "production", FIT_LOCAL_TEST_SERVER: "1", DATABASE_URL: testDb, APP_ORIGIN: "http://localhost:3000" }],
+  ])("a draft can be tested on %s", (_label, env) => {
+    expect(noticeGateOpen(env)).toBe(true);
+  });
+  it("a real deployment in development mode refuses startup, as that mode relaxes registration", () => {
+    expect(ids({ ...VALID, NODE_ENV: "development" })).toEqual(["node-env"]);
+    expect(ids({ ...VALID, NODE_ENV: undefined })).toEqual(["node-env"]);
+  });
+  it("a notice that says it's final and isn't refuses startup", () => {
+    expect(ids(VALID)).toEqual([]);
+    legal.malformed = true;
+    expect(ids(VALID)).toEqual(["notice-malformed"]);
   });
 });
 
 describe("registration", () => {
-  afterEach(() => vi.unstubAllEnvs());
+  // The gate above is tested by itself. Here, the rules behind it.
+  beforeEach(() => { legal.final = true; });
+  afterEach(() => { vi.unstubAllEnvs(); legal.final = false; });
   const prod = { NODE_ENV: "production" };
   it("is open in development only", () => {
     expect(registrationIsClosed({ NODE_ENV: "development" })).toBe(false);

@@ -9,6 +9,7 @@ import { MailRejected, mailTransport, type MailMessage } from "../mail/transport
 import { enqueueAccountJob, logAccountMail } from "../mail/queue";
 import { accountLinkOrigin, registrationAllowed } from "../production-config";
 import { requireAccountPassword } from "./reauth";
+import { NOTICE } from "../../legal/notice";
 
 // Token lifetimes, and not retention periods. Reset is the top of the design's suggested range, and sign-up is a judgement.
 const HOUR_MS = 60 * 60 * 1000;
@@ -118,8 +119,13 @@ const isDuplicateEmail = (err: unknown) => err instanceof Prisma.PrismaClientKno
 /**
  * The account comes into existence here, and not before. Exactly one request can consume the token. The unique
  * email settles two different tokens used together, and undoes that token's deletion. No session is created.
+ *
+ * Version first, with no database read, so a mismatch says nothing about any token and spends nothing. What's stored
+ * is the server's version and time, written with the account. It records that the token holder posted this version,
+ * and a script could post the public version with no box. It isn't a claim of valid consent.
  */
-export async function completeSignup(token: string, password: string): Promise<void> {
+export async function completeSignup(token: string, password: string, acceptedVersion: string): Promise<void> {
+  if (acceptedVersion !== NOTICE.version) throw new HttpError(409, "The privacy notice or terms have changed. Open the link in your email again to see the current ones.");
   const id = hashToken(token);
   const row = await prisma.accountToken.findFirst({ where: live(id, "SIGNUP"), select: { email: true } });
   // This is the second allowlist check, as an address can be removed after its link was sent.
@@ -129,7 +135,7 @@ export async function completeSignup(token: string, password: string): Promise<v
     await prisma.$transaction(async (tx) => {
       const used = await tx.accountToken.deleteMany({ where: live(id, "SIGNUP") });
       if (used.count !== 1) throw invalidLink();
-      await tx.user.create({ data: { email: row.email, passwordHash } });
+      await tx.user.create({ data: { email: row.email, passwordHash, termsVersion: NOTICE.version, termsAcceptedAt: new Date() } });
     });
   } catch (err) {
     if (isDuplicateEmail(err)) throw invalidLink();

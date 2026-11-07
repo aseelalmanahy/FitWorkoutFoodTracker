@@ -1,3 +1,4 @@
+import { NOTICE } from "@/lib/legal/notice";
 import { PasswordForm } from "../../password-form";
 
 export const metadata = { title: "Finish creating your account", referrer: "no-referrer" };
@@ -13,6 +14,7 @@ export default function CompleteRegistrationPage() {
       note="For adults 18 and over."
       retryHref="/register"
       retryText="Request a new sign-up link"
+      acceptVersion={NOTICE.version}
     />
   );
 }

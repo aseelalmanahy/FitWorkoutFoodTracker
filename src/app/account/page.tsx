@@ -4,6 +4,7 @@ import { requireUser } from "@/lib/server/auth";
 import { prisma } from "@/lib/server/db";
 import { AccountDataControls } from "@/components/account/data-controls";
 import { PasswordControls } from "@/components/account/password-controls";
+import { LegalLinks } from "@/components/legal-links";
 import { LogoutButton } from "@/components/logout-button";
 
 export const metadata = { title: "Your account and data" };
@@ -23,6 +24,7 @@ export default async function AccountPage() {
       <PasswordControls />
       <AccountDataControls email={user.email} />
       <LogoutButton className="mt-6 w-full" />
+      <LegalLinks />
     </main>
   );
 }

@@ -1,3 +1,4 @@
+import { LegalLinks } from "@/components/legal-links";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/server/auth";
 import { AuthForm } from "../auth-form";
@@ -12,5 +13,10 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
     params.created === "1" ? "Your account is ready. Log in to continue."
     : params.reset === "1" ? "Your password was changed. Log in with the new one."
     : undefined;
-  return <AuthForm notice={notice} />;
+  return (
+    <>
+      <AuthForm notice={notice} />
+      <LegalLinks className="-mt-4 pb-8" />
+    </>
+  );
 }

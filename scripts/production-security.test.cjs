@@ -5,7 +5,7 @@ const { test, before, after } = require("node:test");
 const assert = require("node:assert/strict");
 const fs = require("node:fs");
 const path = require("node:path");
-const { mailFiles, readMailLink } = require("./lib/signup.cjs");
+const { mailFiles, readMailLink, NOTICE_VERSION } = require("./lib/signup.cjs");
 const { PrismaClient } = require("@prisma/client");
 const { createSignedInUser } = require("./lib/test-users.cjs");
 const target = require("./lib/test-target-guard.cjs").requireSafeTarget();
@@ -30,7 +30,7 @@ const call = async (method, path, body, headers = {}) => {
 // Sign-up asks for an address only. A link is mailed to an invited address that has no account, and nothing is
 // mailed to any other, with the same answer to all. The mail stub's files are in MAIL_STUB_DIR.
 const register = (email) => call("POST", "/api/auth/register", { email });
-const complete = (token, password = PASSWORD) => call("POST", "/api/auth/register/complete", { token, password });
+const complete = (token, password = PASSWORD) => call("POST", "/api/auth/register/complete", { token, password, acceptedVersion: NOTICE_VERSION });
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 /** Every message mailed to this address so far, whatever its kind. */
 function mailsTo(email) {

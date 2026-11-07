@@ -21,8 +21,8 @@ These are six separate states, and one never implies another.
 |---|---|---|---|---|---|---|---|
 | 4.0.3 Production foundation | M-11 | Yes, `de4607f` | Yes, local production build | Yes, source review of the code | Yes, `de4607f` | **No, nothing is deployed** | R-07, T-16, T-17 and F-06 to finish |
 | Router and orchestrator | TOOL-01, 03, 04 | Yes, `3bc4471` | Yes, largely mocked | Yes, source review | Yes, `3bc4471` | Partly, small live checks | Live checks, from real use. TOOL-02 is NOT STARTED |
-| 4.0.4 Email-proven access | M-12 | Yes, on `feature/phase-4-program` | Yes, on `fitdb_test` | **Partly:** a read-only agent. Source review pending | No | No | Source review and merge approval. G-03 for real email |
-| 4.0.5 Notice and acceptance | M-13 | No | No | No | No | No | 4.0.4, R-01, Decisions 3, 6, 12 |
+| 4.0.4 Email-proven access | M-12 | Yes, `eaeff34` | Yes, on `fitdb_test` | Yes, independent review for development | Yes, `eaeff34` | **No: COMPLETE for development only** | G-03 for real email, a deployed server, and T-15 |
+| 4.0.5 Notice and acceptance | M-13 | No, proposed in `PHASE_4_0_5_PLAN.md` | No | No | No | No | Review of that plan. R-01 and Decisions 2 to 6, 12, 14, 16 for the final text |
 | 4.1 Core progress | M-15 | No | No | No | No | No | Scope approval, Decision 21, its own migration |
 | 4.0.6 Device test and go/no-go | M-14 | No | No | No | No | No | Everything above, T-15, R-13 |
 
@@ -39,7 +39,7 @@ No new agents, routing or orchestration features, or benchmarks without a real n
 | **A1** | `main` fast-forwarded to Phase 4.0.3, then a tracker-only commit | `de4607f`, then `cbd9a0f` |
 | **A2** | `main` merged into the router branch, with no conflicts. Router 217 of 217, orchestrator 178 of 178, `tsc`, Vitest 1507 of 1507, guard 51 of 51. **Application code identical to `de4607f`.** Database and browser suites weren't rerun, as nothing relevant changed | `3bc4471` |
 | **A3** | `main` fast-forwarded to that reviewed merge | `3bc4471` |
-| **A4** | Authorized. `feature/phase-4-program` starts from the commit that adds this text. **No application work starts before it** | |
+| **A4** | Create `feature/phase-4-program` from that `main` | | **Done** |
 
 ### Interactions, as checked
 
@@ -56,7 +56,7 @@ No new agents, routing or orchestration features, or benchmarks without a real n
 
 1. **4.0.3, merged,** as everything depends on its preflight, allowlist and headers.
 2. **Router and orchestrator, merged,** which change no application code.
-3. **4.0.4,** which replaces the sign-up flow that all later tests go through, and holds the first migration.
+3. **4.0.4, merged, and COMPLETE for development only,** which replaces the sign-up flow that all later tests go through, and holds the first migration.
 4. **4.0.5,** which shares 4.0.4's acceptance fields, and adds nothing to the schema of its own.
 5. **4.1,** after MIG-03 is prepared, so that the two migrations stay in order. Its logic can begin alongside 4.0.4.
 6. **4.0.6,** last, as device testing must cover 4.1. Go/no-go follows that retest, as the design already says.
@@ -66,6 +66,8 @@ No new agents, routing or orchestration features, or benchmarks without a real n
 Each one is **user-visible or adds a table, so each takes the full cycle:** product review, feature approval, architecture, security and privacy, implementation, automated testing, source review, merge approval. Earlier product reviews count only for the scope they looked at. **If the scope changes, `product-strategy-agent` runs again.** Its recommendation isn't approval.
 
 ### 4.0.4 Email-proven access (design section 8)
+
+**Status: merged at `eaeff34`, and COMPLETE for development only.** MIG-03 is on `fitdb_test` only, and no real email can be sent (G-03). Results are in tracker section 2d. The text below is the plan as written.
 
 **Scope:** link-first sign-up, with no account until the link is used and the allowlist applied at that point. `AccountToken`, stored as a SHA-256 hash. Password reset deleting all sessions in one transaction. Change password. Terms acceptance fields. A request deadline on auth. A local mail stub, with sending outside the request.
 
@@ -80,6 +82,8 @@ Each one is **user-visible or adds a table, so each takes the full cycle:** prod
 **Closes in code, not operationally:** S-16, R-10, M-12. **Real delivery stays open** until a provider and a deployed server exist.
 
 ### 4.0.5 Notice, acceptance and retention (design section 4.0.5)
+
+**Status: not started. A proposed plan is in `PHASE_4_0_5_PLAN.md`, for review.**
 
 **Scope:** public notice and terms pages, recording acceptance through 4.0.4's fields, acceptance in the export, and applying the retention rule.
 
@@ -166,7 +170,7 @@ Each one is **user-visible or adds a table, so each takes the full cycle:** prod
 | **A6** | Back up and apply MIG-03 to `fitdb_test` only | | **Done,** on the owner's authorization of 2026-11-06 |
 | **A7** | Same for MIG-04 | When 4.1 reaches database tests | Decide then |
 | **A8** | 4.1's scope, Decision 21, `currentWeightKg`, table shape | Before 4.1 | Section 5 |
-| **A9** | F-11: Prisma 7, or accept in writing | **Preferably before MIG-03,** so the upgrade isn't done across new migrations | Owner's call, as it's a breaking upgrade |
+| **A9** | F-11: Prisma 7, or accept in writing | Before F-07 and any real user | **The owner kept Prisma 6 for 4.0.4's development verification, which doesn't accept it for production.** Open, for a separate reviewed upgrade |
 | **A10** | Decisions 3, 4, 5, 6, 7, 12, 14, 16, 17, 23, and engaging legal and clinical reviewers | Before 4.0.5's final text, deployment and 4.0.6 | Owner's call. Paid services and production resources each need their own approval |
 
 **`fitdb` and `fitdb_test_other` aren't touched by any of this.** B-07, C-08 and T-14 need their own separate decisions.
@@ -181,8 +185,9 @@ Finishing the code leaves these open, and each stays in the tracker until its ow
 | Backups, restore and deletion | S-14, F-05, F-06, T-10 |
 | Production and recovery verification | R-07, R-08, R-15, T-16, T-17, F-04 to F-10 |
 | Migrations on other databases | B-07, C-08, plus MIG-03 and MIG-04 on anything beyond `fitdb_test` |
-| Untested or unrun | T-06 to T-10, T-14, T-15, T-18, R-13 |
-| Accepted or undecided risk | S-02 to S-18, F-11, S-16 until 4.0.4 |
+| Untested or unrun | T-06 to T-10, T-14, T-15, T-18, T-21, R-13 |
+| Accepted or undecided risk | S-02 to S-25, F-11 |
+| Email | G-03 to G-06 |
 | Owner decisions | D-01 to D-05 |
 | AI, staying off | R-14 |
 | Tooling | TOOL-01 to TOOL-04 |

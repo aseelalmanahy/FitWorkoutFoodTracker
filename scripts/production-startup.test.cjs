@@ -70,6 +70,14 @@ test("the test exemption can't be used on a remote database with a test name", {
   await assertRefused("test-server-flag", { FIT_LOCAL_TEST_SERVER: "1", DATABASE_URL: database("fitdb_test?sslmode=require") });
 });
 
+test("a test server refuses to start when it can't confirm its database's own marker", { timeout: 90_000 }, async () => {
+  await assertRefused("database-unverified", { FIT_LOCAL_TEST_SERVER: "1", DATABASE_URL: "postgresql://nobody:nothing@127.0.0.1:1/fitdb_test" });
+});
+
+test("a real deployment in development mode refuses to start, as that mode relaxes registration", { timeout: 90_000 }, async () => {
+  await assertRefused("node-env", { NODE_ENV: "development" });
+});
+
 test("a valid configuration passes every setting check, then refuses when it can't check the database itself", { timeout: 90_000 }, async () => {
   const { code, output } = await start(VALID);
   assert.notEqual(code, 0);

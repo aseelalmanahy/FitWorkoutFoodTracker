@@ -19,7 +19,7 @@ const path = require("node:path");
 const { createHash, randomBytes } = require("node:crypto");
 const { PrismaClient } = require("@prisma/client");
 const { createSignedInUser, addSession } = require("./lib/test-users.cjs");
-const { mailFiles, readMailLink } = require("./lib/signup.cjs");
+const { mailFiles, readMailLink, NOTICE_VERSION } = require("./lib/signup.cjs");
 const target = require("./lib/test-target-guard.cjs").requireSafeTarget();
 
 const BASE = target.baseUrl;
@@ -53,7 +53,7 @@ async function call(method, urlPath, body, { ip = newIp(), cookie, headers = {} 
 }
 const sessionCookie = (res) => res.headers.getSetCookie().find((c) => c.startsWith("fit_session="))?.split(";")[0];
 const register = (email, opts) => call("POST", "/api/auth/register", { email }, opts);
-const complete = (token, password, opts) => call("POST", "/api/auth/register/complete", { token, password }, opts);
+const complete = (token, password, opts) => call("POST", "/api/auth/register/complete", { token, password, acceptedVersion: NOTICE_VERSION }, opts);
 const forgot = (email, opts) => call("POST", "/api/auth/password/forgot", { email }, opts);
 const reset = (token, password, opts) => call("POST", "/api/auth/password/reset", { token, password }, opts);
 const login = (email, password, opts) => call("POST", "/api/auth/login", { email, password }, opts);
