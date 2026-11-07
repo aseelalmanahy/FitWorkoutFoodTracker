@@ -6,7 +6,7 @@ export const metadata = { title: "Scan a label" };
 export default function ScanLabelPage() {
   return (
     <>
-      <PageHeader title="Scan a label" subtitle="AI reads what's printed. You check it." back="/nutrition" />
+      <PageHeader title="Scan a label" subtitle="The app reads what's printed. You check every value." back="/nutrition" />
       <LabelScanner />
     </>
   );

@@ -6,6 +6,7 @@ import { getLabelExtractor, LabelExtractionError, runLabelExtraction, type Label
 import { checkLabelScanBudget, reserveLabelScan, type ScanBudget } from "@/lib/server/labels/limits";
 
 const NOTICE = "Unverified. This was read by AI and may be wrong. Check every value against the label before using it.";
+const LOCAL_NOTICE = "Unverified. This was read by text recognition on this server and may be wrong. Check every value against the label before using it.";
 const UNREADABLE = "The label couldn't be read reliably. Try again with a clearer photo, or enter the values yourself.";
 
 const FAILURES: Record<LabelExtractionFailure, { status: number; message: string; retryAfter?: string }> = {
@@ -53,7 +54,7 @@ export const POST = route(async (req, { user }) => {
     if (!parsed.extraction.isNutritionLabel) throw new HttpError(422, "This doesn't look like a nutrition label. Crop to the label, or try another photo.");
 
     return NextResponse.json(
-      { verified: false, notice: NOTICE, extraction: parsed.extraction, flags: checkLabelExtraction(parsed.extraction), extractorId: extractor.id, imageSha256: sha256 },
+      { verified: false, notice: extractor.id.startsWith("local:") ? LOCAL_NOTICE : NOTICE, extraction: parsed.extraction, flags: checkLabelExtraction(parsed.extraction), extractorId: extractor.id, imageSha256: sha256 },
       { headers: { "Cache-Control": "no-store" } },
     );
   });

@@ -62,6 +62,7 @@
     "@anthropic-ai/sdk": "anthropic",
     "@node-rs/argon2": "none",
     "@prisma/client": "database",
+    "@tesseract.js-data/eng": "none",
     "next": "none",
     "pdfjs-dist": "none",
     "react": "none",
@@ -69,6 +70,7 @@
     "recharts": "none",
     "server-only": "none",
     "sharp": "none",
+    "tesseract.js": "none",
     "zod": "none"
   },
   "processors": {

@@ -205,6 +205,7 @@ export function productionConfigProblems(env: Env = process.env): ConfigProblem[
 
   if (allowlistEntries(env).some((e) => !ALLOWLIST_ENTRY.test(e))) add("allowlist-invalid", "REGISTRATION_ALLOWLIST must hold exact email addresses only.");
   problems.push(...mailProblems(env));
+  if (set(env, "LABEL_OCR") && env.LABEL_OCR !== "local") add("label-ocr", "LABEL_OCR can only be \"local\", for on-device label reading.");
   if (set(env, "FDC_API_KEY") && PLACEHOLDER_KEY.test(env.FDC_API_KEY as string)) add("placeholder-key", "FDC_API_KEY is a placeholder.");
   if (noticeIsMalformed()) add("notice-malformed", "The notice says it's final, and doesn't pass as final.");
   if (env.NODE_TLS_REJECT_UNAUTHORIZED === "0") add("tls-disabled", "NODE_TLS_REJECT_UNAUTHORIZED must not disable certificate checks.");

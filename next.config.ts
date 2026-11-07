@@ -3,7 +3,8 @@ import { API_HEADERS, BASE_SECURITY_HEADERS } from "./src/lib/security-headers";
 
 const nextConfig: NextConfig = {
   poweredByHeader: false,
-  serverExternalPackages: ["@node-rs/argon2"],
+  // tesseract.js runs a worker thread from its own files in node_modules, so it isn't bundled.
+  serverExternalPackages: ["@node-rs/argon2", "tesseract.js"],
   async headers() {
     // The page policy and HSTS are in middleware.ts, as they depend on the request and the running environment.
     return [

@@ -36,7 +36,10 @@ export class LabelExtractionError extends Error {
 
 export const LABEL_EXTRACTION_TIMEOUT_MS = 60_000;
 
-export const isLabelScanningConfigured = () => Boolean(process.env.ANTHROPIC_API_KEY?.trim() && process.env.LABEL_EXTRACTION_MODEL?.trim());
+/** On-device label reading (AI-01), with no paid service: LABEL_OCR=local. */
+export const isLocalLabelOcrEnabled = () => process.env.LABEL_OCR === "local";
+const isAnthropicLabelScanningConfigured = () => Boolean(process.env.ANTHROPIC_API_KEY?.trim() && process.env.LABEL_EXTRACTION_MODEL?.trim());
+export const isLabelScanningConfigured = () => isAnthropicLabelScanningConfigured() || isLocalLabelOcrEnabled();
 
 /**
  * The configured extractor, or null when scanning isn't set up. Both a key and a model are needed.
@@ -46,7 +49,11 @@ export const isLabelScanningConfigured = () => Boolean(process.env.ANTHROPIC_API
 export async function getLabelExtractor(): Promise<LabelExtractor | null> {
   const apiKey = process.env.ANTHROPIC_API_KEY?.trim();
   const model = process.env.LABEL_EXTRACTION_MODEL?.trim();
-  if (!apiKey || !model) return null;
+  if (!apiKey || !model) {
+    if (!isLocalLabelOcrEnabled()) return null;
+    const { createLocalLabelExtractor } = await import("./local-ocr");
+    return createLocalLabelExtractor();
+  }
   const { createAnthropicLabelExtractor } = await import("./anthropic");
   return createAnthropicLabelExtractor({ apiKey, model, effort: process.env.LABEL_EXTRACTION_EFFORT?.trim() || undefined });
 }
