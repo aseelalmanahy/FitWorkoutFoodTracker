@@ -1,0 +1,413 @@
+{
+ "license": "Each photo: Wikimedia Commons, under the license and by the author named. Checked by eye: each shows the food named, alone or as the main dish; 13 of the 48 fetched were left out (packaging, unrelated or mixed scenes).",
+ "photos": [
+  {
+   "food": "hamburger",
+   "accept": [
+    "hamburger"
+   ],
+   "file": "hamburger-1.jpg",
+   "title": "File:Hamburguesa casera - Flickr - Marieloreto.jpg",
+   "license": "CC0",
+   "author": "mariela morales",
+   "source": "https://commons.wikimedia.org/wiki/File:Hamburguesa_casera_-_Flickr_-_Marieloreto.jpg"
+  },
+  {
+   "food": "hamburger",
+   "accept": [
+    "hamburger"
+   ],
+   "file": "hamburger-3.jpg",
+   "title": "File:2023 Night Summit @ Pavilhao Carlos Lopes TM1 0444 (53335582229).jpg",
+   "license": "CC BY 2.0",
+   "author": "Web Summit",
+   "source": "https://commons.wikimedia.org/wiki/File:2023_Night_Summit_@_Pavilhao_Carlos_Lopes_TM1_0444_(53335582229).jpg"
+  },
+  {
+   "food": "caesar salad",
+   "accept": [
+    "caesar salad"
+   ],
+   "file": "caesar-salad-1.jpg",
+   "title": "File:CaesarSalad3.jpg",
+   "license": "Public domain",
+   "author": "User Novellina on en.wikipedia",
+   "source": "https://commons.wikimedia.org/wiki/File:CaesarSalad3.jpg"
+  },
+  {
+   "food": "caesar salad",
+   "accept": [
+    "caesar salad"
+   ],
+   "file": "caesar-salad-2.jpg",
+   "title": "File:CaesarSalad.jpg",
+   "license": "CC BY 3.0",
+   "author": "Snakeyes",
+   "source": "https://commons.wikimedia.org/wiki/File:CaesarSalad.jpg"
+  },
+  {
+   "food": "caesar salad",
+   "accept": [
+    "caesar salad"
+   ],
+   "file": "caesar-salad-3.jpg",
+   "title": "File:Caesar salad paris.jpg",
+   "license": "CC BY-SA 3.0",
+   "author": "Kinodo2",
+   "source": "https://commons.wikimedia.org/wiki/File:Caesar_salad_paris.jpg"
+  },
+  {
+   "food": "caesar salad",
+   "accept": [
+    "caesar salad"
+   ],
+   "file": "caesar-salad-4.jpg",
+   "title": "File:Caesars Salad at Sodinis Bertoluccis (8566184051).jpg",
+   "license": "CC BY 2.0",
+   "author": "Jim G from Silicon Valley, CA, USA",
+   "source": "https://commons.wikimedia.org/wiki/File:Caesars_Salad_at_Sodinis_Bertoluccis_(8566184051).jpg"
+  },
+  {
+   "food": "spaghetti",
+   "accept": [
+    "spaghetti",
+    "spaghetti bolognese",
+    "spaghetti carbonara"
+   ],
+   "file": "spaghetti-1.jpg",
+   "title": "File:Freshly made spaghetti.jpg",
+   "license": "CC BY-SA 3.0",
+   "author": "RobertDiGiorgio",
+   "source": "https://commons.wikimedia.org/wiki/File:Freshly_made_spaghetti.jpg"
+  },
+  {
+   "food": "sushi",
+   "accept": [
+    "sushi",
+    "sashimi"
+   ],
+   "file": "sushi-1.jpg",
+   "title": "File:Another sushi.jpg",
+   "license": "CC BY-SA 3.0",
+   "author": "Milko Krachounov",
+   "source": "https://commons.wikimedia.org/wiki/File:Another_sushi.jpg"
+  },
+  {
+   "food": "sushi",
+   "accept": [
+    "sushi",
+    "sashimi"
+   ],
+   "file": "sushi-3.jpg",
+   "title": "File:Hobazushi-Tohno.JPG",
+   "license": "CC BY-SA 3.0",
+   "author": "アレックス",
+   "source": "https://commons.wikimedia.org/wiki/File:Hobazushi-Tohno.JPG"
+  },
+  {
+   "food": "fried rice",
+   "accept": [
+    "fried rice",
+    "paella",
+    "risotto"
+   ],
+   "file": "fried-rice-1.jpg",
+   "title": "File:Cucumber Fried Rice.jpg",
+   "license": "CC BY-SA 4.0",
+   "author": "Gaurav_Dhwaj_Khadka",
+   "source": "https://commons.wikimedia.org/wiki/File:Cucumber_Fried_Rice.jpg"
+  },
+  {
+   "food": "fried rice",
+   "accept": [
+    "fried rice",
+    "paella",
+    "risotto"
+   ],
+   "file": "fried-rice-2.jpg",
+   "title": "File:Cuisine of Guangdong 7.jpg",
+   "license": "CC BY-SA 4.0",
+   "author": "Pauloleong2002",
+   "source": "https://commons.wikimedia.org/wiki/File:Cuisine_of_Guangdong_7.jpg"
+  },
+  {
+   "food": "fried rice",
+   "accept": [
+    "fried rice",
+    "paella",
+    "risotto"
+   ],
+   "file": "fried-rice-3.jpg",
+   "title": "File:2020-03-03 18 51 39 Fried rice from the Vienna, Virginia-based Hunan Delight Restaurant, in the Franklin Farm section of Oak Hill, Fairfax County, Virginia.jpg",
+   "license": "CC BY-SA 4.0",
+   "author": "Famartin",
+   "source": "https://commons.wikimedia.org/wiki/File:2020-03-03_18_51_39_Fried_rice_from_the_Vienna,_Virginia-based_Hunan_Delight_Restaurant,_in_the_Franklin_Farm_section_of_Oak_Hill,_Fairfax_County,_Virginia.jpg"
+  },
+  {
+   "food": "pancakes",
+   "accept": [
+    "pancakes"
+   ],
+   "file": "pancakes-2.jpg",
+   "title": "File:Brunch or breakfast, Italian and American style combined.jpg",
+   "license": "CC BY-SA 3.0 it",
+   "author": "Pava",
+   "source": "https://commons.wikimedia.org/wiki/File:Brunch_or_breakfast,_Italian_and_American_style_combined.jpg"
+  },
+  {
+   "food": "pancakes",
+   "accept": [
+    "pancakes"
+   ],
+   "file": "pancakes-3.jpg",
+   "title": "File:Abby's favourite food 2013-11-09 02-50.jpg",
+   "license": "CC BY-SA 3.0",
+   "author": "User:Amazballs",
+   "source": "https://commons.wikimedia.org/wiki/File:Abby%27s_favourite_food_2013-11-09_02-50.jpg"
+  },
+  {
+   "food": "pancakes",
+   "accept": [
+    "pancakes"
+   ],
+   "file": "pancakes-4.jpg",
+   "title": "File:Breakfast Pancakes.jpg",
+   "license": "CC BY-SA 4.0",
+   "author": "Shiku Ngigi",
+   "source": "https://commons.wikimedia.org/wiki/File:Breakfast_Pancakes.jpg"
+  },
+  {
+   "food": "omelette",
+   "accept": [
+    "omelette",
+    "huevos rancheros"
+   ],
+   "file": "omelette-1.jpg",
+   "title": "File:2707796094 1b7a69b430.jpg",
+   "license": "CC BY 2.0",
+   "author": "Javier Lastras from España/Spain",
+   "source": "https://commons.wikimedia.org/wiki/File:2707796094_1b7a69b430.jpg"
+  },
+  {
+   "food": "omelette",
+   "accept": [
+    "omelette",
+    "huevos rancheros"
+   ],
+   "file": "omelette-2.jpg",
+   "title": "File:Big Omelette (523784359).jpg",
+   "license": "CC BY 2.0",
+   "author": "Marcus Quigmire from Florida, USA",
+   "source": "https://commons.wikimedia.org/wiki/File:Big_Omelette_(523784359).jpg"
+  },
+  {
+   "food": "omelette",
+   "accept": [
+    "omelette",
+    "huevos rancheros"
+   ],
+   "file": "omelette-3.jpg",
+   "title": "File:130922 Windsor Hotel Toya Resort & Spa Toyako Hokkaido Japan24s.jpg",
+   "license": "CC BY 2.5",
+   "author": "663highland",
+   "source": "https://commons.wikimedia.org/wiki/File:130922_Windsor_Hotel_Toya_Resort_%26_Spa_Toyako_Hokkaido_Japan24s.jpg"
+  },
+  {
+   "food": "steak",
+   "accept": [
+    "steak",
+    "filet mignon",
+    "prime rib"
+   ],
+   "file": "steak-1.jpg",
+   "title": "File:Barbecued steaks, Brno.jpg",
+   "license": "CC BY-SA 4.0",
+   "author": "I would appreciate being notified if you use my work outside Wikimedia.\nDo not c",
+   "source": "https://commons.wikimedia.org/wiki/File:Barbecued_steaks,_Brno.jpg"
+  },
+  {
+   "food": "steak",
+   "accept": [
+    "steak",
+    "filet mignon",
+    "prime rib"
+   ],
+   "file": "steak-3.jpg",
+   "title": "File:Beef tenderloin - Guillaume at Bennelong.jpg",
+   "license": "CC BY-SA 2.0",
+   "author": "Alpha from Melbourne, Australia",
+   "source": "https://commons.wikimedia.org/wiki/File:Beef_tenderloin_-_Guillaume_at_Bennelong.jpg"
+  },
+  {
+   "food": "steak",
+   "accept": [
+    "steak",
+    "filet mignon",
+    "prime rib"
+   ],
+   "file": "steak-4.jpg",
+   "title": "File:65 grams red meat (100 grams raw weight).JPG",
+   "license": "CC BY-SA 4.0",
+   "author": "Hannahdownes",
+   "source": "https://commons.wikimedia.org/wiki/File:65_grams_red_meat_(100_grams_raw_weight).JPG"
+  },
+  {
+   "food": "french fries",
+   "accept": [
+    "french fries",
+    "poutine",
+    "fish and chips"
+   ],
+   "file": "french-fries-1.jpg",
+   "title": "File:Asado at Chacra del Puerto.JPG",
+   "license": "CC0",
+   "author": "Ypsilon from Finland",
+   "source": "https://commons.wikimedia.org/wiki/File:Asado_at_Chacra_del_Puerto.JPG"
+  },
+  {
+   "food": "french fries",
+   "accept": [
+    "french fries",
+    "poutine",
+    "fish and chips"
+   ],
+   "file": "french-fries-2.jpg",
+   "title": "File:Buffalo Burgers French Fries (28290272445).jpg",
+   "license": "CC BY-SA 2.0",
+   "author": "Willis Lam",
+   "source": "https://commons.wikimedia.org/wiki/File:Buffalo_Burgers_French_Fries_(28290272445).jpg"
+  },
+  {
+   "food": "banana",
+   "accept": [
+    "banana"
+   ],
+   "file": "banana-1.jpg",
+   "title": "File:A bunch of bananas.jpg",
+   "license": "CC BY-SA 3.0",
+   "author": "User Carioca",
+   "source": "https://commons.wikimedia.org/wiki/File:A_bunch_of_bananas.jpg"
+  },
+  {
+   "food": "banana",
+   "accept": [
+    "banana"
+   ],
+   "file": "banana-2.jpg",
+   "title": "File:10.5 inch banana.JPG",
+   "license": "CC BY-SA 3.0",
+   "author": "BrokenSphere",
+   "source": "https://commons.wikimedia.org/wiki/File:10.5_inch_banana.JPG"
+  },
+  {
+   "food": "banana",
+   "accept": [
+    "banana"
+   ],
+   "file": "banana-3.jpg",
+   "title": "File:27 cm banana.JPG",
+   "license": "CC BY-SA 3.0",
+   "author": "BrokenSphere",
+   "source": "https://commons.wikimedia.org/wiki/File:27_cm_banana.JPG"
+  },
+  {
+   "food": "banana",
+   "accept": [
+    "banana"
+   ],
+   "file": "banana-4.jpg",
+   "title": "File:BaNa... (3806777363).jpg",
+   "license": "CC BY 2.0",
+   "author": "Basheer Olakara",
+   "source": "https://commons.wikimedia.org/wiki/File:BaNa..._(3806777363).jpg"
+  },
+  {
+   "food": "pizza",
+   "accept": [
+    "pizza"
+   ],
+   "file": "pizza-1.jpg",
+   "title": "File:Eq it-na pizza-margherita sep2005 sml.jpg",
+   "license": "CC BY-SA 3.0",
+   "author": "Valerio Capello at English Wikipedia",
+   "source": "https://commons.wikimedia.org/wiki/File:Eq_it-na_pizza-margherita_sep2005_sml.jpg"
+  },
+  {
+   "food": "pizza",
+   "accept": [
+    "pizza"
+   ],
+   "file": "pizza-2.jpg",
+   "title": "File:Fox, Dalston, London (3634023284).jpg",
+   "license": "CC BY-SA 2.0",
+   "author": "Ewan Munro from London, UK",
+   "source": "https://commons.wikimedia.org/wiki/File:Fox,_Dalston,_London_(3634023284).jpg"
+  },
+  {
+   "food": "pizza",
+   "accept": [
+    "pizza"
+   ],
+   "file": "pizza-3.jpg",
+   "title": "File:Gemignani Margherita Pizza.JPG",
+   "license": "CC BY-SA 4.0",
+   "author": "Sarahinloes",
+   "source": "https://commons.wikimedia.org/wiki/File:Gemignani_Margherita_Pizza.JPG"
+  },
+  {
+   "food": "pizza",
+   "accept": [
+    "pizza"
+   ],
+   "file": "pizza-4.jpg",
+   "title": "File:Margarita Pizza.jpg",
+   "license": "CC0",
+   "author": "Douglas Perkins",
+   "source": "https://commons.wikimedia.org/wiki/File:Margarita_Pizza.jpg"
+  },
+  {
+   "food": "apple",
+   "accept": [
+    "apple"
+   ],
+   "file": "apple-1.jpg",
+   "title": "File:A Fine Pair of apples - geograph.org.uk - 916522.jpg",
+   "license": "CC BY-SA 2.0",
+   "author": "Colin Smith",
+   "source": "https://commons.wikimedia.org/wiki/File:A_Fine_Pair_of_apples_-_geograph.org.uk_-_916522.jpg"
+  },
+  {
+   "food": "apple",
+   "accept": [
+    "apple"
+   ],
+   "file": "apple-2.jpg",
+   "title": "File:Apple, Fryšták (1).jpg",
+   "license": "CC BY-SA 3.0",
+   "author": "I would appreciate being notified if you use my work outside Wikimedia.\nDo not c",
+   "source": "https://commons.wikimedia.org/wiki/File:Apple,_Fry%C5%A1t%C3%A1k_(1).jpg"
+  },
+  {
+   "food": "apple",
+   "accept": [
+    "apple"
+   ],
+   "file": "apple-3.jpg",
+   "title": "File:\"Apples of Salem\".jpg",
+   "license": "CC BY-SA 3.0",
+   "author": "Thamizhpparithi Maari",
+   "source": "https://commons.wikimedia.org/wiki/File:%22Apples_of_Salem%22.jpg"
+  },
+  {
+   "food": "apple",
+   "accept": [
+    "apple"
+   ],
+   "file": "apple-4.jpg",
+   "title": "File:Alexander (apple).jpg",
+   "license": "CC BY-SA 4.0",
+   "author": "Aron Ambrosiani",
+   "source": "https://commons.wikimedia.org/wiki/File:Alexander_(apple).jpg"
+  }
+ ]
+}

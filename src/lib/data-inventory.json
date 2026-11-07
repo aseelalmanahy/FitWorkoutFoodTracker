@@ -61,6 +61,7 @@
   "dependencies": {
     "@anthropic-ai/sdk": "anthropic",
     "@node-rs/argon2": "none",
+    "@huggingface/transformers": "none",
     "@prisma/client": "database",
     "@tesseract.js-data/eng": "none",
     "next": "none",

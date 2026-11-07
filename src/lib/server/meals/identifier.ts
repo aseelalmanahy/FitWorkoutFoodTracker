@@ -14,7 +14,9 @@ export interface MealIdentifier {
 const key = () => process.env.ANTHROPIC_API_KEY?.trim();
 const model = () => process.env.MEAL_IDENTIFICATION_MODEL?.trim();
 
-export const isMealIdentificationConfigured = () => Boolean(key() && model());
+/** On-device meal suggestions (AI-02), with no paid service: MEAL_RECOGNITION=local. */
+export const isLocalMealRecognitionEnabled = () => process.env.MEAL_RECOGNITION === "local";
+export const isMealIdentificationConfigured = () => Boolean(key() && model()) || isLocalMealRecognitionEnabled();
 
 /**
  * The configured identifier, or null when it isn't set up. It has its own model setting, with no
@@ -23,7 +25,11 @@ export const isMealIdentificationConfigured = () => Boolean(key() && model());
 export async function getMealIdentifier(): Promise<MealIdentifier | null> {
   const apiKey = key();
   const chosen = model();
-  if (!apiKey || !chosen) return null;
+  if (!apiKey || !chosen) {
+    if (!isLocalMealRecognitionEnabled()) return null;
+    const { createLocalMealIdentifier } = await import("./local-clip");
+    return createLocalMealIdentifier();
+  }
   const { createAnthropicMealIdentifier } = await import("./anthropic");
   return createAnthropicMealIdentifier({ apiKey, model: chosen, effort: process.env.MEAL_IDENTIFICATION_EFFORT?.trim() || undefined });
 }

@@ -21,6 +21,12 @@ export async function preflightProblems(env: Record<string, string | undefined> 
     }
   }
   const problems = productionConfigProblems(env);
+  // On-device meal suggestions need their pinned model files, present and matching their recorded SHA-256 (AI-02).
+  if (env.MEAL_RECOGNITION === "local") {
+    const { localMealModelProblem } = await import("./meals/local-model-files");
+    const problem = localMealModelProblem();
+    if (problem) problems.push({ id: "meal-model", message: `MEAL_RECOGNITION=local, but ${problem}.` });
+  }
   if (problems.length) return problems;
   try {
     const found = await identity();

@@ -1,0 +1,13 @@
+{
+  "model": "Xenova/clip-vit-base-patch32",
+  "revision": "6b7c523703ae26e39be4b03774966f8571c7f523",
+  "dtype": "q8",
+  "license": "MIT (OpenAI CLIP ViT-B/32; ONNX conversion by Xenova)",
+  "files": {
+    "6b7c523703ae26e39be4b03774966f8571c7f523/config.json": "493ef57ff783e42d1530c91b53469b7fdf8db8a9c1408e86998fcb7899a4f495",
+    "6b7c523703ae26e39be4b03774966f8571c7f523/onnx/model_quantized.onnx": "0898a3facfdb27f0a041e57649b4989cfd094e4a0040d6ae75ed69917dfc7328",
+    "6b7c523703ae26e39be4b03774966f8571c7f523/preprocessor_config.json": "6f638fb9401a6d6296feff533ee7efe657b787c49f954f82f5906b36ef2a1b1f",
+    "6b7c523703ae26e39be4b03774966f8571c7f523/tokenizer.json": "f7f3b7af117d467b58374797691a6438d3e6b9e9cef800dfd5dced7f697a90cd",
+    "6b7c523703ae26e39be4b03774966f8571c7f523/tokenizer_config.json": "60ba2912bc6344c94bc16bbdec27fa1209409167b6f2fdf3cfe9e65462ea3967"
+  }
+}

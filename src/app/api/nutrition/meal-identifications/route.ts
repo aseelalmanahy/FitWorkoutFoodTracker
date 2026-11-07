@@ -7,6 +7,7 @@ import { checkLabelScanBudget, reserveLabelScan, type ScanBudget } from "@/lib/s
 import { getMealIdentifier, runMealIdentification } from "@/lib/server/meals/identifier";
 
 const NOTICE = "Unverified. These are AI suggestions from a photo and may be wrong. Check each one. Nothing about amounts or nutrition comes from the photo.";
+const LOCAL_NOTICE = "Unverified. This is a suggestion from a model on this server, which names only the main dish and may be wrong. Check it, and add anything else yourself. Nothing about amounts or nutrition comes from the photo.";
 const UNREADABLE = "The foods in this photo couldn't be identified. Try another photo, or search for the foods yourself.";
 
 const FAILURES: Record<LabelExtractionFailure, { status: number; message: string; retryAfter?: string }> = {
@@ -55,7 +56,7 @@ export const POST = route(async (req, { user }) => {
     if (!parsed.identification.containsFood) throw new HttpError(422, "This doesn't look like a photo of food. Try another photo, or search for the foods yourself.");
 
     return NextResponse.json(
-      { verified: false, notice: NOTICE, identification: parsed.identification, identifierId: identifier.id },
+      { verified: false, notice: identifier.id.startsWith("local:") ? LOCAL_NOTICE : NOTICE, identification: parsed.identification, identifierId: identifier.id },
       { headers: { "Cache-Control": "no-store" } },
     );
   });

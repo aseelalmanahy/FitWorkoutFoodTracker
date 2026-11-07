@@ -609,9 +609,11 @@ const NOT_GUARDED = {
   "server-lifecycle.test.cjs": "starts only stand-in processes it writes itself, on free loopback ports; no app, database or request (RC-02)",
   "food-benchmark-record.cjs": "reads search results from USDA FoodData Central and Open Food Facts only, to a file; never the app or a database (RC-01)",
   "label-photo-fetch.cjs": "downloads label photos and their reference values from Open Food Facts only, to a Git-ignored folder; never the app or a database (RC-03)",
+  "meal-model-fetch.cjs": "downloads the pinned meal model from huggingface.co only, to a Git-ignored folder, and checks its hashes; never the app or a database (AI-02)",
+  "meal-photo-fetch.cjs": "downloads labelled photos from Wikimedia Commons only, to a Git-ignored folder; never the app or a database (AI-02)",
 };
-// food-benchmark-record.cjs and label-photo-fetch.cjs are here only because they fetch from public food services; they reach no app or database.
-const NOT_GUARDED_MAY_WRITE = new Set(["food-benchmark-record.cjs", "label-photo-fetch.cjs", "account-facts.test.cjs", "mark-test-database.cjs", "test-db-guard.test.cjs", "live-check.units.test.cjs", "test-target-guard.test.cjs", "test-target-guard.browser.test.cjs"]);
+// food-benchmark-record.cjs, label-photo-fetch.cjs and meal-photo-fetch.cjs are here only because they fetch from public services; they reach no app or database.
+const NOT_GUARDED_MAY_WRITE = new Set(["food-benchmark-record.cjs", "label-photo-fetch.cjs", "meal-photo-fetch.cjs", "account-facts.test.cjs", "mark-test-database.cjs", "test-db-guard.test.cjs", "live-check.units.test.cjs", "test-target-guard.test.cjs", "test-target-guard.browser.test.cjs"]);
 const WRITE_CAPABLE = /\bfetch\(|PrismaClient|newContext\(|require\(["']playwright["']\)|\/api\/auth\/register|http\.request\(/;
 
 /** Problems in a guarded script's source. Comments are ignored, so a mention can't satisfy this. */
