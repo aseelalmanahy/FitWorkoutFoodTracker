@@ -1,8 +1,6 @@
 # MIG-04: how to apply and verify it
 
-**Prepared, and not executed. No database was accessed to prepare this.** Applying MIG-04 needs the owner's separate, explicit authorization (J-02), which this document doesn't grant. It covers `fitdb_test` only. `fitdb`, `fitdb_test_other` and any production database each need their own decision and backup.
-
-`scripts/mig-04.cjs` has never run against a database. Only its refusals are tested, with no database, in `scripts/mig-04.test.cjs`, so its first real run may find a defect in it. Any `STOP` or `REFUSED` ends the procedure: report it, and don't work around it.
+**Executed on `fitdb_test` on 2026-11-07 UTC, with the owner's written authorization, and every step passed. Results are in tracker J-02 and MIG-04.** This document doesn't authorize anything further. `fitdb`, `fitdb_test_other` and any production database each need their own decision and backup, and the script refuses them. Any `STOP` or `REFUSED` ends the procedure: report it, and don't work around it.
 
 ## What it is
 

@@ -1,5 +1,5 @@
-// MIG-04's checks, in the order docs/MIG_04_RUNBOOK.md gives them. NOTHING HERE HAS RUN AGAINST A DATABASE until the owner
-// authorizes it. Only its refusals are tested so far, with no database: scripts/mig-04.test.cjs.
+// MIG-04's checks, in the order docs/MIG_04_RUNBOOK.md gives them. Run on fitdb_test on 2026-11-07, with the owner's written
+// authorization. Its refusals are tested with no database: scripts/mig-04.test.cjs.
 //   node --env-file=.env.test scripts/mig-04.cjs preflight
 //   node --env-file=.env.test scripts/mig-04.cjs backup
 //   node --env-file=.env.test scripts/mig-04.cjs apply --owner-authorized=MIG-04
