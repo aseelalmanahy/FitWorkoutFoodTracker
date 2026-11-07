@@ -25,7 +25,7 @@ It was built on `feature/phase-4.0.6-readiness`, from `main` at `5434f90`. **So 
 
 **Deliberate defects:** 25 of 25 at unit level, and 16 of 16 in a real browser against a rebuilt server, each by a failed assertion. Several first failed for the wrong reasons, a wait running out, a build error or an out-of-date pattern, and none of those was counted. They were corrected and rerun. One older control no longer applied once the code it broke was replaced, and another now covers that defect.
 
-**Security:** a read-only agent reviewed `5763413`. **Its findings are addressed in `d363e4c`, which no agent has re-read.** The most serious was in a test: `readiness-performance`'s cleanup could have removed every person's rows on `fitdb_test` if its setup had failed. It hadn't, and the 10 QA accounts are intact. Independent source review is still to come.
+**Security:** a read-only agent reviewed `5763413`. **Its findings are addressed in `d363e4c`.** A second reviewed the locking at `846c8c7`, and found no way to put a new set on a finished workout. Its findings are addressed in `09f0aa4`, or recorded as K-04. **No agent has re-read `d363e4c` as a whole, or `09f0aa4`.** The most serious was in a test: `readiness-performance`'s cleanup could have removed every person's rows on `fitdb_test` if its setup had failed. It hadn't, and the 10 QA accounts are intact. Independent source review is still to come.
 
 ## Defects corrected here
 
@@ -40,6 +40,33 @@ It was built on `feature/phase-4.0.6-readiness`, from `main` at `5434f90`. **So 
 **Limits of the S-07 fix:** a key lasts until its set is known to be saved. If the answer is lost and the re-read fails too, then someone who ignores the message, does a second set with the same values and taps once the connection is back gets the first set returned. So one row stands for two real sets. A screen lock between sets, and a network drop on a real phone, are still R-13.
 
 **Also limits, not fixed here:** weekly averages count a partly reported day as a whole day. Sets racing with different keys can share a set number, as they could before, and a constraint would need a migration. If the page's client code fails to load, the emailed link's page shows only its heading, with no message.
+
+## Logging a set against finishing a workout
+
+**The gap:** the status check and the insert were separate statements, so a set already past its check could be saved after the workout's completion committed. Finishing could also drop an exercise whose first set was under way, and two finishes could both succeed with different end times.
+
+**The fix, with no schema change:** `logSet` and `finishSession` each hold the workout's row with `FOR UPDATE`, from the status check to the commit. In PostgreSQL's default isolation, a request that was waiting re-reads the row once it gets it, so it sees a finish that committed ahead of it. A retry of a set saved earlier still gets that set, as that check comes before the status check.
+
+**Waiting is bounded.** Each lock wait is limited to 4 seconds, and a request queued behind another can wait for two, then answers 503 with nothing saved. One person can have 8 requests waiting, per server process, as each one holds a shared connection. A transaction that times out, or finds no free connection, also answers 503 rather than a bare 500.
+
+**How it's tested:** the orderings are forced, not hoped for. `workout-sets` holds a row lock of its own and reads `pg_stat_activity`, read-only and for this database, to see a request waiting before sending the next. It then lets go.
+
+| Ordering | Result |
+|---|---|
+| A set's insert under way, then a finish | The finish waits, and the set is in the workout |
+| A finish first, with a set waiting | The set gets 409, and nothing is saved |
+| A set first, with a finish waiting | Saved, and the finish counts it |
+| A retry of a saved set, waiting behind a finish | Gets the saved set, with one row |
+| A retry of a set never saved, waiting behind a finish | 409, and nothing is added |
+| Two finishes | One gets 200 and the other 409, with one end time |
+
+**Results at the fix's final code:** `09f0aa4`. Unit tests 1,629 of 1,629, with type check and build clean. `workout-sets` 25 of 25, and `guard`, `readiness-e2e`, `readiness-performance`, `e2e-smoke`, `account-data`, `release-workflow`, `production-security` and `hardening` all pass. **This isn't a full regression,** which belongs to the combined code. Deliberate defects: 23 of 23 by a failed assertion, 12 at unit level and 11 against a rebuilt real server. Removing the locks is caught, as is checking status before a retry's lookup. An earlier version of the unit tests missed five defects, as their stand-in couldn't tell a call inside the transaction from one outside. That was corrected, and those five rerun. One real-server control first named the wrong tests, and was corrected and rerun rather than counted.
+
+**What this doesn't cover:**
+
+- **The limit of 8 is per server process,** so several processes would each allow 8. It's a judgement, and nothing measured it against a real connection pool.
+- **It has only run against one local PostgreSQL.** The behaviour relied on is PostgreSQL's documented default, and a database set to another isolation level would need checking.
+- **Other changes to a finished workout are still allowed,** K-04.
 
 ## Unexplained failure
 

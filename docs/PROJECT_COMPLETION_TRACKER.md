@@ -189,8 +189,8 @@
 | State | Phase 4.0.6, local part |
 |---|---|
 | **IMPLEMENTED** | Yes, unmerged: unknown nutrition stays null, a partial total isn't called a miss, logging a set is safe to retry, finished workouts take no new set, `/previous` answers 404 |
-| **TESTED** | **Yes, on `fitdb_test`.** 35 of 35 suites at `d363e4c`, deliberate defects 41 of 41. **One unexplained failure in an earlier run, T-25. `safety-no-marker` and `db-guard-scoped` weren't run, T-14** |
-| **REVIEWED** | **Partly.** A read-only security agent read `5763413`, and its findings are addressed in `d363e4c`, which no agent has re-read. **Independent source review is pending** |
+| **TESTED** | **Yes, on `fitdb_test`.** 35 of 35 suites at `d363e4c`, deliberate defects 41 of 41, then focused suites and 23 of 23 deliberate defects for the locking at `09f0aa4`. **No full regression has run at `09f0aa4`,** by the phase-level approach: one final regression on the combined code. **One unexplained failure in an earlier run, T-25. `safety-no-marker` and `db-guard-scoped` weren't run, T-14** |
+| **REVIEWED** | **Partly.** A read-only security agent read `5763413`, and its findings are addressed in `d363e4c`. Another read the locking at `846c8c7`, and its findings are addressed in `09f0aa4` or recorded as K-04. No agent has re-read those. **Independent source review is pending** |
 | **MERGED** | No |
 | **OPERATIONALLY VERIFIED** | **No. Nothing here ran on a real device or a deployed server** |
 
@@ -198,6 +198,8 @@
 |---|---|---|---|---|---|---|
 | K-01 | 4.0.6 | Local readiness fixes and document | IN PROGRESS | P1 | Review, merge approval | Full regression passes on the code that merges, and the owner approves |
 | K-02 | 4.0.6 | Repeat the regression once 4.0.5 and 4.1 are merged, and verify privacy, consent, weight and goals there | NOT STARTED | P0 | H-01, J-01, K-01 | All suites pass on the merged code |
+| K-04 | 4.0.6 | **Whether a finished workout can still change. Needs a decision, as it changes what the product does.** Its owner can still edit or delete its sets, delete an exercise with its sets, and add an empty exercise, for example from a stale tab, though the history page offers none of it. That alters personal records and "previous" figures, and deleting the last set leaves a finished workout with none. A delete committing just after a finish counts its sets can do the same. Found in review, and older than 4.0.6. **No new set can be added** | NOT STARTED | P2 | Owner | Decided: refused under the same lock, or kept as a way to correct records |
+| K-05 | 4.0.6 | Integration order and every required change: `PHASE_4_INTEGRATION_PLAN.md`. Tried in a throwaway clone, with no database. Nothing merged | NOT STARTED | P1 | H-01, J-01, K-01, owner approvals | All three merged by that plan, with one final regression on the combined code |
 | K-03 | 4.0.6 | About 5,300 leftover test users on `fitdb_test`, from suite runs, and each regression adds about 90. Harmless so far, and not removed | NOT STARTED | P3 | Owner | Left as is, or removed with authorization, keeping the 10 QA accounts |
 
 ## 3. Tests: run, failed, blocked
@@ -412,6 +414,7 @@ So code from before this migration **fails for those people, and never reads a n
 | T-19 | 4.0.4 | `account-tokens`, for real races, lock order, backdated expiry, revocation and logs on a real database | COMPLETE | P0 | None | 32 of 32 on `e82cbd9`, on `fitdb_test`, section 2d |
 | T-20 | 4.0.4 | Every suite that registers, moved to the real flow, and all three browsers | COMPLETE | P0 | None | All pass on `e82cbd9`, section 2d. The first real run found two script defects, both fixed. **Excludes T-14's two suites** |
 | T-21 | 4.0.4 | **Not covered by those results:** `live-provider-check.safety`'s tests, moved to the new flow and never run, including its marker refusals. Its SIGTERM test is also skipped on Windows | BLOCKED | P1 | T-14 | Runs when T-14 is authorized |
+| T-26 | 4.0.6 | `workout-sets`, forcing each ordering of logging a set and finishing a workout, on `fitdb_test` | COMPLETE for `fitdb_test` | P0 | None | 25 of 25 at `09f0aa4`. Docs: `PHASE_4_0_6_READINESS.md` |
 | T-25 | 4.0.6 | **`e2e-smoke` failed once at `ad015f0`, cause unknown:** a 30-second wait for the password field on the emailed link's page. Not reproduced in 25 reruns, the next regression, and 420 page loads. Memory wasn't low. Nothing shows what the page displayed | NOT STARTED | P1 | None | Cause found if it recurs, as the helper now reports what the page showed. Otherwise closed by the owner |
 | T-09 | 4.0.1b | **Not run:** dropping a CHECK on a live database, to show T38 then fails. The owner's authorization allowed only the approved migration to change the schema | DEFERRED | P2 | Owner, if wanted | **Partly covered:** NC31a and NC31b catch a removed constraint in the migration's text, T38 shows the live constraints refuse every invalid shape, and D5 and D6 show they stop the app's own bad writes |
 | T-10 | 4.0.1b, 4.0.1c | **Not run:** restoring either `fitdb_test` backup, from before 4.0.1b and 4.0.1c. Only their archive listings were read | NOT STARTED | P2 | Owner, for a restore target | Restored into a separately approved database, with row counts compared to the snapshots |
