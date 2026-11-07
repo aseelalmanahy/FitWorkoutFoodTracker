@@ -593,6 +593,7 @@ const OTHER_WRITE_CAPABLE = {
   "local-db.cjs": { must: ["envFileProblem(", "localDatabaseProblem(", "readLocalIdentity(", "LOCAL_DATABASES"], reason: "by hand: creates and migrates fitdb_review or fitdb_test_isolated only, refuses any database it didn't prepare, never drops" },
   "review-server.cjs": { must: ["envFileProblem(", "localDatabaseProblem(", "readLocalIdentity(", "REVIEW_MARKER", "-H\", \"127.0.0.1"], reason: "by hand: serves the review build on fitdb_review, on loopback only, after checking its marker" },
   "review-account.cjs": { must: ["envFileProblem(", "localDatabaseProblem(", "readLocalIdentity(", "REVIEW_MARKER", "check-ignore"], reason: "by hand, on fitdb_review: adds one User row per account, never changes one" },
+  "restore-check.cjs": { must: ["envFileProblem(", "localDatabaseProblem(", "readLocalIdentity(", "REVIEW_MARKER", "--confirm=${SCRATCH}", "isn't empty"], reason: "by hand: restores a backup only into an empty fitdb_restore_check the owner created, reads fitdb_review, never creates or drops a database (DEPLOY-03)" },
 };
 const NOT_GUARDED = {
   "demo-account.test.cjs": "the demo data's rules, and what the demo scripts must refuse, spawning them, with no database",
