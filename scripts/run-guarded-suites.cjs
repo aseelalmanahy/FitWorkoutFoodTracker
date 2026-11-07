@@ -26,6 +26,26 @@ const OTHER = otherUrl.toString();
 // Only stubs and fake keys from here on, including in every child process.
 for (const k of ["FDC_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "BASE_URL", "LABEL_STUB_URL", "NODE_TEST_CONTEXT", "MAIL_STUB_DIR"]) delete process.env[k];
 
+// RC-04: one guarded run at a time on this machine. Two at once (or a run beside other browser work) starved the
+// browsers of CPU: a traced failure showed Firefox delivering no click and drawing 2 frames in 34 s while the app
+// answered in milliseconds. A lock left by a run that no longer exists is taken over.
+const LOCK = path.join(os.tmpdir(), "fit-guarded-suites.lock");
+function takeLock() {
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try { fs.writeFileSync(LOCK, String(process.pid), { flag: "wx" }); return; } catch (e) { if (e.code !== "EEXIST") throw e; }
+    const holder = Number(fs.readFileSync(LOCK, "utf8"));
+    let alive = false;
+    try { process.kill(holder, 0); alive = true; } catch (e) { alive = e.code === "EPERM"; }
+    if (alive && holder !== process.pid) {
+      console.error(`REFUSED: another guarded run (process ${holder}) is in progress. Running two at once starves the browsers and makes results unreliable (RC-04).`);
+      process.exit(4);
+    }
+    fs.rmSync(LOCK, { force: true }); // left by a run that has ended
+  }
+  throw new Error("couldn't take the run lock");
+}
+takeLock();
+process.on("exit", () => { try { if (Number(fs.readFileSync(LOCK, "utf8")) === process.pid) fs.rmSync(LOCK, { force: true }); } catch { /* already gone */ } });
 const LOGS = fs.mkdtempSync(path.join(os.tmpdir(), "fit-suites-"));
 // The running app's mail directory, set by withApp for the time it runs. Whatever runs against the app gets it in its
 // environment, so helpers (scripts/lib/signup.cjs) can read the emailed links. Each app has its own, under LOGS.

@@ -73,11 +73,17 @@ const stub = {
   requests: () => fetch(`${STUB}/__requests`).then((r) => r.json()),
 };
 
+// RC-04: each browser run is traced (DOM snapshots, network, console), and the trace is kept only if the run fails.
+let current = null;
 async function runBrowser(name, files) {
   console.log(`--- ${name}`);
   const browser = await playwright[name].launch(target.launchOptions(name));
   const ctx = await target.guardContext(await browser.newContext({ viewport: { width: 390, height: 844 } }));
+  await ctx.tracing.start({ screenshots: true, snapshots: true });
   const page = await ctx.newPage();
+  const consoleLines = [];
+  page.on("console", (m) => { if (m.type() === "error" || m.type() === "warning") consoleLines.push(`${m.type()}: ${m.text().slice(0, 200)}`); });
+  current = { name, ctx, consoleLines };
   const errors = [];
   page.on("pageerror", (e) => {
     // WebKit reports Next's background page prefetches this way when navigating away interrupts them.
@@ -88,7 +94,18 @@ async function runBrowser(name, files) {
   await signUp(page);
   await stub.reset();
 
-  const scanPage = async () => { await page.goto(`${BASE}/nutrition/scan`); await page.locator("#label-photo").waitFor(); };
+  // RC-04: if the scan page doesn't show its file input, the failure says what was shown instead.
+  const scanPage = async () => {
+    const response = await page.goto(`${BASE}/nutrition/scan`);
+    try {
+      await page.locator("#label-photo").waitFor();
+    } catch (e) {
+      const shot = `${SHOTS}label-${name}-scan-page-missing-input.png`;
+      await page.screenshot({ path: shot, fullPage: true }).catch(() => {});
+      const text = (await page.locator("body").innerText().catch(() => "")).replace(/\s+/g, " ").slice(0, 400);
+      throw new Error(`${name}: the scan page showed no file input. HTTP ${response?.status()}, at ${page.url()}, inputs ${await page.locator("input").count()}, text: "${text}", screenshot ${shot}. ${e.message.split("\n")[0]}`);
+    }
+  };
   const pick = (file) => page.locator("#label-photo").setInputFiles(file);
   const toReview = async () => { await page.getByRole("button", { name: "Continue" }).click(); await page.getByTestId("prepared-image").waitFor(); };
   const preview = () => page.getByTestId("prepared-image").evaluate(async (img) => {
@@ -269,6 +286,8 @@ async function runBrowser(name, files) {
   await reviewFlows({ name, page, scanPage, pick, toReview, useThis, files });
 
   assert.deepEqual(errors, [], "no page errors");
+  await ctx.tracing.stop();
+  current = null;
   await browser.close();
 }
 
@@ -526,4 +545,12 @@ async function reviewFlows({ name, page, scanPage, pick, toReview, useThis, file
   };
   for (const name of BROWSERS) await runBrowser(name, files);
   console.log("ALL LABEL SCAN CHECKS PASSED");
-})().catch((e) => { console.error(e); process.exit(1); });
+})().catch(async (e) => {
+  console.error(e);
+  if (current) {
+    const trace = `${SHOTS}label-${current.name}-failure-trace.zip`;
+    await current.ctx.tracing.stop({ path: trace }).then(() => console.error(`Trace of the failed run: ${trace}`), () => {});
+    console.error(`Browser console errors and warnings: ${current.consoleLines.length ? current.consoleLines.slice(-20).join(" | ") : "none"}`);
+  }
+  process.exit(1);
+});
