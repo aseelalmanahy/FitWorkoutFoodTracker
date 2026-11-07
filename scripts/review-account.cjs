@@ -79,7 +79,7 @@ No email is sent from it, so a forgotten password can't be reset by email: ask f
 async function status() {
   await verified();
   for (const a of [OWNER, ...[1, 2, 3].map(testerAccount)]) {
-    const u = await db.user.findUnique({ where: { email: a.email }, select: { id: true, profile: { select: { id: true } } } });
+    const u = await db.user.findUnique({ where: { email: a.email }, select: { id: true, profile: { select: { userId: true } } } });
     if (!u) { console.log(`${a.email}: no account`); continue; }
     const [w, f, b] = await Promise.all([db.workoutSession.count({ where: { userId: u.id } }), db.foodEntry.count({ where: { userId: u.id } }), db.bodyMetric.count({ where: { userId: u.id } })]);
     console.log(`${a.email}: exists, profile ${u.profile ? "filled in" : "not yet"}, workouts ${w}, food entries ${f}, weights ${b}, ${a.file} ${fs.existsSync(path.join(ROOT, a.file)) ? "present" : "MISSING"}`);
