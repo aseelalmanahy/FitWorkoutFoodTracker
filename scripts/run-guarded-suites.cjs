@@ -1,7 +1,7 @@
 // Runs the integration and E2E suites against local test databases, with stub providers.
 // See docs/PHASE_4_0_0A_TEST_TARGET_GUARD.md. Needs a production build.
 //   node --env-file=.env.test scripts/run-guarded-suites.cjs [suite names...]
-// DATABASE_URL must name fitdb_test. fitdb_test_other is derived from it. Prints no credentials.
+// DATABASE_URL must name fitdb_test or fitdb_test_isolated, exactly. fitdb_test_other is derived from fitdb_test only. Prints no credentials.
 "use strict";
 const fs = require("node:fs");
 const os = require("node:os");
@@ -12,7 +12,10 @@ const { ROOT, NEXT_BIN, startStub, freePort, spawnNode, waitForChild, killTree, 
 
 const DB = process.env.DATABASE_URL;
 const unsafe = [databaseUrlProblem(DB), ...environmentProblems(process.env)].filter(Boolean);
-if (!unsafe.length && decodeURIComponent(new URL(DB).pathname.slice(1)) !== "fitdb_test") unsafe.push({ message: "DATABASE_URL must name fitdb_test." });
+// The databases this runner may write to, and nothing else.
+const RUNNABLE = ["fitdb_test", "fitdb_test_isolated"];
+const TARGET = unsafe.length ? null : decodeURIComponent(new URL(DB).pathname.slice(1));
+if (!unsafe.length && !RUNNABLE.includes(TARGET)) unsafe.push({ message: `DATABASE_URL must name ${RUNNABLE.join(" or ")}.` });
 if (unsafe.length) {
   console.error(`REFUSING to run (no database was touched):\n  - ${unsafe.map((p) => p.message).join("\n  - ")}`);
   process.exit(4);
@@ -76,7 +79,9 @@ const e2e = (name, file, models) => () => withLabelStub((stub) => withApp(name, 
 const unconfigured = (name, file, appEnv) => () => withApp(name, { appEnv }, ({ url }) => runNode([script(file)], { BASE_URL: url, EXPECT_UNCONFIGURED: "1", SHOTS_DIR: LOGS }, 120_000));
 const LABEL = { LABEL_EXTRACTION_MODEL: "stub-model" };
 const MEAL = { MEAL_IDENTIFICATION_MODEL: "stub-meal-model" };
-const SAFETY_ENV = { SAFETY_DB_URL: DB, SAFETY_DB_CONFIRM: "fitdb_test", SAFETY_OTHER_DB_URL: OTHER };
+const SAFETY_ENV = { SAFETY_DB_URL: DB, SAFETY_DB_CONFIRM: TARGET, SAFETY_OTHER_DB_URL: OTHER };
+// These two compare fitdb_test with fitdb_test_other, so they only make sense there.
+const NEEDS_OTHER = new Set(["safety-no-marker", "db-guard-scoped"]);
 
 /** Fails if the marker's catalog row was rewritten, not only if its text changed. */
 async function markerRow() {
@@ -89,7 +94,7 @@ async function markerRow() {
 }
 async function withoutMarkerWrite(run) {
   const before = await markerRow();
-  if (!before.includes("fitworkoutfoodtracker:test-database:v1:fitdb_test")) throw new Error("fitdb_test isn't marked, and this runner won't mark it");
+  if (!before.includes(`"fitworkoutfoodtracker:test-database:v1:${TARGET}"`)) throw new Error(`${TARGET} isn't marked, and this runner won't mark it`);
   const result = await run();
   if ((await markerRow()) !== before) throw new Error("the marker's row changed");
   return result;
@@ -133,6 +138,7 @@ const SUITES = {
   "privacy-cleanup": () => withApp("privacy-cleanup", {}, ({ url }) => runNode(nodeTest("e2e-privacy-cleanup.test.cjs"), { BASE_URL: url }, 590_000)),
   "weight-progress": () => withApp("weight-progress", {}, ({ url }) => runNode(nodeTest("weight-progress.test.cjs"), { BASE_URL: url }, 300_000)),
   "weight-e2e": () => withApp("weight-e2e", {}, ({ url }) => runNode([script("e2e-weight.cjs")], { BASE_URL: url }, 590_000)),
+  responsive: () => withApp("responsive", { appEnv: MANY }, ({ url }) => runNode([script("e2e-responsive.cjs")], { BASE_URL: url }, 590_000)),
   "workout-sets": () => withApp("workout-sets", {}, ({ url }) => runNode(nodeTest("workout-sets.test.cjs"), { BASE_URL: url }, 300_000)),
   "readiness-performance": () => withApp("readiness-performance", {}, ({ url }) => runNode(nodeTest("readiness-performance.test.cjs"), { BASE_URL: url }, 300_000)),
   "readiness-e2e": () => withApp("readiness-e2e", {}, ({ url }) => runNode([script("e2e-readiness.cjs")], { BASE_URL: url, SHOTS_DIR: LOGS }, 590_000)),
@@ -151,7 +157,7 @@ const SUITES = {
   "meal-unconfigured": unconfigured("meal-unconfigured", "e2e-meal.cjs", { LABEL_EXTRACTION_MODEL: "not-the-meal-model" }),
   "label-pdf-unconfigured": unconfigured("label-pdf-unconfigured", "e2e-label-pdf.cjs", {}),
   "label-unconfigured": unconfigured("label-unconfigured", "e2e-label-scan.cjs", {}),
-  "usda-missing-nutrients": () => runNode(nodeTest("usda-missing-nutrients.test.cjs"), { SAFETY_DB_URL: DB, SAFETY_DB_CONFIRM: "fitdb_test" }, 420_000),
+  "usda-missing-nutrients": () => runNode(nodeTest("usda-missing-nutrients.test.cjs"), { SAFETY_DB_URL: DB, SAFETY_DB_CONFIRM: TARGET }, 420_000),
   "safety-no-marker": () => withoutMarkerWrite(() => runNode(nodeTest("live-provider-check.safety.test.cjs", "--test-skip-pattern=MISSING marker|INVALID marker"), SAFETY_ENV, 900_000)),
   "db-guard-scoped": () => withoutMarkerWrite(() => runNode(nodeTest("test-db-guard.test.cjs"), { SAFETY_DB_URL: DB, GUARD_SNAPSHOT_SCOPE: "designated" }, 600_000)),
 };
@@ -170,8 +176,14 @@ function report(name, r, ms) {
   const asked = process.argv.slice(2);
   const unknown = asked.filter((n) => !SUITES[n]);
   if (unknown.length) throw new Error(`unknown suite: ${unknown.join(", ")}. Known: ${Object.keys(SUITES).join(", ")}`);
+  // fitdb_test_other belongs with fitdb_test. On the isolated database, the suites needing it are refused, and never run.
+  const needsOther = TARGET !== "fitdb_test" ? asked.filter((n) => NEEDS_OTHER.has(n)) : [];
+  if (needsOther.length) throw new Error(`${needsOther.join(", ")} compare fitdb_test with fitdb_test_other, so they don't run on ${TARGET}.`);
+  if (TARGET !== "fitdb_test" && asked.includes("demo-account-e2e")) throw new Error("demo-account-e2e needs the demo account, which exists only in fitdb_test.");
   let ok = true;
-  for (const name of asked.length ? asked : Object.keys(SUITES).filter((n) => !ON_DEMAND.has(n))) {
+  const defaults = Object.keys(SUITES).filter((n) => !ON_DEMAND.has(n) && (TARGET === "fitdb_test" || !NEEDS_OTHER.has(n)));
+  if (!asked.length && TARGET !== "fitdb_test") console.log(`On ${TARGET}: not run here, as they need fitdb_test_other: ${[...NEEDS_OTHER].join(", ")}.`);
+  for (const name of asked.length ? asked : defaults) {
     const t0 = Date.now();
     try { ok = report(name, await SUITES[name](), Date.now() - t0) && ok; } catch (e) {
       ok = false;

@@ -121,8 +121,13 @@ test("control 12: non-test databases are refused, and only the designated names 
     assert.equal(reasonOf(p), "database_invalid", url);
     assert.doesNotMatch(p.message, /SECRETPW/);
   }
-  for (const name of ["fitdb_test", "fitdb_test_other"]) assert.equal(databaseUrlProblem(`postgresql://u:p@localhost:5432/${name}`), null, name);
-  assert.deepEqual([...guard.DESIGNATED_TEST_DATABASES], ["fitdb_test", "fitdb_test_other"]);
+  for (const name of ["fitdb_test", "fitdb_test_other", "fitdb_test_isolated"]) assert.equal(databaseUrlProblem(`postgresql://u:p@localhost:5432/${name}`), null, name);
+  assert.deepEqual([...guard.DESIGNATED_TEST_DATABASES], ["fitdb_test", "fitdb_test_other", "fitdb_test_isolated"]);
+  // Exactly that name: near misses, the review database and the development database stay refused.
+  for (const name of ["fitdb_test_isolated2", "fitdb_test_isolate", "fitdb_review", "fitdb", "fitdb_testisolated"]) {
+    assert.equal(reasonOf(databaseUrlProblem(`postgresql://u:p@localhost:5432/${name}`)), name.includes("test") ? "database_not_designated" : "database_invalid", name);
+  }
+  assert.equal(reasonOf(databaseUrlProblem("postgresql://u:p@db.example.invalid:5432/fitdb_test_isolated")), "database_invalid", "not on another host");
   assert.throws(() => guard.DESIGNATED_TEST_DATABASES.push("fitdb"), TypeError);
 });
 
@@ -573,7 +578,7 @@ const GUARDED = [
   "workout-sets.test.cjs", "e2e-readiness.cjs", "readiness-performance.test.cjs",
   "account-data.test.cjs", "account-tokens.test.cjs", "privacy-consent.test.cjs", "e2e-privacy.cjs", "e2e-privacy-cleanup.test.cjs", "e2e-account-data.cjs", "e2e-eligibility.cjs", "e2e-production-security.cjs", "e2e-hardening.cjs", "e2e-label-pdf.cjs", "e2e-label-scan.cjs", "e2e-meal.cjs", "e2e-nutrition-targets.cjs", "e2e-nutrition.cjs", "e2e-profile-minimization.cjs", "e2e-smoke.cjs",
   "nutrition-api.test.cjs", "nutrition-target-migration-check.cjs", "nutrition-targets.test.cjs", "production-security.test.cjs", "profile-migration-check.cjs", "profile-minimization.test.cjs", "profile-nulls.test.cjs", "provider-config.test.cjs", "provider-malformed.test.cjs", "provider-protection.test.cjs", "release-workflow.test.cjs",
-  "weight-progress.test.cjs", "e2e-weight.cjs",
+  "weight-progress.test.cjs", "e2e-weight.cjs", "e2e-responsive.cjs",
 ];
 const OTHER_WRITE_CAPABLE = {
   "demo-account.cjs": { must: ["databaseUrlProblem(", "environmentProblems(", "readDatabaseIdentity(", "assertConnectedTarget(", "process.env.DATABASE_URL !== parseEnv("], reason: "by hand, on fitdb_test: adds only the demo account's own rows" },
@@ -585,6 +590,9 @@ const OTHER_WRITE_CAPABLE = {
   "live-provider-check.safety.test.cjs": { must: ["databaseUrlProblem("], reason: "starts its own apps, and tests the live check's refusals" },
   "live-check.identity.test.cjs": { must: ["databaseUrlProblem("], reason: "the live check's refusals against a mock server, reading the test database" },
   "run-guarded-suites.cjs": { must: ["databaseUrlProblem(", "verifyServerIdentity("], reason: "starts apps for the suites, and verifies each one first" },
+  "local-db.cjs": { must: ["envFileProblem(", "localDatabaseProblem(", "readLocalIdentity(", "LOCAL_DATABASES"], reason: "by hand: creates and migrates fitdb_review or fitdb_test_isolated only, refuses any database it didn't prepare, never drops" },
+  "review-server.cjs": { must: ["envFileProblem(", "localDatabaseProblem(", "readLocalIdentity(", "REVIEW_MARKER", "-H\", \"127.0.0.1"], reason: "by hand: serves the review build on fitdb_review, on loopback only, after checking its marker" },
+  "review-account.cjs": { must: ["envFileProblem(", "localDatabaseProblem(", "readLocalIdentity(", "REVIEW_MARKER", "check-ignore"], reason: "by hand, on fitdb_review: adds one User row per account, never changes one" },
 };
 const NOT_GUARDED = {
   "demo-account.test.cjs": "the demo data's rules, and what the demo scripts must refuse, spawning them, with no database",

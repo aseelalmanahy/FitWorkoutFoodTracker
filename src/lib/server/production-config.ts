@@ -14,7 +14,11 @@ export interface ConfigProblem { id: string; message: string }
 const set = (env: Env, key: string) => (env[key] ?? "") !== "";
 
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
-const DESIGNATED_TEST_DATABASES = new Set(["fitdb_test", "fitdb_test_other"]);
+const DESIGNATED_TEST_DATABASES = new Set(["fitdb_test", "fitdb_test_other", "fitdb_test_isolated"]);
+/** The one local review database: the real app, real providers and real persistence, for the owner's hands-on review. */
+export const REVIEW_DATABASE = "fitdb_review";
+/** A review database's own marker. Deliberately outside the test-marker family, so no test tool treats it as a test database. */
+export const REVIEW_MARKER = "fitworkoutfoodtracker:review-database:v1:fitdb_review";
 const DEVELOPMENT_DATABASE = "fitdb";
 const MIN_DATABASE_PASSWORD_LENGTH = 16;
 const WEAK_PASSWORD = /^(password|postgres|admin|root|secret|changeme|change_me|test|example|placeholder|user)/i;
@@ -41,6 +45,21 @@ export function isLocalTestServer(env: Env): boolean {
   const url = parseDatabaseUrl(env.DATABASE_URL);
   // A host= parameter can redirect the connection, whatever the URL's host says. The test guard refuses it too.
   return !!url && !url.searchParams.has("host") && LOOPBACK.has(url.hostname) && DESIGNATED_TEST_DATABASES.has(databaseName(url));
+}
+
+/**
+ * A local review server: a production build with real food providers, on the one database named fitdb_review, on this
+ * machine, served at this machine's own http origin. Unlike a test server it skips nothing but the two checks that only
+ * make sense on a real deployment (an https origin elsewhere, and a proxy in front), and its database password rule is
+ * reported instead of refused. Everything else, including registration staying closed, applies as in production.
+ */
+export function isLocalReviewServer(env: Env): boolean {
+  if (env.FIT_LOCAL_REVIEW_SERVER !== "1") return false;
+  const url = parseDatabaseUrl(env.DATABASE_URL);
+  let origin: URL | null = null;
+  try { origin = new URL(env.APP_ORIGIN ?? ""); } catch { origin = null; }
+  return !!url && !url.searchParams.has("host") && LOOPBACK.has(url.hostname) && databaseName(url) === REVIEW_DATABASE
+    && !!origin && origin.protocol === "http:" && LOOPBACK.has(origin.hostname) && (origin.pathname === "/" || origin.pathname === "") && !origin.search && !origin.username;
 }
 
 /** Exact addresses only. Anything else is refused at startup, so "*" or "@example.com" can't open sign-up. */
@@ -139,7 +158,11 @@ function databaseProblems(env: Env): ConfigProblem[] {
 /** Everything wrong with this environment for production. Empty means it may proceed to check the database itself. */
 export function productionConfigProblems(env: Env = process.env): ConfigProblem[] {
   if (isLocalTestServer(env)) return [];
-  const problems: ConfigProblem[] = [...originProblems(env), ...databaseProblems(env)];
+  const review = isLocalReviewServer(env);
+  if (set(env, "FIT_LOCAL_REVIEW_SERVER") && !review) {
+    return [{ id: "review-server-flag", message: "FIT_LOCAL_REVIEW_SERVER is only for the local review database, fitdb_review, served at this machine's http origin." }];
+  }
+  const problems: ConfigProblem[] = [...(review ? [] : originProblems(env)), ...databaseProblems(env).filter((p) => !(review && REVIEW_WARNINGS.has(p.id)))];
   const add = (id: string, message: string) => problems.push({ id, message });
 
   // `next start` keeps whatever it's given, and development mode relaxes registration.
@@ -153,7 +176,9 @@ export function productionConfigProblems(env: Env = process.env): ConfigProblem[
   for (const key of TEST_SETTINGS) if (set(env, key)) add("test-setting", `${key} must not be set: it's for automated tests.`);
 
   const hops = env.TRUST_PROXY_HOPS ?? "";
-  if (!/^[1-9]\d?$/.test(hops)) add("proxy-hops", "TRUST_PROXY_HOPS must be the number of proxies in front of the app, at least 1.");
+  // A review server has no proxy in front, and nobody but this machine reaches it.
+  if (!review && !/^[1-9]\d?$/.test(hops)) add("proxy-hops", "TRUST_PROXY_HOPS must be the number of proxies in front of the app, at least 1.");
+  if (review && hops) add("proxy-hops", "TRUST_PROXY_HOPS must not be set on a local review server, as nothing is in front of it.");
 
   if (allowlistEntries(env).some((e) => !ALLOWLIST_ENTRY.test(e))) add("allowlist-invalid", "REGISTRATION_ALLOWLIST must hold exact email addresses only.");
   if (set(env, "FDC_API_KEY") && PLACEHOLDER_KEY.test(env.FDC_API_KEY as string)) add("placeholder-key", "FDC_API_KEY is a placeholder.");
@@ -161,6 +186,17 @@ export function productionConfigProblems(env: Env = process.env): ConfigProblem[
   if (env.NODE_TLS_REJECT_UNAUTHORIZED === "0") add("tls-disabled", "NODE_TLS_REJECT_UNAUTHORIZED must not disable certificate checks.");
   if (/--inspect/.test(env.NODE_OPTIONS ?? "")) add("debugger", "NODE_OPTIONS must not enable the debugger.");
   return problems;
+}
+
+/** Reported at a review server's start, but not refused: they concern a deployment, and the review database is on this machine. */
+const REVIEW_WARNINGS = new Set(["database-password-weak"]);
+export function reviewServerWarnings(env: Env = process.env): ConfigProblem[] {
+  return isLocalReviewServer(env) ? databaseProblems(env).filter((p) => REVIEW_WARNINGS.has(p.id)) : [];
+}
+
+/** A review server's database has to be exactly the review database, carrying the review marker and no test marker. */
+export function reviewDatabaseProblems(identity: { name: string; comment: string | null }): ConfigProblem[] {
+  return identity.name === REVIEW_DATABASE && identity.comment === REVIEW_MARKER ? [] : [{ id: "review-database-unmarked", message: "This review server's database isn't fitdb_review carrying its review marker." }];
 }
 
 const MARKER_FAMILY = "fitworkoutfoodtracker:test-database:";

@@ -30,7 +30,8 @@ const http = require("node:http");
 const net = require("node:net");
 const { validateTargetUrl, assertConnectedTarget, redact, urlSecrets, TEST_DB_MARKER_PREFIX } = require("./test-db-guard.cjs");
 
-const DESIGNATED_TEST_DATABASES = Object.freeze(["fitdb_test", "fitdb_test_other"]);
+// fitdb_test_isolated: a separate, disposable database for the regression suites, so they never touch fitdb_test's demo and QA data.
+const DESIGNATED_TEST_DATABASES = Object.freeze(["fitdb_test", "fitdb_test_other", "fitdb_test_isolated"]);
 const LOOPBACK_HOSTNAMES = Object.freeze(["localhost", "127.0.0.1", "[::1]"]);
 // The exact accepted spelling. URL parsers rewrite forms such as http://127.1, http://2130706433,
 // HTTP://LOCALHOST and http:\\localhost into something that looks fine, so the raw text is matched too.

@@ -1,4 +1,4 @@
-import { databaseIdentityProblems, isLocalTestServer, mailStubDir, noticeGateOpen, productionConfigProblems, testDatabaseMarkerProblems, type ConfigProblem } from "./production-config";
+import { databaseIdentityProblems, isLocalReviewServer, isLocalTestServer, mailStubDir, noticeGateOpen, productionConfigProblems, reviewDatabaseProblems, reviewServerWarnings, testDatabaseMarkerProblems, type ConfigProblem } from "./production-config";
 import { installSafeConsole } from "./safe-log";
 
 const IDENTITY_SQL = `SELECT current_database() AS name, shobj_description((SELECT oid FROM pg_database WHERE datname = current_database()), 'pg_database') AS comment`;
@@ -23,7 +23,8 @@ export async function preflightProblems(env: Record<string, string | undefined> 
   const problems = productionConfigProblems(env);
   if (problems.length) return problems;
   try {
-    return databaseIdentityProblems(await identity());
+    const found = await identity();
+    return [...databaseIdentityProblems(found), ...(isLocalReviewServer(env) ? reviewDatabaseProblems(found) : [])];
   } catch {
     return [{ id: "database-unverified", message: "The database couldn't be reached to check what it is." }];
   }
@@ -34,6 +35,7 @@ export async function runProductionPreflight(): Promise<void> {
   installSafeConsole();
   const problems = await preflightProblems();
   if (!problems.length) {
+    for (const w of reviewServerWarnings()) console.warn(`[preflight] Local review server, not refused: ${w.message}`);
     if (!mailStubDir()) console.warn("[preflight] No email provider exists yet, so sign-up and password reset emails won't be sent.");
     if (!noticeGateOpen()) console.warn("[preflight] The privacy notice and terms are drafts, so registration is closed.");
     return;

@@ -28,3 +28,7 @@ deploy/production.env
 
 # The demo account password, from scripts/demo-account.cjs
 demo-account.local.md
+
+# The local review environment's account passwords, from scripts/review-account.cjs
+review-account.local.md
+review-tester-*.local.md

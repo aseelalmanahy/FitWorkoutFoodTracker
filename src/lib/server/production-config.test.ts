@@ -1,5 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { noticeGateOpen, databaseIdentityProblems, isLocalTestServer, productionConfigProblems, registrationAllowed, registrationIsClosed, accountLinkOrigin, mailStubDir } from "./production-config";
+import { noticeGateOpen, databaseIdentityProblems, isLocalReviewServer, isLocalTestServer, productionConfigProblems, registrationAllowed, registrationIsClosed, accountLinkOrigin, mailStubDir, reviewServerWarnings, REVIEW_MARKER } from "./production-config";
 import { preflightProblems } from "./production-preflight";
 
 // The real notice is a draft, which closes registration everywhere real. These tests choose its state.
@@ -268,5 +268,82 @@ describe("account email settings", () => {
     expect(accountLinkOrigin({ NODE_ENV: "production" })).toBeNull();
     expect(accountLinkOrigin({ NODE_ENV: "development" })).toBe("http://localhost:3000");
     expect(accountLinkOrigin(local)).toBe("http://localhost:3000");
+  });
+});
+
+describe("the local review server", () => {
+  // Fake values only. A short password, as the local review database may have one.
+  const REVIEW = {
+    NODE_ENV: "production",
+    FIT_LOCAL_REVIEW_SERVER: "1",
+    APP_ORIGIN: "http://localhost:3002",
+    DATABASE_URL: url("fit:shortpw1@localhost:5432/fitdb_review"),
+  };
+  const marked = async () => ({ name: "fitdb_review", comment: REVIEW_MARKER });
+
+  it("applies only to fitdb_review on this machine, served at this machine's http origin", () => {
+    expect(isLocalReviewServer(REVIEW)).toBe(true);
+    expect(productionConfigProblems(REVIEW)).toEqual([]);
+  });
+  it("reports a weak local database password as a warning, not a refusal, and only here", () => {
+    expect(reviewServerWarnings(REVIEW).map((p) => p.id)).toEqual(["database-password-weak"]);
+    expect(ids(fake({ DATABASE_URL: url("fit:shortpw1@db.example.invalid:5432/fit_production?sslmode=require") }))).toContain("database-password-weak");
+    expect(reviewServerWarnings(VALID)).toEqual([]);
+  });
+  it.each([
+    ["another database name", { DATABASE_URL: url("fit:p@localhost:5432/fitdb") }],
+    ["the test database", { DATABASE_URL: url("fit:p@localhost:5432/fitdb_test") }],
+    ["a production-like name on this machine", { DATABASE_URL: url("fit:p@localhost:5432/fit_production") }],
+    ["the review name on another host", { DATABASE_URL: url("fit:p@db.example.invalid:5432/fitdb_review") }],
+    ["a host= parameter redirecting the connection", { DATABASE_URL: url("fit:p@localhost:5432/fitdb_review?host=db.example.invalid") }],
+    ["an https origin", { APP_ORIGIN: "https://localhost:3002" }],
+    ["a real origin", { APP_ORIGIN: "http://app.example.invalid" }],
+    ["no origin", { APP_ORIGIN: undefined }],
+    ["an origin with a path", { APP_ORIGIN: "http://localhost:3002/x" }],
+  ])("doesn't apply to %s, and the flag itself is then refused", (_label, over) => {
+    const env = { ...REVIEW, ...over };
+    expect(isLocalReviewServer(env)).toBe(false);
+    expect(ids(env)).toEqual(["review-server-flag"]);
+  });
+  it("needs the exact flag", () => {
+    expect(isLocalReviewServer({ ...REVIEW, FIT_LOCAL_REVIEW_SERVER: "true" })).toBe(false);
+  });
+  it.each([
+    ["stub providers", { FDC_BASE_URL: "http://127.0.0.1:4010/fdc/v1" }, "stub-provider"],
+    ["a test-server flag", { FIT_LOCAL_TEST_SERVER: "1" }, "test-server-flag"],
+    ["open registration for tests", { FIT_TEST_OPEN_REGISTRATION: "1" }, "test-registration-flag"],
+    ["paid AI", { ANTHROPIC_API_KEY: "k" }, "ai-enabled"],
+    ["a published database identity", { EXPOSE_DB_IDENTITY: "1" }, "db-identity"],
+    ["a test setting", { FOOD_RATE_LIMIT_MULTIPLIER: "100" }, "test-setting"],
+    ["development mode", { NODE_ENV: "development" }, "node-env"],
+    ["a placeholder USDA key", { FDC_API_KEY: "DEMO_KEY" }, "placeholder-key"],
+    ["a proxy setting, with nothing in front", { TRUST_PROXY_HOPS: "1" }, "proxy-hops"],
+  ])("still refuses %s", (_label, over, id) => {
+    expect(ids({ ...REVIEW, ...over })).toContain(id);
+  });
+  it("keeps registration closed and sends no mail", () => {
+    expect(registrationIsClosed(REVIEW)).toBe(true);
+    expect(mailStubDir(REVIEW)).toBeNull();
+    expect(accountLinkOrigin(REVIEW)).toBe("http://localhost:3002");
+  });
+  it("starts only on fitdb_review carrying its review marker", async () => {
+    await expect(preflightProblems(REVIEW, marked)).resolves.toEqual([]);
+    expect((await preflightProblems(REVIEW, async () => ({ name: "fitdb_review", comment: null }))).map((p) => p.id)).toEqual(["review-database-unmarked"]);
+    expect((await preflightProblems(REVIEW, async () => ({ name: "fitdb", comment: REVIEW_MARKER }))).map((p) => p.id)).toEqual(["review-database-unmarked"]);
+    expect((await preflightProblems(REVIEW, async () => ({ name: "fitdb_review", comment: "fitworkoutfoodtracker:test-database:v1:fitdb_review" }))).map((p) => p.id))
+      .toEqual(["database-marker", "review-database-unmarked"]);
+  });
+  it("the review marker isn't a test marker, so no test tool can treat the review database as one", () => {
+    expect(REVIEW_MARKER.startsWith("fitworkoutfoodtracker:test-database:")).toBe(false);
+    expect(databaseIdentityProblems({ name: "fitdb_review", comment: REVIEW_MARKER })).toEqual([]);
+  });
+});
+
+describe("the isolated test database", () => {
+  it("is a designated test database on this machine, and only by its exact name", () => {
+    expect(isLocalTestServer({ FIT_LOCAL_TEST_SERVER: "1", DATABASE_URL: url("u:p@localhost:5432/fitdb_test_isolated") })).toBe(true);
+    for (const name of ["fitdb_test_isolated2", "fitdb_test_isolate", "FITDB_TEST_ISOLATED", "fitdb_review"]) {
+      expect(isLocalTestServer({ FIT_LOCAL_TEST_SERVER: "1", DATABASE_URL: url(`u:p@localhost:5432/${name}`) }), name).toBe(false);
+    }
   });
 });
