@@ -163,6 +163,8 @@ export function WorkoutLogger({ sessionId, name, startedAt, units, initial }: Pr
   }
 
   async function finish() {
+    // A set still on its way would be refused once the workout is finished, and the page would be gone before anyone saw why.
+    if (logging.current.size > 0) return setError("A set is still saving. Try Finish again in a moment.");
     const total = exercises.reduce((n, e) => n + e.sets.length, 0);
     if (total === 0) return setError("Log at least one set before finishing.");
     const skipped = exercises.filter((e) => e.sets.length === 0).length;

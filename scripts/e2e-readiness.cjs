@@ -152,7 +152,8 @@ async function inBrowser(name) {
   {
     const { user, ctx, page } = await signedIn(browser, `finish${name}`);
     const exercise = await prisma.exercise.create({ data: { userId: user.id, name: `Press ${run}`, primaryMuscle: "CHEST", equipment: "BARBELL" } });
-    const session = await prisma.workoutSession.create({ data: { userId: user.id, name: "Finish me", exercises: { create: { exerciseId: exercise.id, position: 0, sets: { create: { setNumber: 1, reps: 5, weightKg: 60 } } } } } });
+    const session = await prisma.workoutSession.create({ data: { userId: user.id, name: "Finish me", exercises: { create: { exerciseId: exercise.id, position: 0, sets: { create: { setNumber: 1, reps: 5, weightKg: 60 } } } } }, include: { exercises: true } });
+    const setCount = () => prisma.setEntry.count({ where: { sessionExerciseId: session.exercises[0].id } });
     const recent = [], errors = [];
     const note = (line) => { recent.push(line); if (recent.length > 20) recent.shift(); };
     page.on("dialog", (d) => d.accept());
@@ -164,6 +165,23 @@ async function inBrowser(name) {
     try {
       await page.goto(`${BASE}/workouts/session/${session.id}`);
       await settled(page);
+
+      // A set still saving holds the finish back, so it can't be lost behind a page change.
+      let release = () => {};
+      const held = new Promise((resolve) => { release = resolve; });
+      await page.route(`**/exercises/${session.exercises[0].id}/sets`, async (route) => { await held; await route.continue(); });
+      await page.getByLabel("Weight", { exact: true }).fill("62");
+      await page.getByLabel("Reps", { exact: true }).fill("4");
+      await page.getByRole("button", { name: "Log set" }).click();
+      await page.getByRole("button", { name: "Finish" }).click();
+      assert.ok(await page.getByText("A set is still saving.").waitFor({ timeout: 5_000 }).then(() => true, () => false), "finishing says a set is still saving");
+      assert.equal((await prisma.workoutSession.findUnique({ where: { id: session.id } })).status, "IN_PROGRESS", "and doesn't finish");
+      release();
+      for (let i = 0; i < 80 && (await setCount()) < 2; i++) await page.waitForTimeout(100);
+      assert.equal(await setCount(), 2, "the held set is saved");
+      await settled(page);
+      await page.unroute(`**/exercises/${session.exercises[0].id}/sets`);
+
       await page.getByRole("button", { name: "Finish" }).click();
       await page.waitForURL(`**/workouts/history/${session.id}**`);
       const repeat = page.getByRole("button", { name: "Repeat this workout" });
@@ -179,7 +197,7 @@ async function inBrowser(name) {
       assert.equal(repeated.status, "IN_PROGRESS");
       assert.ok(page.url().endsWith(repeated.id), "and opens it");
       assert.deepEqual(repeated.exercises.map((x) => [x.exerciseId, x.sets.length]), [[exercise.id, 0]], "with the same exercise, and no sets yet");
-      assert.equal((await prisma.setEntry.count({ where: { sessionExercise: { sessionId: session.id } } })), 1, "and the finished workout keeps its set");
+      assert.equal(await setCount(), 2, "and the finished workout keeps its sets");
       assert.deepEqual(errors.filter((m) => !/_rsc.*access control checks/.test(m)), [], "no browser error");
     } catch (err) {
       console.error(`WHEN IT FAILED [${name}]: at`, new URL(page.url()).pathname, "| headings:", JSON.stringify(await page.getByRole("heading").allInnerTexts().catch(() => [])));
