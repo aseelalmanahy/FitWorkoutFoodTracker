@@ -601,6 +601,13 @@ test("matching: custom foods match every word, in any order, on name or brand, f
   assert.deepEqual(await names(`oats greek ${word}`), [`Plain oats ${word}`], "the brand counts");
   assert.equal((await names(`greek ${word}`)).length, 3, "each record stays separate");
   assert.deepEqual(await names(`greek yogurt missingword ${word}`), [], "every word must match");
+  // UX-01: a serving label counts, within the same food. "large egg" finds "Whole egg" served "1 large".
+  await A.post("/api/foods", customBody(`Whole egg ${word}`, { servingLabel: "1 large", servingAmount: 50 }));
+  await A.post("/api/foods", customBody(`Banana ${word}`, { servingLabel: "1 medium", servingAmount: 118 }));
+  await B.post("/api/foods", customBody(`Egg of B ${word}`, { servingLabel: "1 large", servingAmount: 50 }));
+  assert.deepEqual(await names(`large egg ${word}`), [`Whole egg ${word}`], "the serving label counts");
+  assert.deepEqual(await names(`egg ${word}`), [`Whole egg ${word}`], "only this person's foods");
+  assert.deepEqual(await names(`large banana ${word}`), [], "words in different foods never combine");
 });
 
 test("matching: search never merges different records, and reports each one's own values", async () => {

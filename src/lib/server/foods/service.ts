@@ -202,6 +202,8 @@ export interface SearchResponse {
   barcode: boolean;
   results: Record<SearchSource, SearchItem[]>;
   errors: { source: ExternalSource; kind: string; message: string; retryAfterSec?: number }[];
+  /** Providers answered by a local stand-in with a few test records, so the person isn't told it's the full catalog. */
+  localTestSources: ExternalSource[];
 }
 
 const fromNormalized = (n: NormalizedFood, foodId: string | null = null): SearchItem => ({
@@ -217,21 +219,45 @@ const fromDto = (d: FoodDto): SearchItem => ({
 
 export const isBarcode = (q: string) => /^\d{8,14}$/.test(q);
 
-/** Every word must match, in any order, so "greek yogurt" finds "Yogurt, Greek". Bounded, as each word adds to the query. */
-const customSearchWords = (q: string) => q.split(/\s+/).filter(Boolean).slice(0, 8);
-const wordInNameOrBrand = (word: string) => ({ OR: [{ name: { contains: word, mode: "insensitive" as const } }, { brand: { contains: word, mode: "insensitive" as const } }] });
+/** Words of a custom-food search. Bounded, as each word adds to the query. */
+export const CUSTOM_SEARCH_MAX_WORDS = 8;
+export const customSearchWords = (q: string) => q.split(/\s+/).filter(Boolean).slice(0, CUSTOM_SEARCH_MAX_WORDS);
+
+/**
+ * Every word must match, in any order, somewhere in the same food: its name, its brand or one of its
+ * serving labels. So "greek yogurt" finds "Yogurt, Greek", and "large egg" finds "Whole egg" served as "1 large".
+ * Each word is its own condition on that one food, so words are never split across different foods.
+ */
+const wordInFood = (word: string) => ({
+  OR: [
+    { name: { contains: word, mode: "insensitive" as const } },
+    { brand: { contains: word, mode: "insensitive" as const } },
+    { servings: { some: { label: { contains: word, mode: "insensitive" as const } } } },
+  ],
+});
+
+/** The custom-food query for one person. Their own foods only, whatever the query says. */
+export function customFoodWhere(userId: string, q: string): Prisma.FoodWhereInput {
+  return { userId, source: "CUSTOM", ...(isBarcode(q) ? { barcode: q } : { AND: customSearchWords(q).map(wordInFood) }) };
+}
+
+const LOCAL_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
+/** Providers configured to a local stand-in, whose few records aren't the real catalog. */
+export function localTestSources(): ExternalSource[] {
+  return (Object.keys(origins) as ExternalSource[]).filter((s) => LOCAL_HOSTS.has(origins[s]().replace(/:\d+$/, "")));
+}
 
 export async function searchFoods(userId: string, query: string, sources: SearchSource[]): Promise<SearchResponse> {
   const q = query.trim();
   const barcode = isBarcode(q);
-  const res: SearchResponse = { query: q, barcode, results: { CUSTOM: [], USDA: [], OPEN_FOOD_FACTS: [] }, errors: [] };
+  const res: SearchResponse = { query: q, barcode, results: { CUSTOM: [], USDA: [], OPEN_FOOD_FACTS: [] }, errors: [], localTestSources: localTestSources() };
 
   const tasks: Promise<void>[] = [];
   if (sources.includes("CUSTOM")) {
     tasks.push(
       prisma.food
         .findMany({
-          where: { userId, source: "CUSTOM", ...(barcode ? { barcode: q } : { AND: customSearchWords(q).map(wordInNameOrBrand) }) },
+          where: customFoodWhere(userId, q),
           include: { servings: true },
           orderBy: { name: "asc" },
           take: 20,

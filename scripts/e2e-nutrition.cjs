@@ -88,9 +88,73 @@ const SHOTS = (process.env.SHOTS_DIR || require("os").tmpdir()) + "/";
   await page.getByLabel("Search foods").fill("rice");
   await page.getByText("Incomplete").first().waitFor();
   await page.getByLabel("Search foods").fill("error");
-  await page.getByText("USDA FoodData Central: The food database returned an error (500).").waitFor();
+  await page.getByText("USDA foods (USDA FoodData Central) couldn't be searched: The food database returned an error (500).").waitFor();
+  assert.equal(await page.getByTestId("food-empty").getAttribute("data-kind"), "partly", "a failed source isn't 'no results'");
   await page.screenshot({ path: SHOTS + "n03-search-error.png", fullPage: true });
   step("incomplete-nutrient badge and per-source error message shown");
+
+  // UX-01: source filters work on the current query, say what each means, and explain an empty view.
+  const filter = (v) => page.locator(`[data-testid="food-filter"][data-filter="${v}"]`);
+  const help = page.getByTestId("food-source-help");
+  await page.getByLabel("Search foods").fill("");
+  assert.match(await help.innerText(), /Type at least 2 characters to search/, "no query: the filters aren't presented as searching");
+  await filter("USDA").click();
+  assert.equal(await filter("USDA").getAttribute("aria-pressed"), "true");
+  assert.match(await help.innerText(), /USDA foods: Foods supplied by USDA FoodData Central\./);
+  await page.getByText("Recent").waitFor(); // recent foods stay available
+  await page.getByLabel("Search foods").fill("chicken breast");
+  await page.getByRole("button", { name: /Chicken, broilers/ }).waitFor();
+  assert.match(await page.getByTestId("food-test-data").innerText(), /small local test sample, not the full catalogs/);
+  await filter("OPEN_FOOD_FACTS").focus();
+  await page.keyboard.press("Enter"); // keyboard works
+  assert.equal(await filter("OPEN_FOOD_FACTS").getAttribute("aria-pressed"), "true");
+  assert.equal(await filter("USDA").getAttribute("aria-pressed"), "false");
+  await page.getByText('No packaged-food results for "chicken breast"').waitFor();
+  assert.match(await page.getByTestId("food-empty").innerText(), /Found in USDA foods \(1\)/);
+  assert.equal(await page.getByTestId("food-result").count(), 0);
+  await page.getByRole("button", { name: "Show all sources" }).click();
+  assert.equal(await filter("ALL").getAttribute("aria-pressed"), "true");
+  await page.getByRole("button", { name: /Chicken, broilers/ }).waitFor();
+  step("filters: idle hint, keyboard, empty view naming the source, Show all sources");
+
+  // UX-01: an earlier, slower answer never replaces a later query's results.
+  let releaseSlow = () => {};
+  const slowGate = new Promise((r) => { releaseSlow = r; });
+  const slow = async (route) => { if (new URL(route.request().url()).searchParams.get("q") === "banana") await slowGate; await route.continue(); };
+  await page.route("**/api/foods/search**", slow);
+  const bananaAsked = page.waitForRequest((r) => new URL(r.url()).searchParams.get("q") === "banana");
+  await page.getByLabel("Search foods").fill("banana");
+  await bananaAsked;
+  await page.getByLabel("Search foods").fill("greek yogurt");
+  await page.getByRole("button", { name: /Yogurt, Greek, plain, nonfat/ }).waitFor();
+  const bananaAnswered = page.waitForResponse((r) => new URL(r.url()).searchParams.get("q") === "banana");
+  releaseSlow();
+  await bananaAnswered;
+  await page.waitForTimeout(300);
+  assert.equal(await page.getByRole("button", { name: /Bananas, raw/ }).count(), 0, "the stale banana answer isn't shown");
+  assert.ok(await page.getByRole("button", { name: /Yogurt, Greek, plain, nonfat/ }).isVisible());
+  await page.unroute("**/api/foods/search**", slow);
+  // While a new query is pending, the previous query's results can't be chosen.
+  let releaseRice = () => {};
+  const riceGate = new Promise((r) => { releaseRice = r; });
+  const holdRice = async (route) => { if (new URL(route.request().url()).searchParams.get("q") === "rice") await riceGate; await route.continue(); };
+  await page.route("**/api/foods/search**", holdRice);
+  await page.getByLabel("Search foods").fill("rice");
+  await page.getByTestId("food-searching").waitFor();
+  assert.equal(await page.getByTestId("food-result").count(), 0, "no greek yogurt results while rice is pending");
+  releaseRice();
+  await page.getByText("Premium White Rice").waitFor();
+  await page.unroute("**/api/foods/search**", holdRice);
+  // A whole-request failure is shown for its query only, and clears with the query.
+  const fail = (route) => route.fulfill({ status: 500, contentType: "application/json", body: JSON.stringify({ error: "Something went wrong." }) });
+  await page.route("**/api/foods/search**", fail);
+  await page.getByLabel("Search foods").fill("apple");
+  await page.getByTestId("food-search-failed").waitFor();
+  assert.equal(await page.getByTestId("food-result").count(), 0);
+  await page.unroute("**/api/foods/search**", fail);
+  await page.getByLabel("Search foods").fill("");
+  assert.equal(await page.getByTestId("food-search-failed").count(), 0, "clearing the query clears the failure");
+  step("stale answers dropped, pending results unselectable, failures scoped to their query");
 
   // custom food
   await page.getByLabel("Search foods").fill("protein bar");
@@ -106,6 +170,15 @@ const SHOTS = (process.env.SHOTS_DIR || require("os").tmpdir()) + "/";
   await dialog.getByRole("button", { name: "Add to Snacks" }).click();
   await page.getByText("Added 4 items").waitFor();
   step("custom food created and logged");
+
+  // UX-01: a custom food is found by the words of its serving label too, as "large egg" finds "Whole egg" served "1 large".
+  await page.getByLabel("Search foods").fill("serving protein");
+  await filter("CUSTOM").click();
+  await page.getByTestId("food-result").filter({ hasText: "Protein bar" }).waitFor(); // name "Protein bar", serving "1 serving"
+  await page.getByLabel("Search foods").fill("large protein");
+  await page.getByText('None of your foods match "large protein"').waitFor();
+  await filter("ALL").click();
+  step("custom food matched by its serving label, and only when every word matches");
 
   // 6. Daily totals: 133.5 + 80.85 + 330 + 220 = 764.35 kcal; protein 1.64+0.95+62.04+20 = 84.63
   await page.getByRole("link", { name: "Done" }).click();

@@ -8,20 +8,8 @@ import { fmtG, fmtKcal, MEAL_LABELS, relativeDayLabel, scaleNutrients, type Meal
 import { Button, Card, ErrorText, Field, Input, Select, cx } from "@/components/ui";
 import { Sheet } from "./sheet";
 import { PortionEditor } from "./portion-editor";
-import type { FoodDto, SearchItem, SearchResponse, SearchSource } from "@/lib/server/foods/service";
-
-type Filter = "ALL" | SearchSource;
-const FILTERS: { v: Filter; label: string }[] = [
-  { v: "ALL", label: "All" },
-  { v: "USDA", label: "Generic" },
-  { v: "OPEN_FOOD_FACTS", label: "Packaged" },
-  { v: "CUSTOM", label: "My foods" },
-];
-const SECTION: Record<SearchSource, { title: string; note: string }> = {
-  CUSTOM: { title: "My foods", note: "Foods you created" },
-  USDA: { title: "Generic foods", note: "USDA FoodData Central" },
-  OPEN_FOOD_FACTS: { title: "Packaged foods", note: "Open Food Facts (ODbL)" },
-};
+import type { FoodDto, SearchItem, SearchResponse } from "@/lib/server/foods/service";
+import { FILTERS, MIN_QUERY_LENGTH, SOURCE_LABEL, SOURCE_NOTE, localTestNotice, searchView, type Filter } from "@/lib/food-search-view";
 
 function Per100({ item }: { item: Pick<SearchItem, "per100" | "basisUnit"> }) {
   const n = item.per100;
@@ -55,7 +43,9 @@ export function FoodSearch({ date, today, initialMeal, embedded }: {
   const [filter, setFilter] = useState<Filter>("ALL");
   const [data, setData] = useState<SearchResponse | null>(null);
   const [recent, setRecent] = useState<FoodDto[] | null>(null);
-  const [loading, setLoading] = useState(false);
+  // The last failed request, kept with its query so it's never shown against a different one.
+  const [failure, setFailure] = useState<{ query: string; message: string } | null>(null);
+  // Errors from choosing a food, separate from the search's own state.
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<FoodDto | null>(null);
   const [resolving, setResolving] = useState<string | null>(null);
@@ -71,30 +61,32 @@ export function FoodSearch({ date, today, initialMeal, embedded }: {
     api<{ foods: FoodDto[] }>("GET", "/api/foods/recent").then((r) => setRecent(r.foods)).catch(() => setRecent([]));
   }, []);
 
-  const search = useCallback(async (term: string, f: Filter) => {
-    const id = ++reqId.current;
-    if (term.trim().length < 2) {
-      setData(null);
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setError(null);
+  // Every source is searched once per query, and the filter only chooses what's shown. So changing the
+  // filter is immediate, and an empty filtered view can say where matches were found.
+  const search = useCallback(async (term: string) => {
+    const id = ++reqId.current; // a later request always wins, whatever order the answers arrive in
+    const t = term.trim();
+    if (t.length < MIN_QUERY_LENGTH) return;
     try {
-      const sources = f === "ALL" ? "" : `&sources=${f}`;
-      const r = await api<SearchResponse>("GET", `/api/foods/search?q=${encodeURIComponent(term.trim())}${sources}`);
-      if (id === reqId.current) setData(r);
+      const r = await api<SearchResponse>("GET", `/api/foods/search?q=${encodeURIComponent(t)}`);
+      if (id === reqId.current) { setData(r); setFailure(null); }
     } catch (e) {
-      if (id === reqId.current) setError((e as Error).message);
-    } finally {
-      if (id === reqId.current) setLoading(false);
+      if (id === reqId.current) setFailure({ query: t, message: (e as Error).message });
     }
   }, []);
 
   useEffect(() => {
-    const t = setTimeout(() => search(q, filter), 350);
+    if (q.trim().length < MIN_QUERY_LENGTH) {
+      reqId.current++; // drop any answer still on its way
+      setFailure(null);
+      return;
+    }
+    const t = setTimeout(() => search(q), 350);
     return () => clearTimeout(t);
-  }, [q, filter, search]);
+  }, [q, search]);
+
+  // A new query makes an earlier choice's error irrelevant.
+  useEffect(() => { setError(null); }, [q]);
 
   async function pick(item: SearchItem) {
     if (picking.current) return; // a slower answer must not replace the record chosen later
@@ -122,8 +114,10 @@ export function FoodSearch({ date, today, initialMeal, embedded }: {
     pickedRow.current = null;
   }, [selected, resolving]);
 
-  const sections = (["CUSTOM", "USDA", "OPEN_FOOD_FACTS"] as SearchSource[]).filter((s) => filter === "ALL" || filter === s);
-  const total = data ? sections.reduce((n, s) => n + data.results[s].length, 0) : 0;
+  const view = searchView({ query: q, filter, data, failure });
+  const counts = view.state === "results" || view.state === "empty" ? view.counts : null;
+  const testNotice = data && view.state !== "idle" ? localTestNotice(data.localTestSources ?? []) : null;
+  const filterInfo = FILTERS.find((f) => f.v === filter)!;
 
   return (
     <div>
@@ -138,15 +132,24 @@ export function FoodSearch({ date, today, initialMeal, embedded }: {
           </div>
         )}
         <Input type="search" placeholder="Search foods or enter a barcode" value={q} onChange={(e) => setQ(e.target.value)} autoFocus={!embedded} aria-label="Search foods" />
-        <div className="mt-2 flex gap-1.5 overflow-x-auto">
+        <div className="mt-2 flex gap-1.5 overflow-x-auto" role="group" aria-label="Food source" aria-describedby="food-source-help">
           {FILTERS.map((f) => (
-            <button key={f.v} type="button" onClick={() => setFilter(f.v)} aria-pressed={filter === f.v}
-              className={cx("h-8 shrink-0 rounded-full px-3 text-xs font-medium", filter === f.v ? "bg-fg text-bg" : "bg-surface-2 text-muted")}>
+            <button key={f.v} type="button" onClick={() => setFilter(f.v)} aria-pressed={filter === f.v} data-testid="food-filter" data-filter={f.v}
+              className={cx("inline-flex h-8 shrink-0 items-center gap-1 rounded-full border px-3 text-xs font-medium transition",
+                filter === f.v ? "border-accent bg-accent text-accent-fg" : "border-transparent bg-surface-2 text-muted hover:text-fg")}>
+              {filter === f.v && <span aria-hidden>✓</span>}
               {f.label}
+              {counts && f.v !== "ALL" && <span className="num opacity-80"><span className="sr-only">, found:</span> {counts[f.v]}</span>}
             </button>
           ))}
           <button type="button" onClick={() => setCreating(true)} className="h-8 shrink-0 rounded-full bg-surface-2 px-3 text-xs font-medium text-accent-ink">+ Custom food</button>
         </div>
+        <p id="food-source-help" className="mt-1.5 text-[11px] text-muted" data-testid="food-source-help">
+          {view.state === "idle"
+            ? `Type at least ${MIN_QUERY_LENGTH} characters to search. The source you choose applies to your search. ${filterInfo.label}: ${filterInfo.description}`
+            : `${filterInfo.label}: ${filterInfo.description}`}
+        </p>
+        {testNotice && <p className="mt-1 rounded-lg bg-surface-2 px-2.5 py-1.5 text-[11px] text-muted" data-testid="food-test-data">{testNotice}</p>}
       </div>
 
       {added.length > 0 && (
@@ -157,7 +160,7 @@ export function FoodSearch({ date, today, initialMeal, embedded }: {
       )}
       <ErrorText>{error}</ErrorText>
 
-      {q.trim().length < 2 ? (
+      {view.state === "idle" ? (
         <section>
           <h2 className="mt-2 mb-2 text-xs font-semibold uppercase tracking-wider text-muted">Recent</h2>
           {recent === null ? <p className="text-sm text-muted">Loading…</p> : recent.length === 0 ? (
@@ -176,25 +179,40 @@ export function FoodSearch({ date, today, initialMeal, embedded }: {
         </section>
       ) : (
         <>
-          {loading && <p className="py-3 text-sm text-muted" aria-live="polite">Searching…</p>}
-          {data?.errors.map((e) => (
-            <p key={e.source} className="mb-2 rounded-xl bg-down/10 px-3 py-2 text-xs text-down">{SECTION[e.source].note}: {e.message}</p>
-          ))}
-          {data && !loading && total === 0 && (
-            <Card className="p-6 text-center">
-              <p className="font-semibold">{data.errors.length ? "Search is partly unavailable" : "No foods found"}</p>
-              <p className="mt-1 text-sm text-muted">
-                {data.errors.length ? "Some food databases couldn't be searched right now. Try again shortly, or log a recent or custom food."
-                  : data.barcode ? "No product matches this barcode." : "Try a simpler term, check spelling, or create a custom food."}
-              </p>
-              <Button variant="secondary" className="mt-3" onClick={() => setCreating(true)}>Create custom food</Button>
+          <div aria-live="polite" className="sr-only">
+            {view.state === "loading" ? "Searching" : view.state === "results" ? `${view.total} found` : view.state === "empty" ? view.title : view.state === "failed" ? "Search failed" : ""}
+          </div>
+          {view.state === "loading" && <p className="py-3 text-sm text-muted" data-testid="food-searching">Searching…</p>}
+          {view.state === "failed" && (
+            <Card className="p-6 text-center" data-testid="food-search-failed">
+              <p className="font-semibold">Search failed</p>
+              <p className="mt-1 text-sm text-down">{view.message}</p>
+              <Button variant="secondary" className="mt-3" onClick={() => { setFailure(null); void search(q); }}>Try again</Button>
             </Card>
           )}
-          {data && sections.map((s) => data.results[s].length > 0 && (
+          {(view.state === "results" || view.state === "empty") && view.unavailable.map((e) => (
+            <p key={e.source} className="mb-2 rounded-xl bg-down/10 px-3 py-2 text-xs text-down" data-testid="food-source-error">{SOURCE_LABEL[e.source]} ({SOURCE_NOTE[e.source]}) couldn't be searched: {e.message}</p>
+          ))}
+          {view.state === "empty" && (
+            <Card className="p-6 text-center" data-testid="food-empty" data-kind={view.kind}>
+              <p className="font-semibold">{view.title}</p>
+              <p className="mt-1 text-sm text-muted">
+                {view.kind === "unavailable" ? "This doesn't mean there are no matches. Try again shortly, or log a recent or custom food."
+                  : view.kind === "partly" ? "The sources that answered have no matches, and the others couldn't be searched. Try again shortly."
+                  : view.elsewhere.length ? `Found in ${view.elsewhere.map((x) => `${SOURCE_LABEL[x.source]} (${x.count})`).join(" and ")}.`
+                  : "Try a simpler or different word, check the spelling, or create a custom food."}
+              </p>
+              <div className="mt-3 flex flex-wrap justify-center gap-2">
+                {view.elsewhere.length > 0 && <Button onClick={() => setFilter("ALL")}>Show all sources</Button>}
+                <Button variant="secondary" onClick={() => setCreating(true)}>Create custom food</Button>
+              </div>
+            </Card>
+          )}
+          {view.state === "results" && data && view.sections.map((s) => data.results[s].length > 0 && (
             <section key={s} className="mb-4">
               <div className="mb-2 flex items-baseline justify-between">
-                <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">{SECTION[s].title}</h2>
-                <span className="text-[11px] text-muted">{SECTION[s].note}</span>
+                <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">{SOURCE_LABEL[s]}</h2>
+                <span className="text-[11px] text-muted">{SOURCE_NOTE[s]}</span>
               </div>
               <Card className="divide-y divide-line">
                 {data.results[s].map((item) => {
