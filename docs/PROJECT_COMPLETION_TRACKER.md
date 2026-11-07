@@ -267,6 +267,19 @@
 
 **Database:** only `fitdb_test`, checked by name, schema, loopback address and marker before and after. 8 migrations, MIG-04 last with the reviewed checksum, `migrate status` up to date, and no drift from the integrated schema. **The 10 QA fixtures, with their profiles, workouts, sets, foods, targets, exercises, plans and schedules, hash identically before and after the regression and the deliberate defects,** and hold no `BodyMetric` rows. **No migration, reset or broad cleanup ran.**
 
+## 2i. Demo account and owner acceptance
+
+**On `feature/demo-account`, from `integration/phase-4`. Local only, on `fitdb_test` only, as the owner authorized. The password is only in the Git-ignored `demo-account.local.md`.**
+
+| ID | Phase | Description | Status | Priority | Dependency | Acceptance Criteria |
+|---|---|---|---|---|---|---|
+| U-01 | Workflow | Every phase ends with a UI demonstration and owner acceptance. In `DEVELOPMENT_WORKFLOW.md` and `CLAUDE.md` | IN PROGRESS | P1 | Merge approval | On `main`, and followed by each phase |
+| U-02 | Workflow | The permanent demo account, `scripts/demo-account.cjs`, with four plans, a schedule, workout history, nutrition, weight history and a goal. Populating is idempotent, adds only its own rows, and keeps the same password | COMPLETE for `fitdb_test` | P1 | None | `demo-account` and the browser check pass. **Only on `fitdb_test`. It isn't a real or production account** |
+| U-03 | Workflow | `scripts/demo-server.cjs` and `MANUAL_UI_TESTING_GUIDE.md`. Registration stays closed, AI is off, providers are the local stub, and mail stays in a temporary folder | COMPLETE for `fitdb_test` | P1 | None | Verified as running on `fitdb_test`, in Chromium, Firefox and WebKit |
+| U-04 | Phase 4 | **The owner's UI acceptance of Phase 4** | NOT STARTED | P0 | The owner | **The owner has tried it and said it's accepted.** Implementation complete, automated tests passed, and UI demonstration ready. **OWNER ACCEPTANCE PENDING** |
+
+**A known limit, not a defect:** the session cookie is `Secure`, and this Windows WebKit build won't send one over plain `http://localhost`. Sign-in succeeds there, and the browser check carries on with a non-Secure copy, as other WebKit suites do. Chrome, Edge and Firefox stay signed in. Real Safari and real phones are unverified (T-15, R-13).
+
 ## 3. Tests: run, failed, blocked
 
 ### Phase 4.0.3, on `fitdb_test` and with fake settings, with no schema change

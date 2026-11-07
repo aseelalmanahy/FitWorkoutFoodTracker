@@ -48,7 +48,8 @@ Results on one Windows machine, with a local production build, against `fitdb_te
 | 3 | **T-14:** authorize `fitdb_test_other` for its two suites, or accept the gap | Owner | **Not given** |
 | 4 | **T-25 and T-27:** accept them for `main`, or hold the merge. T-27 is accepted for development integration only | Owner | **Not given** |
 | 5 | **Product decisions and Low items below:** decide each, or explicitly carry it forward | Owner | **Not given** |
-| 6 | **The merge itself:** written authorization naming `integration/phase-4`, its exact commit, and `main` | Owner | **Not given** |
+| 6 | **Owner UI acceptance of Phase 4,** under the workflow's new requirement: the owner tries it with the demo account and says it's accepted. `MANUAL_UI_TESTING_GUIDE.md` | Owner | **Pending** |
+| 7 | **The merge itself:** written authorization naming `integration/phase-4`, its exact commit, and `main` | Owner | **Not given** |
 
 Clinical review (R-02) is recorded as blocking the beta, and not the merge. The owner may choose to require it earlier.
 

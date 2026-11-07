@@ -96,11 +96,14 @@ async function withoutMarkerWrite(run) {
 }
 
 // Only when asked for by name: these bracket applying a migration, which needs the owner's approval.
-const ON_DEMAND = new Set(["migration-snapshot", "migration-verify", "profile-migration-snapshot", "profile-migration-verify"]);
+const ON_DEMAND = new Set(["migration-snapshot", "migration-verify", "profile-migration-snapshot", "profile-migration-verify", "demo-account-e2e"]);
 const SUITES = {
   guard: () => runNode(nodeTest("test-target-guard.test.cjs"), { DATABASE_URL: "" }, 300_000),
   "mig-04-refusals": () => runNode(nodeTest("mig-04.test.cjs"), { DATABASE_URL: "" }, 120_000),
   "account-facts": () => runNode(nodeTest("account-facts.test.cjs"), { DATABASE_URL: "" }, 120_000),
+  "demo-account": () => runNode(nodeTest("demo-account.test.cjs"), { DATABASE_URL: "" }, 120_000),
+  // By hand, once the demo account exists. It signs in with the password in demo-account.local.md, which it never prints.
+  "demo-account-e2e": () => withApp("demo-account-e2e", {}, ({ url }) => runNode([script("e2e-demo-account.cjs")], { BASE_URL: url, SHOTS_DIR: LOGS }, 590_000)),
   "guard-browser": () => runNode(nodeTest("test-target-guard.browser.test.cjs"), { DATABASE_URL: "" }, 300_000),
   units: () => runNode(nodeTest("live-check.units.test.cjs"), {}, 120_000),
   "live-identity": () => withoutMarkerWrite(() => runNode(nodeTest("live-check.identity.test.cjs"), {}, 300_000)),

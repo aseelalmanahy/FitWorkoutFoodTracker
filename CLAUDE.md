@@ -6,6 +6,10 @@ Before designing or implementing a new feature, or a major scope change to one, 
 
 The full cycle is in `docs/DEVELOPMENT_WORKFLOW.md`. Decisions so far are in `docs/FEATURE_DECISIONS.md`, and the vision and roadmap are in `docs/PRODUCT_STRATEGY.md`.
 
+## Every phase ends with a UI demonstration
+
+Every development phase ends with a working local application, the permanent demo account extended for what it added, `docs/MANUAL_UI_TESTING_GUIDE.md` updated, and a report section titled **UI DEMONSTRATION AND USER ACCEPTANCE**. Its required contents are in `docs/DEVELOPMENT_WORKFLOW.md`. Automated tests alone aren't acceptance, and nothing is marked OWNER ACCEPTED until the owner explicitly says so. Never commit `demo-account.local.md`.
+
 ## Model routing
 
 For substantial work, use the `intelligent-model-router` skill to choose a model and specialist. An explicit choice by the owner comes first. Routing never grants a permission or an approval: migrations, seeds, deployment, merges, protected databases and paid requests still need the owner's explicit approval, and specialists don't do them. The main session's model can only be changed by the owner.
