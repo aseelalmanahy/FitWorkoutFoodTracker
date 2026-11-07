@@ -1,6 +1,11 @@
 // The public pages and the acceptance box, in each browser, one at a time. Through the guarded runner.
 // Stored acceptance is checked by privacy-consent. This covers what a person sees and can reach by keyboard.
+//
+// Whatever happens, this removes what it made: the tokens and accounts at the exact addresses this run used, and nothing
+// else. That's checked, by forcing each failure, in e2e-privacy-cleanup.test.cjs, which is what the E2E_PRIVACY_ settings are for.
+// A process killed from outside can't clean up after itself, so the run has its own deadline, shorter than the runner's.
 const assert = require("node:assert/strict");
+const { inspect } = require("node:util");
 const { randomBytes, createHash } = require("node:crypto");
 const playwright = require("playwright");
 const { PrismaClient } = require("@prisma/client");
@@ -9,10 +14,41 @@ const target = require("./lib/test-target-guard.cjs").requireSafeTarget();
 
 const BASE = target.baseUrl;
 const prisma = new PrismaClient({ datasources: { db: { url: target.databaseUrl } } });
-const run = Date.now();
+const run = process.env.E2E_PRIVACY_RUN ?? String(Date.now());
+if (!/^\d+$/.test(run)) throw new Error("E2E_PRIVACY_RUN must be digits, as it becomes part of an address");
 const PASSWORD = "correct horse battery staple";
-const BROWSERS = ["chromium", "firefox", "webkit"];
+const BROWSERS = (process.env.E2E_PRIVACY_BROWSERS ?? "chromium,firefox,webkit").split(",");
+const FAIL_AT = process.env.E2E_PRIVACY_FAIL_AT ?? "";
+const DEADLINE_MS = 540_000; // The runner ends this at 590 seconds.
 const created = [];
+const browsers = [];
+let expire = () => {};
+let timer = null;
+const deadlineIn = (ms) => { clearTimeout(timer); timer = setTimeout(() => expire(new Error(`ran past its deadline of ${ms} ms`)), ms); };
+
+/** Only for the cleanup test. Reports what exists at that point, so the test knows there was something to remove. */
+async function injected(point) {
+  if (FAIL_AT !== point && FAIL_AT !== `hang-${point}`) return;
+  const [tokens, users] = await Promise.all([prisma.accountToken.count({ where: { email: { in: created } } }), prisma.user.count({ where: { email: { in: created } } })]);
+  console.log(`injected at ${point}: tokens=${tokens} users=${users}`);
+  if (FAIL_AT === point) throw new Error(`injected failure at ${point}`);
+  deadlineIn(500);
+  await new Promise(() => {});
+}
+
+/** By exact address, and refuses to say it's done if anything is left. */
+async function removeThisRun() {
+  if (FAIL_AT === "cleanup") throw new Error("injected failure in cleanup");
+  if (!created.length) return;
+  const mine = { email: { in: created } };
+  await prisma.accountToken.deleteMany({ where: mine });
+  await prisma.user.deleteMany({ where: mine });
+  const left = (await prisma.accountToken.count({ where: mine })) + (await prisma.user.count({ where: mine }));
+  if (left) throw new Error(`${left} row(s) from this run were still there after cleanup`);
+}
+
+/** A failure can quote the page's address, and a token in it is a credential. */
+const printable = (e) => inspect(e).replace(/#token=[A-Za-z0-9_-]+/g, "#token=<hidden>");
 
 async function mint(address) {
   const token = randomBytes(32).toString("base64url");
@@ -24,6 +60,7 @@ async function mint(address) {
 async function inBrowser(name) {
   const step = (s) => console.log(`✓ [${name}] ${s}`);
   const browser = await playwright[name].launch(target.launchOptions(name));
+  browsers.push(browser);
   const ctx = await target.guardContext(await browser.newContext({ viewport: { width: 390, height: 844 } }));
   const page = await ctx.newPage();
   const problems = [];
@@ -52,12 +89,14 @@ async function inBrowser(name) {
 
   const address = `privacy${name}${run}@test.dev`;
   const token = await mint(address);
+  if (FAIL_AT === "quoting-token") throw new Error(`navigating to ${BASE}/register/complete#token=${token}`);
   await page.goto(`${BASE}/register/complete#token=${token}`);
   const box = page.locator("input[name=accept]");
   await box.waitFor();
   assert.equal(await box.isChecked(), false, "the box starts unticked");
   await page.waitForFunction(() => location.hash === "");
   step("the box starts unticked");
+  await injected("after-token");
 
   await page.locator("input[name=password]").fill(PASSWORD);
   let posted = 0;
@@ -94,6 +133,7 @@ async function inBrowser(name) {
   assert.equal(user.termsVersion, NOTICE_VERSION);
   assert.ok(user.termsAcceptedAt);
   step("ticked, it creates the account with acceptance recorded");
+  await injected("after-account");
 
   await settled();
   assert.deepEqual(problems, [], "no page error or CSP violation");
@@ -102,12 +142,23 @@ async function inBrowser(name) {
   await browser.close();
 }
 
-(async () => {
-  await target.verifyServer();
+async function checks() {
   for (const name of BROWSERS) await inBrowser(name);
-  const ids = (await prisma.user.findMany({ where: { email: { in: created } }, select: { id: true } })).map((u) => u.id);
-  await prisma.accountToken.deleteMany({ where: { email: { in: created } } });
-  await prisma.user.deleteMany({ where: { id: { in: ids } } });
-  await prisma.$disconnect();
+}
+
+(async () => {
+  await target.verifyServer(); // Nothing has been made yet, so a refusal here has nothing to clean up.
+  let failed = false;
+  const fail = (label, e) => { failed = true; console.error(label, printable(e)); };
+  try {
+    await Promise.race([checks(), new Promise((_, reject) => { expire = reject; deadlineIn(DEADLINE_MS); })]);
+  } catch (e) { fail("FAILED:", e); }
+  clearTimeout(timer);
+  await Promise.allSettled(browsers.map((b) => b.close()));
+  console.log(`browsers left open: ${browsers.filter((b) => b.isConnected()).length}`);
+  try { await removeThisRun(); } catch (e) { fail("CLEANUP FAILED:", e); }
+  await prisma.$disconnect().catch((e) => fail("DISCONNECT FAILED:", e));
+  if (failed) process.exit(1);
   console.log("ALL PRIVACY CHECKS PASSED");
-})().catch(async (e) => { console.error(e); await prisma.$disconnect(); process.exit(1); });
+  process.exit(0); // A check still waiting on a browser that's gone has nothing left to do.
+})().catch(async (e) => { console.error(printable(e)); await prisma.$disconnect().catch(() => {}); process.exit(1); });
