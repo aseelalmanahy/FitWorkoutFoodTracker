@@ -1,8 +1,9 @@
 import "server-only";
 import { prisma } from "./db";
 import { HttpError, notFound } from "./api";
+import { limitLockWait } from "./auth";
 import { idempotencyConflict, idempotentId, isUniqueViolation } from "./idempotency";
-import type { SetEntry } from "@prisma/client";
+import type { Prisma, SetEntry } from "@prisma/client";
 import type { SessionPerformance } from "@/lib/overload";
 
 export interface PreviousPerformance {
@@ -37,8 +38,23 @@ export async function getOwnedSessionExercise(userId: string, sessionId: string,
 
 interface NewSet { reps: number; weightKg: number; isWarmup?: boolean; rpe?: number | null }
 
-async function earlierSet(id: string, sessionExerciseId: string, input: NewSet) {
-  const set = await prisma.setEntry.findUnique({ where: { id } });
+/**
+ * Logging a set and finishing a workout each hold the workout's row from their status check to their commit, so one
+ * finishes before the other starts, and the second sees what the first did. The holder only does a few quick queries.
+ * A stuck lock fails the request with a 503 and nothing saved, which is safe to retry. limitLockWait is what bounds that
+ * wait, as Prisma's own timeout doesn't end a query that's already waiting.
+ */
+const HOLDING_THE_WORKOUT = { maxWait: 5_000, timeout: 10_000 };
+
+async function lockSession(tx: Prisma.TransactionClient, userId: string, sessionId: string) {
+  await limitLockWait(tx);
+  const rows = await tx.$queryRaw<{ status: string }[]>`SELECT status::text AS status FROM "WorkoutSession" WHERE id = ${sessionId} AND "userId" = ${userId} FOR UPDATE`;
+  if (!rows.length) throw notFound("Workout");
+  return rows[0].status;
+}
+
+async function earlierSet(db: Pick<Prisma.TransactionClient, "setEntry">, id: string, sessionExerciseId: string, input: NewSet) {
+  const set = await db.setEntry.findUnique({ where: { id } });
   if (!set) return null;
   const same = set.sessionExerciseId === sessionExerciseId && set.reps === input.reps && set.weightKg === input.weightKg
     && set.isWarmup === (input.isWarmup ?? false) && set.rpe === (input.rpe ?? null);
@@ -47,35 +63,50 @@ async function earlierSet(id: string, sessionExerciseId: string, input: NewSet) 
 }
 
 /** With a key, a retry after a lost response returns the set that was saved, and doesn't log it twice. */
-export async function logSet(userId: string, sessionExerciseId: string, status: string, input: NewSet, idempotencyKey: string | null = null) {
+export async function logSet(userId: string, sessionId: string, sessionExerciseId: string, input: NewSet, idempotencyKey: string | null = null) {
   const id = idempotencyKey ? idempotentId("set", userId, idempotencyKey) : undefined;
-  if (id) {
-    const earlier = await earlierSet(id, sessionExerciseId, input);
-    if (earlier) return earlier;
-  }
-  // After the check above, so an honest retry still gets the set it saved. A new one would change a finished workout's records.
-  if (status !== "IN_PROGRESS") throw new HttpError(409, "This workout has been finished, so nothing was logged.");
-  const agg = await prisma.setEntry.aggregate({ where: { sessionExerciseId }, _max: { setNumber: true } });
   try {
-    return await prisma.setEntry.create({
-      data: {
-        ...(id ? { id } : {}),
-        sessionExerciseId,
-        setNumber: (agg._max.setNumber ?? 0) + 1,
-        reps: input.reps,
-        weightKg: input.weightKg,
-        isWarmup: input.isWarmup ?? false,
-        rpe: input.rpe ?? null,
-      },
-    });
+    return await prisma.$transaction(async (tx) => {
+      const status = await lockSession(tx, userId, sessionId);
+      if (id) {
+        const earlier = await earlierSet(tx, id, sessionExerciseId, input);
+        if (earlier) return earlier;
+      }
+      // After the check above, so an honest retry still gets the set it saved. A new one would change a finished workout's records.
+      if (status !== "IN_PROGRESS") throw new HttpError(409, "This workout has been finished, so nothing was logged.");
+      const agg = await tx.setEntry.aggregate({ where: { sessionExerciseId }, _max: { setNumber: true } });
+      return tx.setEntry.create({
+        data: {
+          ...(id ? { id } : {}),
+          sessionExerciseId,
+          setNumber: (agg._max.setNumber ?? 0) + 1,
+          reps: input.reps,
+          weightKg: input.weightKg,
+          isWarmup: input.isWarmup ?? false,
+          rpe: input.rpe ?? null,
+        },
+      });
+    }, HOLDING_THE_WORKOUT);
   } catch (err) {
-    // Two attempts raced, and the database let one through. This is the other.
+    // The same key used on another of this person's workouts, whose row wasn't held. That transaction has ended, so this reads outside it.
     if (id && isUniqueViolation(err)) {
-      const earlier = await earlierSet(id, sessionExerciseId, input);
+      const earlier = await earlierSet(prisma, id, sessionExerciseId, input);
       if (earlier) return earlier;
     }
     throw err;
   }
+}
+
+/** Status first and under the lock, so finishing twice is refused, and a set still being saved counts. */
+export async function finishSession(userId: string, sessionId: string, changes: { name?: string; notes?: string | null }) {
+  return prisma.$transaction(async (tx) => {
+    if ((await lockSession(tx, userId, sessionId)) === "COMPLETED") throw new HttpError(409, "Workout already finished");
+    const sets = await tx.setEntry.count({ where: { sessionExercise: { sessionId } } });
+    if (sets === 0) throw new HttpError(400, "Log at least one set before finishing");
+    // Drop exercises that were planned but never performed.
+    await tx.sessionExercise.deleteMany({ where: { sessionId, sets: { none: {} } } });
+    return tx.workoutSession.update({ where: { id: sessionId }, data: { ...changes, status: "COMPLETED", endedAt: new Date() } });
+  }, HOLDING_THE_WORKOUT);
 }
 
 export const templateInclude = {

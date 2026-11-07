@@ -14,22 +14,57 @@ const f = vi.hoisted(() => ({
   /** Stands in for a second attempt getting there between this one's lookup and its write. */
   raceWith: null as null | Row,
   next: 0,
+  /** What happened, in order, to show that the lock comes first and that everything else is inside it. */
+  events: [] as string[],
+  inTx: false,
+  /** The workout's row has gone by the time the lock looks for it. */
+  gone: false,
+  dropped: 0,
+  updated: null as unknown,
 }));
-vi.mock("@/lib/server/auth", () => ({ getCurrentUser: async () => ({ id: f.user, email: "me@example.com" }) }));
+vi.mock("@/lib/server/auth", () => ({
+  getCurrentUser: async () => ({ id: f.user, email: "me@example.com" }),
+  limitLockWait: (tx: { $executeRaw: (s: TemplateStringsArray) => Promise<number> }) => tx.$executeRaw`SET LOCAL lock_timeout = '4s'`,
+}));
+/** What a transaction is handed. A call through it says so as it starts, so one through the outer client shows as "outside". */
+const throughTx = <T extends object>(client: T): T => new Proxy(client, {
+  get(target, key) {
+    const value = (target as Record<string | symbol, unknown>)[key];
+    if (typeof value === "function") return (...args: unknown[]) => { f.inTx = true; try { return (value as (...a: unknown[]) => unknown).apply(target, args); } finally { f.inTx = false; } };
+    return value && typeof value === "object" ? throughTx(value as object) : value;
+  },
+});
 vi.mock("@/lib/server/db", () => ({
   prisma: {
+    $transaction: async (fn: (tx: unknown) => Promise<unknown>) => {
+      const { prisma } = await import("@/lib/server/db");
+      return fn(throughTx(prisma));
+    },
+    $executeRaw: async (strings: TemplateStringsArray) => { f.events.push(`${f.inTx ? "tx" : "outside"}:limit`); expect(strings.join("")).toMatch(/SET LOCAL lock_timeout/); return 0; },
+    $queryRaw: async (strings: TemplateStringsArray, ...values: unknown[]) => {
+      f.events.push(`${f.inTx ? "tx" : "outside"}:lock`);
+      if (!/FOR UPDATE/.test(strings.join(""))) throw new Error("not a lock");
+      return values[1] === "me" && !f.gone ? [{ status: f.status }] : [];
+    },
+    workoutSession: {
+      findMany: async () => [],
+      findFirst: async ({ where }: { where: { userId: string } }) => (where.userId === "me" ? { id: "s", status: f.status } : null),
+      update: async ({ data }: { data: unknown }) => { f.events.push(`${f.inTx ? "tx" : "outside"}:update`); f.updated = data; return { id: "s", ...(data as object) }; },
+    },
     profile: { findUnique: async () => ({ birthDate: new Date("1990-01-01") }) },
     exercise: { findFirst: async ({ where }: { where: unknown }) => { f.exerciseWhere = where; return f.visible ? { id: "ex" } : null; } },
     sessionExercise: {
-      findFirst: async ({ where }: { where: { id: string; session: { userId: string } } }) => (where.session.userId === "me" && where.id === "se" ? { id: "se", session: { status: f.status } } : null),
+      findFirst: async ({ where }: { where: { id: string; session: { userId: string } } }) => (where.session.userId === "me" && where.id === "se" ? { id: "se", sessionId: "s", session: { status: "stale, and not to be used" } } : null),
       findMany: async () => [],
+      deleteMany: async () => { f.events.push(`${f.inTx ? "tx" : "outside"}:drop`); f.dropped++; return { count: 0 }; },
     },
-    workoutSession: { findMany: async () => [] },
     setEntry: {
+      count: async () => { f.events.push(`${f.inTx ? "tx" : "outside"}:count`); return f.rows.length; },
       findUnique: async ({ where }: { where: { id: string } }) => f.rows.find((r) => r.id === where.id) ?? null,
       findMany: async () => [],
       aggregate: async () => ({ _max: { setNumber: f.rows.length ? Math.max(...f.rows.map((r) => r.setNumber)) : null } }),
       create: async ({ data }: { data: Omit<Row, "id"> & { id?: string } }) => {
+        f.events.push(`${f.inTx ? "tx" : "outside"}:create`);
         if (f.raceWith) { f.rows.push(f.raceWith); f.raceWith = null; }
         if (data.id && f.rows.some((r) => r.id === data.id)) throw new Prisma.PrismaClientKnownRequestError("unique", { code: "P2002", clientVersion: "test" });
         const row = { ...data, id: data.id ?? `auto${++f.next}` };
@@ -52,7 +87,7 @@ const SET = { weightKg: 60, reps: 8, isWarmup: false };
 const params = { id: "s", seId: "se" };
 const sets = () => import("@/app/api/sessions/[id]/exercises/[seId]/sets/route");
 
-beforeEach(() => { f.rows = []; f.user = "me"; f.visible = true; f.status = "IN_PROGRESS"; f.raceWith = null; f.next = 0; });
+beforeEach(() => { f.rows = []; f.user = "me"; f.visible = true; f.status = "IN_PROGRESS"; f.raceWith = null; f.next = 0; f.events = []; f.inTx = false; f.gone = false; f.dropped = 0; f.updated = null; });
 
 describe("logging a set", () => {
   it("a retry with the same key returns the set that was saved, and adds nothing", async () => {
@@ -61,6 +96,23 @@ describe("logging a set", () => {
     const second = await (await POST(post(SET, KEY), ctx(params))).json();
     expect(second.set.id).toBe(first.set.id);
     expect(f.rows).toHaveLength(1);
+  });
+  it("takes the workout's row before anything else, and writes inside that transaction", async () => {
+    const { POST } = await sets();
+    await POST(post(SET, KEY), ctx(params));
+    expect(f.events).toEqual(["tx:limit", "tx:lock", "tx:create"]);
+  });
+  it("goes by the status it read under the lock, not one read earlier", async () => {
+    const { POST } = await sets();
+    f.status = "COMPLETED";
+    expect((await POST(post(SET), ctx(params))).status).toBe(409);
+    expect(f.events).toEqual(["tx:limit", "tx:lock"]);
+  });
+  it("a workout gone by the time of the lock is not found, and nothing is written", async () => {
+    const { POST } = await sets();
+    f.gone = true;
+    expect((await POST(post(SET), ctx(params))).status).toBe(404);
+    expect(f.rows).toEqual([]);
   });
   it("a second attempt that loses a race returns the first, and adds nothing", async () => {
     const { POST } = await sets();
@@ -131,6 +183,38 @@ describe("logging a set", () => {
     expect(retry.status).toBe(200);
     expect((await retry.json()).set.id).toBe(first.set.id);
     expect(f.rows).toHaveLength(1);
+  });
+});
+
+describe("finishing a workout", () => {
+  const session = () => import("@/app/api/sessions/[id]/route");
+  const patch = (body: unknown) => new NextRequest(`${ORIGIN}/api/sessions/s`, { method: "PATCH", headers: { "Content-Type": "application/json", Origin: ORIGIN, Host: "localhost:3000" }, body: JSON.stringify(body) });
+  const logged = { id: "x", sessionExerciseId: "se", setNumber: 1, reps: 8, weightKg: 60, isWarmup: false, rpe: null };
+  it("takes the workout's row first, and does everything else inside that transaction", async () => {
+    const { PATCH } = await session();
+    f.rows = [logged];
+    expect((await PATCH(patch({ finish: true }), ctx({ id: "s" }))).status).toBe(200);
+    expect(f.events).toEqual(["tx:limit", "tx:lock", "tx:count", "tx:drop", "tx:update"]);
+    expect(f.updated).toMatchObject({ status: "COMPLETED" });
+  });
+  it("is refused when the row already says finished, and changes nothing", async () => {
+    const { PATCH } = await session();
+    f.rows = [logged];
+    f.status = "COMPLETED";
+    expect((await PATCH(patch({ finish: true }), ctx({ id: "s" }))).status).toBe(409);
+    expect(f.events).toEqual(["tx:limit", "tx:lock"]);
+  });
+  it("is refused with no set, and drops nothing", async () => {
+    const { PATCH } = await session();
+    expect((await PATCH(patch({ finish: true }), ctx({ id: "s" }))).status).toBe(400);
+    expect(f.dropped).toBe(0);
+    expect(f.updated).toBeNull();
+  });
+  it("renaming doesn't take the lock, or finish anything", async () => {
+    const { PATCH } = await session();
+    expect((await PATCH(patch({ name: "New" }), ctx({ id: "s" }))).status).toBe(200);
+    expect(f.events).toEqual(["outside:update"]);
+    expect(f.updated).toEqual({ name: "New" });
   });
 });
 
