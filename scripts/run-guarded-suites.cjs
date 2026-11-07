@@ -99,6 +99,7 @@ async function withoutMarkerWrite(run) {
 const ON_DEMAND = new Set(["migration-snapshot", "migration-verify", "profile-migration-snapshot", "profile-migration-verify"]);
 const SUITES = {
   guard: () => runNode(nodeTest("test-target-guard.test.cjs"), { DATABASE_URL: "" }, 300_000),
+  "mig-04-refusals": () => runNode(nodeTest("mig-04.test.cjs"), { DATABASE_URL: "" }, 120_000),
   "guard-browser": () => runNode(nodeTest("test-target-guard.browser.test.cjs"), { DATABASE_URL: "" }, 300_000),
   units: () => runNode(nodeTest("live-check.units.test.cjs"), {}, 120_000),
   "live-identity": () => withoutMarkerWrite(() => runNode(nodeTest("live-check.identity.test.cjs"), {}, 300_000)),

@@ -2,7 +2,7 @@
 
 **Built on `feature/phase-4.1-progress`, unmerged. Status is in the tracker, section 2f.** It follows `PRODUCT_STRATEGY.md` Phase 4.1 and the two records in `FEATURE_DECISIONS.md`: a body-weight log with a smoothed trend, and one card on the existing dashboard. **Excluded:** other measures, photos, adaptive targets, predicted dates, a new dashboard.
 
-**MIG-04 is a file, applied nowhere.** **It must be applied to a database before this code runs there.** Without the table, the dashboard fails for every signed-in person, and **account deletion and export fail for every account,** so someone couldn't delete or download their data. So nothing on a database or in a browser has run, and that needs the owner's authorization. This also orders any future deployment: migration first. `npm run db:deploy` exists, and nothing runs it as part of a deployment.
+**MIG-04 is a file, applied nowhere, and `docs/MIG_04_RUNBOOK.md` is how to apply it once authorized.** **It must be applied to a database before this code runs there.** Without the table, the dashboard fails for every signed-in person, and **account deletion and export fail for every account,** so someone couldn't delete or download their data. So nothing on a database or in a browser has run, and that needs the owner's authorization. This also orders any future deployment: migration first. `npm run db:deploy` exists, and nothing runs it as part of a deployment.
 
 ## Choices made
 
