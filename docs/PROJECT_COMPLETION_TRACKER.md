@@ -1,6 +1,6 @@
 # Project Completion Tracker
 
-**The single source of truth for what's done and what isn't.** Last updated 2026-11-07, on `integration/phase-4`, after Phases 4.0.5, 4.1 and 4.0.6 were integrated there for development. **`main` is unchanged at `5434f90`. No production infrastructure has been deployed.**
+**The single source of truth for what's done and what isn't.** Last updated 2026-11-07, on `integration/phase-4`, after Phases 4.0.5, 4.1 and 4.0.6 were integrated there for development. **`main` is unchanged at `5434f90`. No production infrastructure has been deployed.** The handoff for the next session is in `SESSION_HANDOFF.md`, on `feature/demo-account`.
 
 **Rules:**
 
@@ -277,6 +277,15 @@
 | U-02 | Workflow | The permanent demo account, `scripts/demo-account.cjs`, with four plans, a schedule, workout history, nutrition, weight history and a goal. Populating is idempotent, adds only its own rows, and keeps the same password | COMPLETE for `fitdb_test` | P1 | None | `demo-account` and the browser check pass. **Only on `fitdb_test`. It isn't a real or production account** |
 | U-03 | Workflow | `scripts/demo-server.cjs` and `MANUAL_UI_TESTING_GUIDE.md`. Registration stays closed, AI is off, providers are the local stub, and mail stays in a temporary folder | COMPLETE for `fitdb_test` | P1 | None | Verified as running on `fitdb_test`, in Chromium, Firefox and WebKit |
 | U-04 | Phase 4 | **The owner's UI acceptance of Phase 4** | NOT STARTED | P0 | The owner | **The owner has tried it and said it's accepted.** Implementation complete, automated tests passed, and UI demonstration ready. **OWNER ACCEPTANCE PENDING** |
+
+**Owner UI feedback, 2026-11-07, for product review first.** The owner named four topics. Their details aren't recorded yet, and none are guessed. The next task is review and investigation only, as `SESSION_HANDOFF.md` section 7 sets out.
+
+| ID | Phase | Description | Status | Priority | Dependency | Acceptance Criteria |
+|---|---|---|---|---|---|---|
+| UF-01 | Feedback | A food-search issue. Under the demo server, provider results come from a local stand-in | NOT STARTED | P1 | The owner's details | Reproduced and its cause reported, read-only, before any fix |
+| UF-02 | Feedback | A responsive redesign | NOT STARTED | P2 | The owner's details, product review | Options proposed with evidence, and the owner decides |
+| UF-03 | Feedback | Muted colors. Related to S-08 | NOT STARTED | P2 | The owner's details, product review | Options proposed with contrast checked, and the owner decides |
+| UF-04 | Feedback | Proposed health-tracking features | NOT STARTED | P2 | `product-strategy-agent`, then the owner | A recommendation per feature, and the owner's decision. Nothing built before it |
 
 **A known limit, not a defect:** the session cookie is `Secure`, and this Windows WebKit build won't send one over plain `http://localhost`. Sign-in succeeds there, and the browser check carries on with a non-Secure copy, as other WebKit suites do. Chrome, Edge and Firefox stay signed in. Real Safari and real phones are unverified (T-15, R-13).
 
