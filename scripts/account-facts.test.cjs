@@ -93,6 +93,8 @@ const run = (flags, env) => {
 for (const [label, flags, env] of [
   ["no confirmation", [], { DATABASE_URL: "postgresql://u:p@127.0.0.1:1/fitdb_test" }],
   ["a wrong confirmation", ["--confirm=fitdb"], { DATABASE_URL: "postgresql://u:p@127.0.0.1:1/fitdb_test" }],
+  ["a confirmation for the other test database", ["--confirm=fitdb_test_isolated"], { DATABASE_URL: "postgresql://u:p@127.0.0.1:1/fitdb_test" }],
+  ["the review database", ["--confirm=fitdb_review"], { DATABASE_URL: "postgresql://u:p@localhost:5432/fitdb_review" }],
   ["the development database", ["--confirm=fitdb_test"], { DATABASE_URL: "postgresql://u:p@localhost:5432/fitdb" }],
   ["the other test database", ["--confirm=fitdb_test"], { DATABASE_URL: "postgresql://u:p@localhost:5432/fitdb_test_other" }],
   ["a remote host", ["--confirm=fitdb_test"], { DATABASE_URL: "postgresql://u:p@db.example.invalid:5432/fitdb_test" }],

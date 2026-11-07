@@ -106,9 +106,9 @@ export default async function WorkoutsPage() {
           {recent.map((s) => {
             const sum = summarizeSessions([s]);
             return (
-              <Link key={s.id} href={`/workouts/history/${s.id}`} className="flex items-center justify-between px-4 py-3">
-                <span>
-                  <span className="block font-medium">{s.name}</span>
+              <Link key={s.id} href={`/workouts/history/${s.id}`} className="flex items-center justify-between gap-3 px-4 py-3">
+                <span className="min-w-0">
+                  <span className="block truncate font-medium">{s.name}</span>
                   <span className="text-xs text-muted">{formatLocalDate(s.startedAt, tz)} · {sum.sets} sets · {formatVolume(sum.volumeKg, profile.unitSystem)} · {formatDuration(sum.seconds)}</span>
                 </span>
                 <ChevronRight width={18} height={18} className="text-muted" />

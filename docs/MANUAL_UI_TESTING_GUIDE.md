@@ -87,6 +87,40 @@ All of it is made up for demonstration. **The foods aren't a nutrition reference
 
 **Try this error:** enter a target with very few calories for the protein and fat, and see what it says.
 
+## The review environment: real data, real food databases
+
+**This is the one to use for hands-on testing.** It runs the redesigned app on its own database, `fitdb_review`, with the real USDA FoodData Central and Open Food Facts services. What you enter is kept, including across restarts. It's in its own folder, `FitWorkoutFoodTracker-review`, beside this one, and doesn't affect the demo on port 3000 or 3001.
+
+| | |
+|---|---|
+| Address | http://localhost:3002 (only this computer can reach it) |
+| Your account | Email and password in `FitWorkoutFoodTracker-review\review-account.local.md`, which Git ignores |
+| Database | `fitdb_review`, on this computer. Never `fitdb` or `fitdb_test` |
+
+**To start it,** in PowerShell. Leave the window open; Ctrl+C stops it:
+
+```powershell
+cd $HOME\Desktop\FitWorkoutFoodTracker-review
+Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue
+node --env-file=.env.review scripts/review-server.cjs --confirm=fitdb_review
+```
+
+Wait for `Running at http://localhost:3002`. **If the window was closed without stopping it,** this stops whatever is on port 3002:
+
+```powershell
+Get-NetTCPConnection -State Listen -LocalPort 3002 | ForEach-Object { Stop-Process -Id $_.OwningProcess }
+```
+
+**First time:** sign in, then fill in your profile, as a new user would. Your account starts empty: no workouts, food or measurements.
+
+**What's real here, and what isn't:**
+
+| | |
+|---|---|
+| Real | Workouts, notes, food logging, targets, weight, history, charts, export, deletion, all stored in `fitdb_review`. USDA and Open Food Facts searches, product details and barcode lookups, live |
+| Limits | Open Food Facts allows each person **4 searches a minute** (10 for the whole app). Typing a long word can use several, and the app then says so. USDA allows 20 a minute. Results are the providers' own, with their order and gaps |
+| Not available | Photo label scanning and meal photos (paid AI, off). Sign-up, and password reset by email (no email service). Ask for a new account if a password is lost |
+
 ## UX-01: food search, layout, design and notes
 
 On `feature/ux-reliability-redesign`. To try it without disturbing the demo on port 3000, build and run it from its own folder, `FitWorkoutFoodTracker-ux`, beside this one, with the same two steps above and `--port=3001`, and with `--env-file=..\FitWorkoutFoodTracker\.env.test`, as `.env.test` stays in this folder only.

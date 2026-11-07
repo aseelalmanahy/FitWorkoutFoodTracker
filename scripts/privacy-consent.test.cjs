@@ -134,7 +134,7 @@ test("the report's transaction really refuses writes", async () => {
 
 test("the account-facts report reads real rows, changes nothing, and names nobody", async () => {
   const before = await prisma.user.count();
-  const r = spawnSync(process.execPath, [path.join(__dirname, "account-facts.cjs"), "--confirm=fitdb_test"], { encoding: "utf8", timeout: 120_000, env: { ...process.env, BASE_URL: "", NODE_TEST_CONTEXT: "" } });
+  const r = spawnSync(process.execPath, [path.join(__dirname, "account-facts.cjs"), `--confirm=${decodeURIComponent(new URL(target.databaseUrl).pathname.slice(1))}`], { encoding: "utf8", timeout: 120_000, env: { ...process.env, BASE_URL: "", NODE_TEST_CONTEXT: "" } });
   assert.equal(r.status, 0, r.stderr.slice(0, 300));
   const report = JSON.parse(r.stdout);
   assert.equal(report.rows.length, 4);

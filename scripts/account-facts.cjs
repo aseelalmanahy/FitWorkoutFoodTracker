@@ -8,11 +8,13 @@ const { databaseUrlProblem, environmentProblems, readDatabaseIdentity } = requir
 const { TEST_DB_MARKER_PREFIX } = require("./lib/test-db-guard.cjs");
 const { reportAccountFacts } = require("./lib/account-facts.cjs");
 
-const TARGET = "fitdb_test";
+// The test databases this read-only report may read, by exact name: fitdb_test, or the isolated one the suites can use.
+const READABLE = ["fitdb_test", "fitdb_test_isolated"];
 const refuse = (message) => { console.error(`REFUSED: ${message}`); process.exit(4); };
 
 const args = process.argv.slice(2);
-if (args.length !== 1 || args[0] !== `--confirm=${TARGET}`) refuse(`use exactly --confirm=${TARGET}.`);
+const TARGET = args.length === 1 && args[0].startsWith("--confirm=") ? args[0].slice("--confirm=".length) : "";
+if (!READABLE.includes(TARGET)) refuse(`use exactly --confirm=${READABLE.join(" or --confirm=")}.`);
 const DB = process.env.DATABASE_URL;
 const problems = [databaseUrlProblem(DB), ...environmentProblems(process.env)].filter(Boolean);
 if (problems.length) refuse(problems.map((p) => p.message).join(" | "));
