@@ -36,7 +36,7 @@ function runScript(run, failAt) {
     let out = "", err = "";
     child.stdout.on("data", (d) => { out += d; });
     child.stderr.on("data", (d) => { err += d; });
-    const killer = setTimeout(() => { child.kill(); reject(new Error(`the script hadn't ended after 150 seconds, which isn't a result. Output:\n${out}`)); }, 150_000);
+    const killer = setTimeout(() => { child.kill(); reject(new Error(`the script hadn't ended after 60 seconds, which isn't a result. Output:\n${out}`)); }, 60_000);
     child.on("error", reject);
     child.on("close", (code) => { clearTimeout(killer); resolve({ code, out, err, address: addressFor(run) }); });
   });
@@ -59,15 +59,15 @@ after(async () => {
   await prisma.$disconnect();
 });
 
-async function failsAndCleansUp(failAt, reached, reason) {
+async function failsAndCleansUp(failAt, reached, reason, stillOpen = 0) {
   const run = await prepareRun();
   const before = await totals();
   const r = await runScript(run, failAt);
   assert.match(r.out, reached, "the failure happened where it was meant to, with those rows existing");
   assert.notEqual(r.code, 0, "a failed run says so");
   assert.match(r.err, reason, "and says why, with the cause intact");
-  assert.doesNotMatch(r.out, /ALL PRIVACY CHECKS PASSED/);
-  assert.match(r.out, /browsers left open: 0/);
+  assert.doesNotMatch(r.out, /PRIVACY CHECKS PASSED/);
+  assert.match(r.out, new RegExp(`browsers left open: ${stillOpen}`));
   assert.deepEqual(await rows(r.address), { tokens: 0, users: 0 }, "nothing from the run is left");
   await bystandersIntact();
   assert.deepEqual(await totals(), before, "and nothing else was added or removed");
@@ -77,12 +77,24 @@ test("a failure with only a token made removes the token", () => failsAndCleansU
 test("a failure after the account was made removes the account", () => failsAndCleansUp("after-account", /injected at after-account: tokens=\d users=1/, /injected failure at after-account/));
 test("a run that hangs reaches its deadline, and removes the account", () => failsAndCleansUp("hang-after-account", /injected at after-account: tokens=\d users=1/, /ran past its deadline/));
 
+test("a browser that won't close doesn't stop the cleanup", () => failsAndCleansUp("close-hangs", /injected at after-account: tokens=\d users=1/, /injected failure at after-account/, 1));
+
+test("a row arriving just after the run gave up is removed too", async () => {
+  const run = await prepareRun();
+  const r = await runScript(run, "late-row");
+  assert.notEqual(r.code, 0);
+  assert.match(r.err, /injected failure before a late row/);
+  assert.deepEqual(await rows(r.address), { tokens: 0, users: 0 });
+  await bystandersIntact();
+});
+
 test("a successful run removes what it made", async () => {
   const run = await prepareRun();
   const before = await totals();
   const r = await runScript(run, "");
   assert.equal(r.code, 0, r.err);
-  assert.match(r.out, /ALL PRIVACY CHECKS PASSED/);
+  assert.match(r.out, /PRIVACY CHECKS PASSED IN ONLY chromium, WHICH ISN'T A FULL RUN/);
+  assert.doesNotMatch(r.out, /ALL PRIVACY CHECKS PASSED/, "one browser doesn't claim all of them");
   assert.match(r.out, /browsers left open: 0/);
   assert.deepEqual(await rows(r.address), { tokens: 0, users: 0 });
   await bystandersIntact();
@@ -93,7 +105,7 @@ test("a run whose cleanup fails is a failed run, even with every check passing",
   const r = await runScript(await prepareRun(), "cleanup");
   assert.notEqual(r.code, 0);
   assert.match(r.err, /CLEANUP FAILED/);
-  assert.doesNotMatch(r.out, /ALL PRIVACY CHECKS PASSED/);
+  assert.doesNotMatch(r.out, /PRIVACY CHECKS PASSED/);
   assert.equal((await rows(r.address)).users, 1, "the injected failure stopped the cleanup, so the account is still there for after() to remove");
 });
 

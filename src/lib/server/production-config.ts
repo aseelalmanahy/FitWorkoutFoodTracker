@@ -60,9 +60,11 @@ const isLoopbackOrigin = (origin: string | undefined) => {
 };
 
 /**
- * Whether anyone can register under the current legal documents. A draft keeps real registration shut, and no
- * setting can change that on a real deployment. A designated test database needs this machine's own origin as well,
- * so a real host pointed at a local database named fitdb_test isn't exempt. Startup confirms that database's marker.
+ * Whether anyone can register under the current legal documents. A draft keeps real registration shut. A designated
+ * test database needs this machine's own origin as well, so a real host pointed at a local database named fitdb_test,
+ * with its real origin set, isn't exempt. Startup confirms that database's marker. One deliberate misconfiguration still
+ * opens it: the test-server flag, a marked local fitdb_test, and no real origin set, behind a host others can reach. Its
+ * mail only reaches a local file or nowhere, so nobody could finish signing up, S-28.
  * Development needs that exact value, the development database on this machine, and no real origin, so an unset
  * NODE_ENV opens nothing. Startup refuses a real deployment with any other NODE_ENV. `next dev` skips that check, so
  * `next dev` with a local fitdb on a machine others can reach would still be open, with its mail only in a local file.

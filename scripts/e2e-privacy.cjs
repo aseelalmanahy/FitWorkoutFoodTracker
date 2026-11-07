@@ -3,7 +3,8 @@
 //
 // Whatever happens, this removes what it made: the tokens and accounts at the exact addresses this run used, and nothing
 // else. That's checked, by forcing each failure, in e2e-privacy-cleanup.test.cjs, which is what the E2E_PRIVACY_ settings are for.
-// A process killed from outside can't clean up after itself, so the run has its own deadline, shorter than the runner's.
+// A process killed outright can't clean up after itself, so the run has its own deadline, shorter than the runner's. Closing
+// the browsers and cleaning up each have a limit too, so that neither can use up the time before the runner's.
 const assert = require("node:assert/strict");
 const { inspect } = require("node:util");
 const { randomBytes, createHash } = require("node:crypto");
@@ -19,30 +20,45 @@ if (!/^\d+$/.test(run)) throw new Error("E2E_PRIVACY_RUN must be digits, as it b
 const PASSWORD = "correct horse battery staple";
 const BROWSERS = (process.env.E2E_PRIVACY_BROWSERS ?? "chromium,firefox,webkit").split(",");
 const FAIL_AT = process.env.E2E_PRIVACY_FAIL_AT ?? "";
+const ALL_BROWSERS = 3;
 const DEADLINE_MS = 540_000; // The runner ends this at 590 seconds.
+const CLOSE_LIMIT_MS = FAIL_AT === "close-hangs" ? 500 : 15_000;
+const CLEANUP_LIMIT_MS = 30_000;
+const SETTLE_MS = 1_000;
 const created = [];
 const browsers = [];
+let stopping = false;
 let expire = () => {};
 let timer = null;
 const deadlineIn = (ms) => { clearTimeout(timer); timer = setTimeout(() => expire(new Error(`ran past its deadline of ${ms} ms`)), ms); };
 
 /** Only for the cleanup test. Reports what exists at that point, so the test knows there was something to remove. */
 async function injected(point) {
-  if (FAIL_AT !== point && FAIL_AT !== `hang-${point}`) return;
+  if (FAIL_AT !== point && FAIL_AT !== `hang-${point}` && !(FAIL_AT === "close-hangs" && point === "after-account")) return;
   const [tokens, users] = await Promise.all([prisma.accountToken.count({ where: { email: { in: created } } }), prisma.user.count({ where: { email: { in: created } } })]);
   console.log(`injected at ${point}: tokens=${tokens} users=${users}`);
-  if (FAIL_AT === point) throw new Error(`injected failure at ${point}`);
+  if (FAIL_AT === point || (FAIL_AT === "close-hangs" && point === "after-account")) throw new Error(`injected failure at ${point}`);
   deadlineIn(500);
   await new Promise(() => {});
 }
 
-/** By exact address, and refuses to say it's done if anything is left. */
-async function removeThisRun() {
+/**
+ * By exact address, and refuses to say it's done if anything is left. A failed run may have work still arriving at the
+ * database, which ending the browsers doesn't stop, so that goes through a second time after a pause.
+ */
+async function removeThisRun(failed) {
   if (FAIL_AT === "cleanup") throw new Error("injected failure in cleanup");
   if (!created.length) return;
   const mine = { email: { in: created } };
-  await prisma.accountToken.deleteMany({ where: mine });
-  await prisma.user.deleteMany({ where: mine });
+  const remove = async () => {
+    await prisma.accountToken.deleteMany({ where: mine });
+    await prisma.user.deleteMany({ where: mine });
+  };
+  await remove();
+  if (failed) {
+    await new Promise((resolve) => setTimeout(resolve, SETTLE_MS));
+    await remove();
+  }
   const left = (await prisma.accountToken.count({ where: mine })) + (await prisma.user.count({ where: mine }));
   if (left) throw new Error(`${left} row(s) from this run were still there after cleanup`);
 }
@@ -51,6 +67,7 @@ async function removeThisRun() {
 const printable = (e) => inspect(e).replace(/#token=[A-Za-z0-9_-]+/g, "#token=<hidden>");
 
 async function mint(address) {
+  if (stopping) throw new Error("the run has ended");
   const token = randomBytes(32).toString("base64url");
   created.push(address);
   await prisma.accountToken.create({ data: { id: createHash("sha256").update(token).digest("hex"), purpose: "SIGNUP", email: address, expiresAt: new Date(Date.now() + 3_600_000) } });
@@ -90,6 +107,11 @@ async function inBrowser(name) {
   const address = `privacy${name}${run}@test.dev`;
   const token = await mint(address);
   if (FAIL_AT === "quoting-token") throw new Error(`navigating to ${BASE}/register/complete#token=${token}`);
+  if (FAIL_AT === "late-row") {
+    // Stands in for a sign-up still being written when the run gave up.
+    setTimeout(() => prisma.accountToken.create({ data: { id: createHash("sha256").update(`${token}late`).digest("hex"), purpose: "SIGNUP", email: address, expiresAt: new Date(Date.now() + 3_600_000) } }), 300);
+    throw new Error("injected failure before a late row");
+  }
   await page.goto(`${BASE}/register/complete#token=${token}`);
   const box = page.locator("input[name=accept]");
   await box.waitFor();
@@ -150,15 +172,23 @@ async function checks() {
   await target.verifyServer(); // Nothing has been made yet, so a refusal here has nothing to clean up.
   let failed = false;
   const fail = (label, e) => { failed = true; console.error(label, printable(e)); };
+  // Ctrl-C, or a polite request to stop, goes through the same cleanup. Windows can't deliver SIGTERM, and a forced kill can't be caught.
+  for (const signal of ["SIGINT", "SIGTERM"]) process.on(signal, () => expire(new Error(`interrupted by ${signal}`)));
   try {
     await Promise.race([checks(), new Promise((_, reject) => { expire = reject; deadlineIn(DEADLINE_MS); })]);
   } catch (e) { fail("FAILED:", e); }
   clearTimeout(timer);
-  await Promise.allSettled(browsers.map((b) => b.close()));
+  stopping = true;
+  // Closing a browser that's stuck mustn't stop the cleanup. If cleanup is what's stuck, this says so rather than hanging.
+  const stuck = setTimeout(() => { console.error("CLEANUP FAILED: it didn't finish in time, so rows may remain"); process.exit(1); }, CLOSE_LIMIT_MS + CLEANUP_LIMIT_MS);
+  const closing = FAIL_AT === "close-hangs" ? new Promise(() => {}) : Promise.allSettled(browsers.map((b) => b.close()));
+  await Promise.race([closing, new Promise((resolve) => setTimeout(resolve, CLOSE_LIMIT_MS))]);
   console.log(`browsers left open: ${browsers.filter((b) => b.isConnected()).length}`);
-  try { await removeThisRun(); } catch (e) { fail("CLEANUP FAILED:", e); }
+  try { await removeThisRun(failed); } catch (e) { fail("CLEANUP FAILED:", e); }
+  clearTimeout(stuck);
   await prisma.$disconnect().catch((e) => fail("DISCONNECT FAILED:", e));
   if (failed) process.exit(1);
-  console.log("ALL PRIVACY CHECKS PASSED");
+  // A setting left over from the cleanup test can't pass for a full run.
+  console.log(BROWSERS.length === ALL_BROWSERS ? "ALL PRIVACY CHECKS PASSED" : `PRIVACY CHECKS PASSED IN ONLY ${BROWSERS.join(", ")}, WHICH ISN'T A FULL RUN`);
   process.exit(0); // A check still waiting on a browser that's gone has nothing left to do.
 })().catch(async (e) => { console.error(printable(e)); await prisma.$disconnect().catch(() => {}); process.exit(1); });
