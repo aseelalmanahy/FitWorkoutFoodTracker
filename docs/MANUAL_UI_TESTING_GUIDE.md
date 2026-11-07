@@ -143,6 +143,31 @@ On `feature/ux-reliability-redesign`. To try it without disturbing the demo on p
 
 **Logging food or finishing a workout adds rows to the demo account,** as using it always has. Nothing else changes in the demo data.
 
+## Release completion: the candidate build on port 3003
+
+On `feature/release-completion`, in the folder `FitWorkoutFoodTracker-release`. **It runs beside the stable review server, on the same database and with your same account,** so what you enter in either appears in both. Port 3002 keeps running the earlier, stable build. Nothing here changes the database's structure.
+
+```powershell
+cd $HOME\Desktop\FitWorkoutFoodTracker-release
+Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue
+$env:LABEL_OCR = "local"
+node --env-file=.env.review scripts/review-server.cjs --confirm=fitdb_review --port=3003
+```
+
+Wait for `Running at http://localhost:3003`. If the window was closed without stopping it, use the `Stop-Process` line above with `3003`. **Sign in once on each port:** both are `localhost`, so they share a sign-in cookie; signing out on one signs you out on the other.
+
+| # | Where | Do this | What should happen |
+|---|---|---|---|
+| R.1 | Add food | Type **eg**, then **egg** | With 2 letters, only My foods is searched, and it says "Type 3 or more characters to search USDA and packaged foods too". With 3, USDA and packaged foods are searched too, once you stop typing |
+| R.2 | Add food | Search **egg**, **banana**, **beef**, **greek yogurt** | Plain, raw foods near the top: "Egg, whole, raw", "Banana, raw", "Beef, ground, raw". Results are the providers' own records |
+| R.3 | Add food | Search the same word twice within a minute | The second answer is immediate, from the app's short-lived cache, and doesn't use your Open Food Facts allowance |
+| R.4 | Add food | Search a barcode, for example **3017620422003** | One packaged product (Nutella), with its own per-100 g values. A code that doesn't exist finds nothing, and says so |
+| R.5 | Nutrition → Add → **Scan a nutrition label** | Photograph or upload a clear, straight nutrition label, Continue, then **Use this** | In a second or two, the review screen. It says the values were read **by text recognition on this server**. Nothing leaves this computer |
+| R.6 | The review screen | Compare every number with the label | Each is either exactly what's printed or empty with a reason. **A number that's different from the label is a defect: please report it with the photo.** The product name is empty for you to type |
+| R.7 | The review screen | Correct a value, type the name, check the confirmation, save, then **Add to diary** | The food is saved once, then logged like any of your foods |
+
+**What to expect from label reading:** it's ordinary text recognition, not AI. It reads clean, flat, well-lit labels well. Curved packets, glare, small print or a photo at an angle will leave more fields empty for you to fill. It never fills in a value it couldn't read.
+
 ## Phase 3: photo features, unavailable here
 
 **Scan a label and Identify a meal need a paid AI service, which is off here,** so don't expect results from them. The add-food screen hides the link to scanning for that reason. They were tested against a local stand-in.

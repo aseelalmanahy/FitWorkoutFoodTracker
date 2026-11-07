@@ -614,8 +614,10 @@ test("matching: search never merges different records, and reports each one's ow
   const r = await A.get("/api/foods/search?q=greek%20yogurt&sources=USDA,OPEN_FOOD_FACTS");
   assert.equal(r.status, 200);
   assert.deepEqual(r.body.results.USDA.map((f) => [f.sourceId, f.per100.kcal]), [["900101", 59], ["900102", 97]]);
-  assert.deepEqual(r.body.results.OPEN_FOOD_FACTS.map((f) => [f.brand, f.per100.kcal]), [["Hillside", 73], ["Hillside", 120]]);
-  const honey = r.body.results.OPEN_FOOD_FACTS[1];
+  // Order is the ranking's (FOOD-02, tested in rank.test.ts); here, each record stays separate with its own values.
+  const byCode = [...r.body.results.OPEN_FOOD_FACTS].sort((a, b) => a.sourceId.localeCompare(b.sourceId));
+  assert.deepEqual(byCode.map((f) => [f.sourceId, f.brand, f.per100.kcal]), [["8800000000103", "Hillside", 73], ["8800000000110", "Hillside", 120]]);
+  const honey = byCode[1];
   assert.equal(honey.per100.fat, null, "missing stays null");
   assert.equal(honey.complete, false);
   assert.equal(honey.hasNutrition, true);
