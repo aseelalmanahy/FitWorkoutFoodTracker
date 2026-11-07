@@ -104,11 +104,28 @@ let describeFailure = async () => {};
   await page.getByLabel('Workout notes').fill('Felt strong, gym was busy');
   await page.getByLabel('Workout notes').blur();
   await page.getByTestId('workout-notes').getByText('Saved').waitFor();
-  await page.getByRole('button', { name: 'Finish' }).click();
+  // A note whose save is slow, with Finish pressed straight after: Finish waits for it, so it isn't lost.
+  const lat = page.locator('div.rounded-2xl', { has: page.getByRole('heading', { name: 'Lat Pulldown' }) }).first();
+  let releaseNote = () => {};
+  const noteGate = new Promise((r) => { releaseNote = r; });
+  const slowNote = async (route) => {
+    if (route.request().method() === 'PATCH' && /"notes"/.test(route.request().postData() || '')) await noteGate;
+    await route.continue();
+  };
+  await page.route('**/api/sessions/*/exercises/*', slowNote);
+  await lat.getByRole('button', { name: 'Add a note on how it felt' }).click();
+  await lat.getByLabel('Exercise note').fill('Grip slipped on the last set');
+  await page.getByRole('button', { name: 'Finish' }).click(); // leaving the box starts the slow save
+  await page.waitForTimeout(600);
+  assert.match(page.url(), /\/workouts\/session\//, 'Finish waits while a note is still saving');
+  releaseNote();
   await page.waitForURL('**/workouts/history/**?done=1');
+  await page.unroute('**/api/sessions/*/exercises/*', slowNote);
   await page.screenshot({ path: SHOTS + '08-summary.png', fullPage: true });
-  assert.equal(await page.getByTestId('history-exercise-note').count(), 1, 'only the exercise with a note shows one');
-  assert.match(await page.getByTestId('history-exercise-note').innerText(), /Exercise note\s+Last set was hard, elbows tucked/i);
+  const exerciseNotes = await page.getByTestId('history-exercise-note').allInnerTexts();
+  assert.equal(exerciseNotes.length, 2, 'only the exercises with notes show one');
+  assert.match(exerciseNotes.join('\n'), /Exercise note\s+Last set was hard, elbows tucked/i);
+  assert.match(exerciseNotes.join('\n'), /Exercise note\s+Grip slipped on the last set/i, 'the slow note was saved before the finish');
   assert.match(await page.getByTestId('history-workout-notes').innerText(), /Workout notes\s+Felt strong, gym was busy/i);
   assert.equal(await page.getByLabel('Workout notes').count(), 0, 'a finished workout shows its notes read-only');
   const summary = await page.locator('main').innerText();

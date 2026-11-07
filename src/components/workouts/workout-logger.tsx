@@ -9,6 +9,7 @@ import { Button, Card, ErrorText, Input, Textarea, cx } from "@/components/ui";
 import { CheckIcon, PlusIcon, TimerIcon, TrashIcon } from "@/components/icons";
 import { OverloadBadge } from "@/components/overload-badge";
 import { ExercisePicker, type ExerciseOption } from "./exercise-picker";
+import { NoteSaver, flushAll, type NoteSaveStatus } from "@/lib/client/note-saver";
 
 export interface LoggedSet {
   id: string;
@@ -42,8 +43,7 @@ const DEFAULT_REST = 90;
 /** The longest note the API accepts, for both exercise and workout notes. */
 export const NOTE_MAX = 1000;
 
-type SaveState = "idle" | "saving" | "saved" | "failed";
-const SAVE_STATE_TEXT: Record<SaveState, string> = { idle: "", saving: "Saving…", saved: "Saved", failed: "Not saved. Try again." };
+const SAVE_STATE_TEXT: Record<NoteSaveStatus, string> = { idle: "", saving: "Saving…", saved: "Saved", failed: "Not saved. Try again, or check your connection." };
 
 export function WorkoutLogger({ sessionId, name, startedAt, units, initial, initialNotes }: Props) {
   const router = useRouter();
@@ -55,8 +55,25 @@ export function WorkoutLogger({ sessionId, name, startedAt, units, initial, init
   const [restEnd, setRestEnd] = useState<number | null>(null);
   // Workout notes: how the whole session went. Separate from each exercise's own note.
   const [sessionNotes, setSessionNotes] = useState(initialNotes ?? "");
-  const [savedSessionNotes, setSavedSessionNotes] = useState(initialNotes ?? "");
-  const [sessionNotesState, setSessionNotesState] = useState<SaveState>("idle");
+  const [sessionNotesState, setSessionNotesState] = useState<NoteSaveStatus>("idle");
+  // Every note on the page saves through a NoteSaver: one request at a time, the latest text last.
+  const sessionSaver = useRef<NoteSaver | null>(null);
+  sessionSaver.current ??= new NoteSaver(
+    (v) => run(() => api("PATCH", `/api/sessions/${sessionId}`, { notes: v || null })).then(Boolean),
+    initialNotes ?? null, setSessionNotesState,
+  );
+  const noteSavers = useRef(new Map<string, NoteSaver>());
+
+  // Closing or reloading the page while a note is unsaved, or still saving, asks first.
+  useEffect(() => {
+    const warn = (e: BeforeUnloadEvent) => {
+      if (![sessionSaver.current!, ...noteSavers.current.values()].some((n) => n.dirty)) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, []);
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -174,13 +191,6 @@ export function WorkoutLogger({ sessionId, name, startedAt, units, initial, init
     return Boolean(ok);
   }
 
-  async function saveSessionNotes() {
-    const value = sessionNotes.trim();
-    if (value === savedSessionNotes.trim()) return;
-    setSessionNotesState("saving");
-    const ok = await run(() => api("PATCH", `/api/sessions/${sessionId}`, { notes: value || null }));
-    if (ok) { setSavedSessionNotes(value); setSessionNotesState("saved"); } else setSessionNotesState("failed");
-  }
 
   async function finish() {
     // A set still on its way would be refused once the workout is finished, and the page would be gone before anyone saw why.
@@ -188,11 +198,16 @@ export function WorkoutLogger({ sessionId, name, startedAt, units, initial, init
     const total = exercises.reduce((n, e) => n + e.sets.length, 0);
     if (total === 0) return setError("Log at least one set before finishing.");
     const skipped = exercises.filter((e) => e.sets.length === 0).length;
-    if (!confirm(skipped ? `Finish workout? ${skipped} exercise(s) with no sets will be removed.` : "Finish workout?")) return;
+    // Every note is saved first, including one still on its way from a blur, so none lands after the finish,
+    // and none is lost behind the page change. If one can't be saved, the workout isn't finished.
     setBusy(true);
-    // Unsaved workout notes are saved with the finish itself, under the same lock.
-    const notesChanged = sessionNotes.trim() !== savedSessionNotes.trim();
-    const ok = await run(() => api("PATCH", `/api/sessions/${sessionId}`, notesChanged ? { finish: true, notes: sessionNotes.trim() || null } : { finish: true }));
+    const notesSaved = await flushAll([sessionSaver.current!, ...noteSavers.current.values()]);
+    if (!notesSaved) {
+      setBusy(false);
+      return setError("A note couldn't be saved, so the workout wasn't finished. Your text is still here: check your connection, then try Finish again.");
+    }
+    if (!confirm(skipped ? `Finish workout? ${skipped} exercise(s) with no sets will be removed.` : "Finish workout?")) return setBusy(false);
+    const ok = await run(() => api("PATCH", `/api/sessions/${sessionId}`, { finish: true }));
     if (ok) {
       router.replace(`/workouts/history/${sessionId}?done=1`);
       router.refresh();
@@ -237,6 +252,8 @@ export function WorkoutLogger({ sessionId, name, startedAt, units, initial, init
             onRemove={() => removeExercise(ex)}
             onMove={(d) => moveExercise(i, d)}
             onMeta={(p) => saveExerciseMeta(ex, p)}
+            noteSavers={noteSavers.current}
+            locked={busy}
           />
         ))}
         {exercises.length === 0 && (
@@ -250,7 +267,8 @@ export function WorkoutLogger({ sessionId, name, startedAt, units, initial, init
           <p id="workout-notes-help" className="mt-0.5 text-xs text-muted">How the whole workout went: energy, difficulty, anything to remember next time. Optional. For one exercise, use its own note.</p>
           <Textarea id="workout-notes" className="mt-2" maxLength={NOTE_MAX} aria-describedby="workout-notes-help workout-notes-status"
             placeholder="For example: felt strong, short on time, gym was busy…"
-            value={sessionNotes} onChange={(e) => { setSessionNotes(e.target.value); setSessionNotesState("idle"); }} onBlur={() => void saveSessionNotes()} />
+            readOnly={busy}
+            value={sessionNotes} onChange={(e) => { setSessionNotes(e.target.value); sessionSaver.current!.set(e.target.value); }} onBlur={() => void sessionSaver.current!.flush()} />
           <p id="workout-notes-status" className={cx("mt-1 min-h-4 text-xs", sessionNotesState === "failed" ? "text-down" : "text-muted")} aria-live="polite">{SAVE_STATE_TEXT[sessionNotesState]}</p>
         </Card>
         <Button variant="ghost" className="w-full text-down" onClick={discard} disabled={busy}>Discard workout</Button>
@@ -280,7 +298,7 @@ function fmtSets(sets: LoggedSet[], units: UnitSystem) {
     .join(", ");
 }
 
-function ExerciseCard({ ex, units, first, last, onLog, onUpdate, onDelete, onRemove, onMove, onMeta }: {
+function ExerciseCard({ ex, units, first, last, onLog, onUpdate, onDelete, onRemove, onMove, onMeta, noteSavers, locked }: {
   ex: LoggerExercise;
   units: UnitSystem;
   first: boolean;
@@ -291,6 +309,10 @@ function ExerciseCard({ ex, units, first, last, onLog, onUpdate, onDelete, onRem
   onRemove: () => void;
   onMove: (d: "up" | "down") => void;
   onMeta: (p: { notes?: string | null; restSeconds?: number | null }) => Promise<boolean>;
+  /** Where this card's note saver is registered, so Finish can save every note first. */
+  noteSavers: Map<string, NoteSaver>;
+  /** The workout is finishing: notes can't change underneath it. */
+  locked: boolean;
 }) {
   const mu = massUnit(units);
   const working = ex.sets.filter((s) => !s.isWarmup);
@@ -310,22 +332,15 @@ function ExerciseCard({ ex, units, first, last, onLog, onUpdate, onDelete, onRem
   const [showRest, setShowRest] = useState(false);
   const [editingNote, setEditingNote] = useState(false);
   const [notes, setNotes] = useState(ex.notes ?? "");
-  const [noteState, setNoteState] = useState<SaveState>("idle");
+  const [noteState, setNoteState] = useState<NoteSaveStatus>("idle");
   const noteId = `exercise-note-${ex.id}`;
-
-  // Choosing Done also blurs the box, so both ask to save: they share one request.
-  const pendingNote = useRef<Promise<boolean> | null>(null);
-  function saveNote(): Promise<boolean> {
-    if (pendingNote.current) return pendingNote.current;
-    const value = notes.trim();
-    if (value === (ex.notes ?? "").trim()) return Promise.resolve(true);
-    setNoteState("saving");
-    pendingNote.current = onMeta({ notes: value || null }).then((ok) => {
-      setNoteState(ok ? "saved" : "failed");
-      return ok;
-    }).finally(() => { pendingNote.current = null; });
-    return pendingNote.current;
-  }
+  const saverRef = useRef<NoteSaver | null>(null);
+  saverRef.current ??= new NoteSaver((v) => onMeta({ notes: v || null }), ex.notes, setNoteState);
+  const saver = saverRef.current;
+  useEffect(() => {
+    noteSavers.set(ex.id, saver);
+    return () => { noteSavers.delete(ex.id); };
+  }, [noteSavers, ex.id, saver]);
   const [rest, setRest] = useState(ex.restSeconds != null ? String(ex.restSeconds) : "");
 
   const comparison = useMemo(() => {
@@ -405,10 +420,11 @@ function ExerciseCard({ ex, units, first, last, onLog, onUpdate, onDelete, onRem
             <p id={`${noteId}-help`} className="mt-0.5 text-xs text-muted">How {ex.exercise.name} felt: difficulty, form, cues, seat height. Shown in its history.</p>
             <Textarea id={noteId} className="mt-2" maxLength={NOTE_MAX} autoFocus aria-describedby={`${noteId}-help ${noteId}-status`}
               placeholder="For example: last set was hard, keep elbows tucked…"
-              value={notes} onChange={(e) => { setNotes(e.target.value); setNoteState("idle"); }} onBlur={() => void saveNote()} />
+              readOnly={locked}
+              value={notes} onChange={(e) => { setNotes(e.target.value); saver.set(e.target.value); }} onBlur={() => void saver.flush()} />
             <div className="mt-1 flex items-center justify-between gap-2">
               <p id={`${noteId}-status`} className={cx("min-h-4 text-xs", noteState === "failed" ? "text-down" : "text-muted")} aria-live="polite">{SAVE_STATE_TEXT[noteState]}</p>
-              <Button size="sm" variant="secondary" onClick={async () => { if (await saveNote()) setEditingNote(false); }}>Done</Button>
+              <Button size="sm" variant="secondary" disabled={locked} onClick={async () => { if (await saver.flush()) setEditingNote(false); }}>Done</Button>
             </div>
           </div>
         ) : ex.notes ? (
