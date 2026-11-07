@@ -1,6 +1,6 @@
 # Phase 4: integration plan for 4.0.5, 4.1 and 4.0.6
 
-**Carried out on `integration/phase-4`, for development only, under the owner's written exception to legal-before-merge for that branch. `main` is unchanged at `5434f90`.** The exception doesn't waive legal review for `main`, deployment or real-user registration. A merge into `main` needs the owner's decision after ChatGPT's independent review, and this plan grants neither. Combining the branches isn't a release: legal, clinical, infrastructure, security and real-device blockers all stay open. Results are in tracker section 2h.
+**Carried out on `integration/phase-4`, for development only, under the owner's written exception to legal-before-merge for that branch. `main` is unchanged at `5434f90`.** The exception doesn't waive legal review for `main`, deployment or real-user registration. A merge into `main` needs the owner's decision after ChatGPT's independent review, and this plan grants neither. Combining the branches isn't a release: legal, clinical, infrastructure, security and real-device blockers all stay open. Results are in tracker section 2h, and what remains before `main` is in `PHASE_4_MERGE_READINESS.md`.
 
 ## Order
 

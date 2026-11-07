@@ -25,7 +25,7 @@ These are six separate states, and one never implies another.
 | 4.0.5 Notice and acceptance | M-13 | Yes, `7d615b0` | Yes, on `fitdb_test`, integrated | **Partly:** a read-only agent. ChatGPT's review pending | **No, only on `integration/phase-4`** | No | R-01 legal review, and Decisions 2 to 6, 12, 14, 16 for the final text |
 | 4.1 Core progress | M-15 | Yes, `2193add` | Yes, on `fitdb_test`, integrated, with MIG-04 applied there only | **Partly:** a read-only agent. ChatGPT's review pending | **No, only on `integration/phase-4`** | No | The owner's decisions J-04, J-05, J-06. MIG-04 on any other database |
 | 4.0.6 Device test and go/no-go | M-14 | **Local part only,** `d80c618` | **Local part only,** on `fitdb_test`, integrated | **Partly:** a read-only agent. ChatGPT's review pending | **No, only on `integration/phase-4`** | **No: no real device or deployed server** | Real devices, a deployed server, T-15, R-13 |
-| Phase 4 integration | I-01 to I-03 | Yes, `integration/phase-4` | Yes, 41 of 41 suites and 246 deliberate defects, tracker section 2h. **T-14's two not run** | **Partly:** a read-only agent. ChatGPT's review pending | **No** | No | ChatGPT's review, legal review, the owner's merge decision |
+| Phase 4 integration | I-01 to I-03 | Yes, `integration/phase-4` | Yes, 41 of 41 suites and 246 deliberate defects, tracker section 2h. **T-14's two not run** | **Yes, for the development checkpoint,** at `519bb38` | **No** | No | The owner's approvals in `PHASE_4_MERGE_READINESS.md` |
 
 ## 2. Tooling is frozen
 

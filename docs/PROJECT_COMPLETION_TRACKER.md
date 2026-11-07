@@ -246,13 +246,13 @@
 |---|---|
 | **IMPLEMENTED** | Yes: 4.0.5 at `7d615b0`, 4.1 at `2193add`, 4.0.6 at `d80c618`, merged in that order, with corrections up to `f7c9c1f` |
 | **TESTED** | **Yes, on `fitdb_test`.** At `1e9bcb6`: 41 of 41 guarded suites, 1,789 of 1,789 unit tests, type check and build clean. At `f7c9c1f`: the affected suites, and 246 of 246 deliberate defects by assertion. **Six suites didn't run,** below |
-| **REVIEWED** | **Partly.** A read-only security agent read `1e9bcb6`, and found no high-severity defect or damage from conflict resolution. Its two confirmed Low findings are fixed in `f7c9c1f`, which no agent has re-read. **ChatGPT's independent review and the owner's decision are pending** |
+| **REVIEWED** | **Yes, for the development checkpoint.** ChatGPT's independent source review of `519bb38`, including `f7c9c1f`, is complete, as reported by the owner on 2026-11-07. A read-only security agent also read `1e9bcb6`, and found no high-severity defect or damage from conflict resolution. **This isn't approval to merge into `main`** |
 | **MERGED** | **Not to `main`** |
 | **OPERATIONALLY VERIFIED** | **No.** One Windows machine, a local production build, and `fitdb_test` |
 
 | ID | Phase | Description | Status | Priority | Dependency | Acceptance Criteria |
 |---|---|---|---|---|---|---|
-| I-01 | Integration | The three branches on `integration/phase-4` | IN PROGRESS | P0 | ChatGPT's review, legal review, the owner's merge decision | On `main`, once approved. **Evidence so far is in this section** |
+| I-01 | Integration | The three branches on `integration/phase-4` | IN PROGRESS | P0 | The owner's approvals in `PHASE_4_MERGE_READINESS.md`, starting with legal review or a written exception | On `main`, once approved. **Engineering integration is approved for the development checkpoint. Merging into `main` isn't approved.** MIG-04 is on `fitdb_test` only |
 | I-02 | Integration | The final regression, once, on the integrated code | COMPLETE for `integration/phase-4` | P0 | None | 41 of 41 at `1e9bcb6`, with the QA fixtures unchanged. `f7c9c1f` changes the logger's Finish, one browser test and one runner entry, so `readiness-e2e`, `workout-sets`, `e2e-smoke`, `account-facts` and `guard` were rerun, with the unit tests, type check and build, and all pass. **The whole regression wasn't repeated, as that change doesn't invalidate the rest** |
 | I-03 | Integration | Suites not run in that regression. `safety-no-marker` and `db-guard-scoped` connect to `fitdb_test_other`, which isn't authorized (T-14). The four on-demand migration suites bracket applying earlier migrations, already applied | BLOCKED | P1 | Owner, for T-14 | T-14's two run, or the owner accepts their absence |
 | K-07 | 4.0.6 | Theoretical, Low. After a lost response, the logger decides a set saved by comparing counts. If another tab added a set meanwhile, a lost one could read as saved. Found in review | NOT STARTED | P3 | None | Looks for the set by its id, or the owner accepts it |
