@@ -89,11 +89,31 @@ if ($LASTEXITCODE -ne 0) { throw "verify stopped with exit code $LASTEXITCODE. R
 | 4 | **Existing migrations** | Exactly 7 applied, none failed or unfinished, each checksum matching its file, MIG-03 last, exactly MIG-04 pending, and no drift from `main`'s schema. MIG-04's objects don't exist yet | `preflight` |
 | 5 | **Backup** | `pg_dump --format=custom` of `fitdb_test`, to a new timestamped file in `FitWorkoutFoodTracker-backups` under the home folder | `backup` |
 | 6 | **Backup verification** | The listing reads and names `fitdb_test`, holds no `BodyMetric`, and **each table's row count read from the archive equals the database's,** with no database used for that reading. Its SHA-256 is recorded, and rechecked before applying | `backup` |
-| 7 | **Application of MIG-04** | Refuses without the authorization flag, a preflight under an hour old, the intact backup, or if any row count changed since the backup. Then `prisma migrate deploy` only. **On failure: no reset, no restore, stop and report** | `apply` |
+| 7 | **Application of MIG-04** | Refuses without the authorization flag, then **repeats every check straight before deploying,** below. Then `prisma migrate deploy` only. **On failure: no reset, no restore, stop and report** | `apply` |
 | 8 | **Schema verification** | `migrate status` is clean, 8 applied with MIG-04 last and its checksum the reviewed one. Columns, enum, unique index and cascading foreign key are as reviewed, with no drift from the branch's schema | `verify` |
 | 9 | **Row-count preservation** | Each table's count equals the preflight's, with `_prisma_migrations` up by exactly one, and `BodyMetric` empty | `verify` |
 
 **The authorization flag is a guard against accidents, not the authorization.** Only the owner can give that.
+
+### What `apply` checks again
+
+`apply` doesn't take `preflight`'s word for anything it can check again. Both run the same `verifyBeforeMigration()` in `scripts/lib/mig-04-verify.cjs`. The record from `preflight` only says what was there when the backup was taken. Any mismatch stops with no change to the database, and the deploy is the only thing in the step that writes to it.
+
+| Order | Check | No database needed |
+|---|---|---|
+| 1 | The record exists, reads, is for this migration, and was taken under an hour ago, timed from `preflight` itself | Yes |
+| 2 | The backup is in the backups folder, with the recorded name, size and SHA-256 | Yes |
+| 3 | The `DATABASE_URL` in use is still `.env.test`'s, re-read now | Yes |
+| 4 | MIG-04's file is still the reviewed one, with `prisma/` unchanged | Yes |
+| 5 | The connected database is `fitdb_test`, schema `public`, on this machine, with its marker | |
+| 6 | Exactly 7 applied, none failed or rolled back, none unexpected, MIG-03 last, and each checksum its file's | |
+| 7 | Exactly MIG-04 pending, by this script and by Prisma's own tool, which also has to name the same target | |
+| 8 | No drift from `main`'s schema, and MIG-04's objects don't exist | |
+| 9 | Same database fingerprint, marker row and migration checksums as at `preflight` | |
+| 10 | The backup's data still holds the recorded row count for every table, then its bytes are checked again | Yes |
+| 11 | Every table's row count is unchanged, with none added or removed, last of all | |
+
+**Running `preflight` again discards the recorded backup,** so `backup` has to follow it. **What can't be closed from here:** something writing to the database in the moment between the last check and the deploy. This is a test database with nothing else meant to be running, so stop the suites and servers first.
 
 **The one part already tried:** reading row counts from an archive was tried on the existing backup from before MIG-03, reading that file with no database. It read every table and printed only names and counts.
 
