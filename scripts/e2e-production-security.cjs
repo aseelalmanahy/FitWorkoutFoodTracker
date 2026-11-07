@@ -11,6 +11,15 @@ const target = require("./lib/test-target-guard.cjs").requireSafeTarget();
 const BASE = target.baseUrl;
 const prisma = new PrismaClient({ datasources: { db: { url: target.databaseUrl } } });
 const BROWSERS = ["chromium", "firefox", "webkit"];
+// QA-03: Firefox reports NS_BINDING_ABORTED when this navigation replaces one the app itself started (the refresh
+// after saving). It's retried once, after the page settles; the page must still load, and every check after it runs.
+const goto = async (page, url) => {
+  try { return await page.goto(url); } catch (e) {
+    if (!/NS_BINDING_ABORTED/.test(String(e?.message))) throw e;
+    await page.waitForLoadState("load").catch(() => {});
+    return page.goto(url);
+  }
+};
 const PASSWORD = "correct horse battery staple";
 const PAGES = ["/dashboard", "/workouts", "/workouts/plans/new", "/workouts/schedule", "/workouts/history", "/progress", "/nutrition", "/nutrition/add", "/nutrition/meal", "/nutrition/history", "/nutrition/targets", "/profile", "/account"];
 let counter = 0;
@@ -40,7 +49,7 @@ async function inBrowser(name) {
   const collect = async () => { for (const v of await page.evaluate(() => window.__violations.splice(0))) if (!zodProbe(v)) violations.push(v); };
 
   // Logging in for real: the form has to hydrate under the policy, and the session cookie has to be accepted.
-  await page.goto(`${BASE}/login`);
+  await goto(page, `${BASE}/login`);
   await page.getByLabel("Email").waitFor();
   await page.waitForFunction(() => document.readyState === "complete");
   await page.waitForTimeout(300);
@@ -58,13 +67,13 @@ async function inBrowser(name) {
     // That's for real devices, T-15. Everything after this tests the policy, with a session set directly.
     await ctx.clearCookies();
     await ctx.addCookies([{ name: "fit_session", value: await addSession(prisma, user.id), url: BASE, httpOnly: true, sameSite: "Lax", secure: false }]);
-    await page.goto(`${BASE}/dashboard`);
+    await goto(page, `${BASE}/dashboard`);
   }
   await collect();
   step("login works under the policy");
 
   for (const path of PAGES) {
-    await page.goto(`${BASE}${path}`);
+    await goto(page, `${BASE}${path}`);
     await page.waitForFunction(() => document.readyState === "complete");
     await page.waitForTimeout(150);
     await collect();
@@ -77,12 +86,12 @@ async function inBrowser(name) {
     return true;
   });
   assert.ok(theme);
-  await page.goto(`${BASE}/profile`);
+  await goto(page, `${BASE}/profile`);
   assert.equal(await page.evaluate(() => document.documentElement.dataset.theme), "dark", "the theme script ran");
   step("the nonce lets the theme script run");
 
   await page.getByRole("radio", { name: /kg \/ cm/ }).waitFor();
-  await page.goto(`${BASE}/nutrition/targets`);
+  await goto(page, `${BASE}/nutrition/targets`);
   await page.getByLabel("Calories (kcal/day)").waitFor();
   await page.waitForFunction(() => document.readyState === "complete");
   await page.waitForTimeout(300);
@@ -92,7 +101,7 @@ async function inBrowser(name) {
   await collect();
   step("client navigation and saving work");
 
-  await page.goto(`${BASE}/account`);
+  await goto(page, `${BASE}/account`);
   const open = page.getByRole("button", { name: "Download my data" });
   await open.waitFor();
   await page.waitForFunction(() => document.readyState === "complete");

@@ -65,6 +65,12 @@ before(async () => {
 });
 after(async () => { await proxy.close(); await Promise.all([app, forbidden, secondForbidden, stub].map((s) => s.close())); });
 
+// QA-03: Firefox's session store intermittently throws while a context closes with a window still settling
+// ("_maybeDontRestoreTabs ... is undefined", Browser.removeBrowserContext). That is teardown, after every assertion;
+// any other error from close still fails the test.
+const closeContext = async (context) => {
+  try { await context.close(); } catch (e) { if (!/_maybeDontRestoreTabs/.test(String(e?.message))) throw e; }
+};
 const guardedBrowser = (name) => playwright[name].launch(browserLaunchOptions(name, proxy.url));
 /** A fresh context on the application, so one blocked request can't disturb the next. */
 async function pageOnApp(browser, { guarded = true } = {}) {
@@ -98,7 +104,7 @@ async function assertStopped(browser, label, send, mark) {
     await send(page, context);
     await waitUntilStopped(mark, label);
     noForbiddenHits(label);
-  } finally { await context.close(); }
+  } finally { await closeContext(context); }
 }
 const navigate = (url) => (page) => page.goto(url).catch(() => {});
 
@@ -187,7 +193,7 @@ for (const name of BROWSERS) {
       ]) {
         const { context, page } = await pageOnApp(browser, { guarded: false });
         await send(page);
-        await context.close();
+        await closeContext(context);
       }
       assert.ok(forbidden.hits.includes("GET /direct"), "direct navigation arrived");
       assert.ok(forbidden.hits.includes("GET /fetch"), "fetch arrived");
@@ -207,19 +213,19 @@ for (const name of BROWSERS) {
       await direct.page.goto(`${forbidden.origin}/direct`).catch(() => {});
       await waitUntilStopped("/direct", "direct navigation");
       assert.equal(forbidden.hits.some((h) => h.includes("/direct")), false, "direct navigation is stopped by the route");
-      await direct.context.close();
+      await closeContext(direct.context);
 
       const redirected = await pageOnApp(browser);
       await redirected.page.goto(`${app.origin}/nav`).catch(() => {});
       await untilHit("/nav-redirected");
       assert.ok(forbidden.hits.includes("GET /nav-redirected"), "the redirect still arrives without the proxy");
-      await redirected.context.close();
+      await closeContext(redirected.context);
 
       const socket = await pageOnApp(browser);
       await socket.page.evaluate((u) => { new WebSocket(u); }, `${forbidden.origin.replace("http", "ws")}/socket`);
       await untilHit("/socket");
       assert.ok(forbidden.hits.includes("UPGRADE /socket"), "the WebSocket still arrives without the proxy");
-      await socket.context.close();
+      await closeContext(socket.context);
     } finally { await browser.close(); }
   });
 }
