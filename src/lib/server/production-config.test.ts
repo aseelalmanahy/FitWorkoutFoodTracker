@@ -308,6 +308,26 @@ describe("the local review server", () => {
   it("needs the exact flag", () => {
     expect(isLocalReviewServer({ ...REVIEW, FIT_LOCAL_REVIEW_SERVER: "true" })).toBe(false);
   });
+  it("also applies at the machine's private tailnet name over https, for the owner's phones (MOBILE-01/02)", () => {
+    const env = { ...REVIEW, APP_ORIGIN: "https://fit-desktop.tail1234.ts.net" };
+    expect(isLocalReviewServer(env)).toBe(true);
+    expect(productionConfigProblems(env)).toEqual([]);
+  });
+  it.each([
+    "http://fit-desktop.tail1234.ts.net",
+    "https://fit-desktop.tail1234.ts.net:8443",
+    "https://fit-desktop.tail1234.ts.net/x",
+    "https://u:p@fit-desktop.tail1234.ts.net",
+    "https://ts.net",
+    "https://tail1234.ts.net",
+    "https://a.b.tail1234.ts.net",
+    "https://fit-desktop.tail1234.ts.net.example.invalid",
+    "https://fit-desktop.tail1234.ts.net.",
+    "https://fit-desktop-ts.net",
+    "https://app.example.invalid",
+  ])("but not %s", (origin) => {
+    expect(isLocalReviewServer({ ...REVIEW, APP_ORIGIN: origin })).toBe(false);
+  });
   it.each([
     ["stub providers", { FDC_BASE_URL: "http://127.0.0.1:4010/fdc/v1" }, "stub-provider"],
     ["a test-server flag", { FIT_LOCAL_TEST_SERVER: "1" }, "test-server-flag"],

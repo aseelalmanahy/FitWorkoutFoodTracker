@@ -53,13 +53,27 @@ export function isLocalTestServer(env: Env): boolean {
  * make sense on a real deployment (an https origin elsewhere, and a proxy in front), and its database password rule is
  * reported instead of refused. Everything else, including registration staying closed, applies as in production.
  */
+/**
+ * A Tailscale MagicDNS name (MOBILE-01/02): the review server reached from the owner's own phones through
+ * `tailscale serve`, which ends HTTPS with a valid certificate and forwards to the loopback-only server. Only devices
+ * signed in to the owner's tailnet can resolve or reach it. One label for the machine, one for the tailnet.
+ */
+export const PRIVATE_TAILNET_HOST = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.ts\.net$/;
+
+/** The review server's own address: this machine over http, or its private tailnet name over https. */
+export function isReviewOrigin(value: string | undefined): boolean {
+  let origin: URL;
+  try { origin = new URL(value ?? ""); } catch { return false; }
+  const plain = (origin.pathname === "/" || origin.pathname === "") && !origin.search && !origin.hash && !origin.username && !origin.password;
+  if (!plain) return false;
+  if (origin.protocol === "http:") return LOOPBACK.has(origin.hostname);
+  return origin.protocol === "https:" && origin.port === "" && PRIVATE_TAILNET_HOST.test(origin.hostname);
+}
+
 export function isLocalReviewServer(env: Env): boolean {
   if (env.FIT_LOCAL_REVIEW_SERVER !== "1") return false;
   const url = parseDatabaseUrl(env.DATABASE_URL);
-  let origin: URL | null = null;
-  try { origin = new URL(env.APP_ORIGIN ?? ""); } catch { origin = null; }
-  return !!url && !url.searchParams.has("host") && LOOPBACK.has(url.hostname) && databaseName(url) === REVIEW_DATABASE
-    && !!origin && origin.protocol === "http:" && LOOPBACK.has(origin.hostname) && (origin.pathname === "/" || origin.pathname === "") && !origin.search && !origin.username;
+  return !!url && !url.searchParams.has("host") && LOOPBACK.has(url.hostname) && databaseName(url) === REVIEW_DATABASE && isReviewOrigin(env.APP_ORIGIN);
 }
 
 /** Exact addresses only. Anything else is refused at startup, so "*" or "@example.com" can't open sign-up. */

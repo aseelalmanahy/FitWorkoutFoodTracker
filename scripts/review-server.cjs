@@ -24,13 +24,27 @@ const refuse = (m) => { console.error(`REFUSED (nothing was started): ${m}`); pr
 
 const args = process.argv.slice(2);
 const portArg = args.find((a) => a.startsWith("--port="));
+const originArg = args.find((a) => a.startsWith("--origin="));
 const stopMode = args[0] === "--stop";
-if (stopMode ? args.length !== 2 || !portArg : args[0] !== `--confirm=${NAME}` || args.length > 2 || (args.length === 2 && !portArg)) {
-  refuse(`use --confirm=${NAME}, and optionally --port=3003; or --stop --port=<port>.`);
+const known = args.slice(1).every((a) => a === portArg || a === originArg);
+if (stopMode ? args.length !== 2 || !portArg : args[0] !== `--confirm=${NAME}` || !known || args.length > 3) {
+  refuse(`use --confirm=${NAME}, optionally --port=3003 and --origin=https://<machine>.<tailnet>.ts.net; or --stop --port=<port>.`);
 }
 const portValue = portArg ? portArg.slice("--port=".length) : "3002";
 if (!PORTS.includes(portValue)) refuse(`the port can only be ${PORTS.join(" or ")}.`);
 const PORT = Number(portValue);
+// MOBILE-01/02: the private address phones use through `tailscale serve`, which ends HTTPS and forwards here. The
+// server still listens on loopback only. The same rule as isReviewOrigin in production-config.ts, which also checks it.
+const TAILNET_HOST = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.ts\.net$/;
+let ORIGIN = `http://localhost:${PORT}`;
+if (originArg) {
+  let u = null;
+  try { u = new URL(originArg.slice("--origin=".length)); } catch { /* refused below */ }
+  if (!u || u.protocol !== "https:" || u.port || !TAILNET_HOST.test(u.hostname) || (u.pathname !== "/" && u.pathname !== "") || u.search || u.hash || u.username || u.password) {
+    refuse("--origin must be this machine's private tailnet name, exactly https://<machine>.<tailnet>.ts.net.");
+  }
+  ORIGIN = u.origin;
+}
 
 if (stopMode) {
   // Stops only this folder's own server on this port, identified by its command line; never anything else.
@@ -79,7 +93,7 @@ const portInUse = (port) => new Promise((resolve) => {
 
   const env = { ...process.env };
   for (const k of NEVER) delete env[k];
-  Object.assign(env, { NODE_ENV: "production", FIT_LOCAL_REVIEW_SERVER: "1", APP_ORIGIN: `http://localhost:${PORT}`, DATABASE_URL: DB });
+  Object.assign(env, { NODE_ENV: "production", FIT_LOCAL_REVIEW_SERVER: "1", APP_ORIGIN: ORIGIN, DATABASE_URL: DB });
   if (usdaKey) env.FDC_API_KEY = usdaKey; else delete env.FDC_API_KEY;
   // Bound to this machine's loopback address only, so nothing else on the network can reach it.
   // The app ends with this script, however this script ends (RC-02): it watches a pipe the operating system closes.
@@ -100,5 +114,6 @@ const portInUse = (port) => new Promise((resolve) => {
     if (stopping) return;
     await new Promise((r) => setTimeout(r, 1000));
   }
+  if (ORIGIN !== url) console.log(`Phones on your tailnet use ${ORIGIN} (through tailscale serve). On this computer, use that address too: requests from http://localhost are refused while it is set.`);
   console.log(`Running at ${url}, on ${NAME}, with the real USDA ${usdaKey ? "FoodData Central (key present)" : "service UNAVAILABLE: no FDC_API_KEY"} and Open Food Facts. Press Ctrl+C to stop.`);
 })().catch((e) => { console.error(`FAILED: ${scrub(e.message).slice(0, 200)}`); process.exit(1); });
