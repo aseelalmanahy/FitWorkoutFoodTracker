@@ -27,8 +27,12 @@ export async function saveWeightEntry(userId: string, date: string, weightKg: nu
   return toEntry(row);
 }
 
-/** The same answer for someone else's entry and one that doesn't exist. */
+/** Ids are cuids. A malformed one can't match, and a null byte would reach the database as an error, so it's answered here. */
+const ENTRY_ID = /^[0-9A-Za-z_-]{1,40}$/;
+
+/** The same answer for someone else's entry, one that doesn't exist, and an id that couldn't be one. */
 export async function deleteWeightEntry(userId: string, id: string): Promise<void> {
+  if (!ENTRY_ID.test(id)) throw notFound("Entry");
   const { count } = await prisma.bodyMetric.deleteMany({ where: { id, userId, kind: WEIGHT } });
   if (count === 0) throw notFound("Entry");
 }
