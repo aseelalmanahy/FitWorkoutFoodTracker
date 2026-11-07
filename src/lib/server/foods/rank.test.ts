@@ -29,9 +29,10 @@ describe("common foods come first", () => {
     expect(r.slice(0, 2)).toEqual(["Banana, raw", "Bananas, raw"]);
     expect(r.at(-1)).toBe("Bananas, dehydrated, or banana powder");
   });
-  it("white rice: rice records before beans and rice", () => {
+  it("white rice: rice itself before puffed rice, and both before beans and rice", () => {
     const r = order("white rice", ["Beans and white rice", "Rice, white, puffed", "Rice, white, cooked, glutinous", "Rice, white, long-grain, regular, enriched, cooked"]);
-    expect(r[0]).toBe("Rice, white, puffed");
+    expect(r[0]).toBe("Rice, white, cooked, glutinous");
+    expect(r.indexOf("Rice, white, puffed")).toBeGreaterThan(r.indexOf("Rice, white, long-grain, regular, enriched, cooked"));
     expect(r.at(-1)).toBe("Beans and white rice");
   });
   it("chicken breast: chicken breast before lunchmeat", () => {
@@ -53,8 +54,8 @@ describe("common foods come first", () => {
 
 describe("it only reorders", () => {
   it("returns the same records, untouched, and keeps the provider's order on ties", () => {
-    const input = [f("Eggs, Grade A, Large, egg white"), f("Eggs, Grade A, Large, egg whole"), f("Eggs, Grade A, Large, egg yolk")];
-    const out = rankFoods("large egg", input);
+    const input = [f("Milk, lowfat"), f("Milk, nonfat"), f("Milk, skim")];
+    const out = rankFoods("milk", input);
     expect(out).toEqual(input); // a tie: no variety is preferred for the person
     expect(out[0]).toBe(input[0]); // the same objects, not copies
     expect(new Set(rankFoods("milk", [f("a milk"), f("b")])).size).toBe(2);
@@ -67,5 +68,48 @@ describe("it only reorders", () => {
   it("an empty query changes nothing", () => {
     const input = [f("b"), f("a")];
     expect(rankFoods("  ", input)).toEqual(input);
+  });
+});
+
+// RC-01: rules measured on the recorded benchmark (benchmark/), each with the case where the person asks for it.
+describe("the generic food before a different food made from it", () => {
+  it("word order: 'Rice, white' counts as fully as 'White rice', and rice flour goes after rice", () => {
+    expect(order("white rice", ["White rice, flour, pre-gelatinized", "Rice, white, long grain, raw"])[0]).toBe("Rice, white, long grain, raw");
+  });
+  it("milk before malted or evaporated milk; but asking for malted milk finds it first", () => {
+    expect(order("milk", ["Milk, malted", "Milk, evaporated, whole", "Milk, whole"])[0]).toBe("Milk, whole");
+    expect(order("malted milk", ["Milk, whole", "Milk, malted"])[0]).toBe("Milk, malted");
+  });
+  it("USDA's NFS record, the generic one, comes first among equals", () => {
+    expect(order("beef", ["Beef, brisket", "Beef, NFS", "Beef, oxtails"])[0]).toBe("Beef, NFS");
+  });
+  it("a mixed dish goes after the food itself, unless its other words were asked for", () => {
+    expect(order("cooked rice", ["Rice, cooked, with milk", "Rice, cooked, NFS"])[0]).toBe("Rice, cooked, NFS");
+    expect(order("rice with milk", ["Rice, cooked, NFS", "Rice, cooked, with milk"])[0]).toBe("Rice, cooked, with milk");
+  });
+  it("oatmeal before oatmeal cookies, plural or not", () => {
+    expect(order("oatmeal", ["Oatmeal cookies", "Oatmeal Cookie", "Oatmeal"])[0]).toBe("Oatmeal");
+    expect(order("oatmeal cookies", ["Oatmeal", "Oatmeal cookies"])[0]).toBe("Oatmeal cookies");
+  });
+  it("the whole egg before the white and the yolk", () => {
+    expect(order("large egg", ["Eggs, Grade A, Large, egg white", "Eggs, Grade A, Large, egg whole", "Eggs, Grade A, Large, egg yolk"])[0]).toBe("Eggs, Grade A, Large, egg whole");
+  });
+});
+
+describe("look-alike records", () => {
+  it("later copies with the same name, brand and values sink below distinct records, and none is removed", () => {
+    const a1 = { name: "Garden Vegetables", brand: "Classic", per100: full };
+    const a2 = { name: "Garden Vegetables", brand: "Classic", per100: full };
+    const b = { name: "Mixed Vegetables", brand: "Growers", per100: full };
+    const out = rankFoods("vegetables", [a1, a2, b]);
+    expect(out).toHaveLength(3);
+    expect(out.indexOf(a2)).toBe(2);
+    expect(out.indexOf(a1)).toBeLessThan(out.indexOf(b));
+  });
+  it("records that differ in brand or values aren't look-alikes", () => {
+    const a = { name: "Milk", brand: "A", per100: full };
+    const b = { name: "Milk", brand: "B", per100: full };
+    const c = { name: "Milk", brand: "A", per100: { ...full, kcal: 64 } };
+    expect(rankFoods("milk", [a, b, c])).toEqual([a, b, c]);
   });
 });
