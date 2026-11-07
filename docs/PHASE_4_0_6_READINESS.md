@@ -4,6 +4,8 @@
 
 It was built on `feature/phase-4.0.6-readiness`, from `main` at `5434f90`. **So it doesn't contain 4.0.5 (privacy and consent) or 4.1 (weight and goals),** which are unmerged on their own branches, awaiting review. **Each area below says where it was verified.** Once those merge, the full regression has to run again on the merged code.
 
+**Since then, this branch is integrated with 4.0.5 and 4.1 on `integration/phase-4`, for development only, and privacy, consent, weight and goals were verified there. Results are in tracker section 2h. It's still not production readiness.**
+
 ## Results by area
 
 | Area | Result on this branch | Evidence |

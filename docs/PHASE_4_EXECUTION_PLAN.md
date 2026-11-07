@@ -22,9 +22,10 @@ These are six separate states, and one never implies another.
 | 4.0.3 Production foundation | M-11 | Yes, `de4607f` | Yes, local production build | Yes, source review of the code | Yes, `de4607f` | **No, nothing is deployed** | R-07, T-16, T-17 and F-06 to finish |
 | Router and orchestrator | TOOL-01, 03, 04 | Yes, `3bc4471` | Yes, largely mocked | Yes, source review | Yes, `3bc4471` | Partly, small live checks | Live checks, from real use. TOOL-02 is NOT STARTED |
 | 4.0.4 Email-proven access | M-12 | Yes, `eaeff34` | Yes, on `fitdb_test` | Yes, independent review for development | Yes, `eaeff34` | **No: COMPLETE for development only** | G-03 for real email, a deployed server, and T-15 |
-| 4.0.5 Notice and acceptance | M-13 | No, proposed in `PHASE_4_0_5_PLAN.md` | No | No | No | No | Review of that plan. R-01 and Decisions 2 to 6, 12, 14, 16 for the final text |
-| 4.1 Core progress | M-15 | Yes, on `feature/phase-4.1-progress` | **Focused, on `fitdb_test`,** with MIG-04 applied there only | **Partly:** a read-only agent | No | No | Independent review, merge approval, and the regression on combined code |
-| 4.0.6 Device test and go/no-go | M-14 | **Local part only,** on `feature/phase-4.0.6-readiness` | **Local part only** | **Partly:** a read-only agent | No | No | Everything above, T-15, R-13. **Devices, deployment and the go/no-go haven't started** |
+| 4.0.5 Notice and acceptance | M-13 | Yes, `7d615b0` | Yes, on `fitdb_test`, integrated | **Partly:** a read-only agent. ChatGPT's review pending | **No, only on `integration/phase-4`** | No | R-01 legal review, and Decisions 2 to 6, 12, 14, 16 for the final text |
+| 4.1 Core progress | M-15 | Yes, `2193add` | Yes, on `fitdb_test`, integrated, with MIG-04 applied there only | **Partly:** a read-only agent. ChatGPT's review pending | **No, only on `integration/phase-4`** | No | The owner's decisions J-04, J-05, J-06. MIG-04 on any other database |
+| 4.0.6 Device test and go/no-go | M-14 | **Local part only,** `d80c618` | **Local part only,** on `fitdb_test`, integrated | **Partly:** a read-only agent. ChatGPT's review pending | **No, only on `integration/phase-4`** | **No: no real device or deployed server** | Real devices, a deployed server, T-15, R-13 |
+| Phase 4 integration | I-01 to I-03 | Yes, `integration/phase-4` | Yes, 41 of 41 suites and 246 deliberate defects, tracker section 2h. **T-14's two not run** | **Partly:** a read-only agent. ChatGPT's review pending | **No** | No | ChatGPT's review, legal review, the owner's merge decision |
 
 ## 2. Tooling is frozen
 

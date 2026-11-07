@@ -1,22 +1,24 @@
 # Phase 4: integration plan for 4.0.5, 4.1 and 4.0.6
 
-**Preparation only. Nothing here has been merged, and `main` is unchanged at `5434f90`.** Each merge needs the owner's approval after ChatGPT's independent review, and this plan grants neither. Combining the branches isn't a release: legal, clinical, infrastructure, security and real-device blockers all stay open.
+**Carried out on `integration/phase-4`, for development only, under the owner's written exception to legal-before-merge for that branch. `main` is unchanged at `5434f90`.** The exception doesn't waive legal review for `main`, deployment or real-user registration. A merge into `main` needs the owner's decision after ChatGPT's independent review, and this plan grants neither. Combining the branches isn't a release: legal, clinical, infrastructure, security and real-device blockers all stay open. Results are in tracker section 2h.
 
 ## Order
 
-**4.0.5, then 4.1, then 4.0.6.** All three branch from `main` at `5434f90`, so 4.0.5 can fast-forward. The other two then each need a merge commit, and this plan gives every conflict in them.
+**4.0.5, then 4.1, then 4.0.6.** All three branch from `main` at `5434f90`. All three went in with a merge commit, so each phase's history stays visible: `8b00d69`, `23834f5` and `af76737`. This plan gives every conflict.
 
 | Branch | Tip reviewed | Files changed from `main` |
 |---|---|---|
 | `feature/phase-4.0.5-privacy` | `7d615b0` | 40 |
-| `feature/phase-4.1-progress` | `ac5ff2b` | 36 |
-| `feature/phase-4.0.6-readiness` | Last code change `09f0aa4`, then documents-only commits, including the one holding this plan | 26 |
+| `feature/phase-4.1-progress` | `2193add` | 36 |
+| `feature/phase-4.0.6-readiness` | `d80c618` | 26 |
 
-If a tip changes after review, this plan has to be rechecked against the new one.
+Corrections after merging, on the integration branch: `1e9bcb6` tests finishing and repeating a workout in all three browsers, and `f7c9c1f` holds Finish back while a set is saving, and adds `account-facts` to the runner.
 
-## What was tried, and how
+If a tip changes, this plan has to be rechecked against the new one.
 
-The merges were tried in a **throwaway clone, in a temporary folder, with its remote removed.** It was never pushed, no ref in this repository moved, and the clone has been deleted. No database was used. The clone's `node_modules` was a link to this repository's, and Prisma's client was generated for the combined schema, then regenerated for this branch afterwards.
+## What was tried first, and how
+
+Before the real merges, they were tried in a **throwaway clone, in a temporary folder, with its remote removed.** It was never pushed, no ref in this repository moved, and the clone has been deleted. No database was used. The clone's `node_modules` was a link to this repository's, and Prisma's client was generated for the combined schema, then regenerated for this branch afterwards.
 
 | Check on the combined code, with the changes below | Result |
 |---|---|
@@ -24,7 +26,7 @@ The merges were tried in a **throwaway clone, in a temporary folder, with its re
 | Guard suite | 51 of 51, so every script is classified |
 | MIG-04's refusals and PowerShell blocks | 103 of 103, closed ports only |
 | Conflict markers left | None |
-| Suites from the three runners | All 40 kept |
+| Suites from the three runners | All 47 kept |
 | Scripts added by the three branches | All 12 in the guard's lists |
 | Tracker rows from the three branches | None lost. **M-13, M-14 and M-15 came out twice,** step 3 |
 | Type check | Clean |
@@ -32,7 +34,7 @@ The merges were tried in a **throwaway clone, in a temporary folder, with its re
 
 Before those changes, the data-inventory test failed, as it should, as the merged code held a table the inventory didn't list. The trial was last run at 4.0.5 `7d615b0`, 4.1 `ac5ff2b` and 4.0.6 `b4f2c5c`, with the same conflicts as the runs before.
 
-**What this doesn't show:** no database or browser test ran on the combined code, as they need MIG-04 on `fitdb_test`. Passing on one branch isn't passing when combined. T-14's two suites can't run at all while `fitdb_test_other` is off limits.
+That trial ran no database or browser test. **The real integration did,** tracker section 2h. T-14's two suites can't run at all while `fitdb_test_other` is off limits.
 
 ## Overlapping files
 
@@ -50,13 +52,13 @@ No application source conflicts. Every conflict is in a document, a test runner 
 
 ## Step 1: `main` to 4.0.5
 
-Fast-forward, with no conflict. **Needs first:** legal review, or a separately approved exception for a development-only merge before it. O1 covers development, and Annex H2 says that review comes before merging.
+A merge commit, with no conflict. **Done on `integration/phase-4` under the owner's development-only exception.** For `main`, legal review is still needed first. O1 covers development, and Annex H2 says that review comes before merging.
 
 ## Step 2: 4.1 onto 4.0.5
 
-**Needs first:** MIG-04 applied to `fitdb_test` by `docs/MIG_04_RUNBOOK.md`, with the owner's authorization naming `MIG-04 — fitdb_test`. Without it, this code breaks the dashboard, deletion and export, so nothing can be tested. The owner's decisions J-04, J-05 and J-06 should be settled too, or recorded as carried over.
+**Done on `integration/phase-4`.** MIG-04 was applied to `fitdb_test` first, by `docs/MIG_04_RUNBOOK.md`, with the owner's authorization, and it wasn't applied again. Without it, this code breaks the dashboard, deletion and export, so nothing can be tested. The owner's decisions J-04, J-05 and J-06 should be settled too, or recorded as carried over.
 
-Then generate Prisma's client with the PowerShell block in the runbook, as 4.1 adds a model.
+Then generate Prisma's client with the PowerShell block in the runbook, as 4.1 adds a model. **Any other database needs MIG-04 before this code, J-08.**
 
 ### Conflicts
 
@@ -69,7 +71,7 @@ Then generate Prisma's client with the PowerShell block in the runbook, as 4.1 a
 
 ### Changes the merge has to add
 
-These are tracker J-03, and **the merged code fails its tests without them.** They were tried in the clone.
+These are tracker J-03, and **the merged code fails its tests without them.** They're in merge `23834f5`.
 
 | Area | File | Change |
 |---|---|---|
@@ -109,6 +111,8 @@ Focused, on the merged code: Vitest, `guard`, type check, build, then `privacy-c
 | `docs/PROJECT_COMPLETION_TRACKER.md` | Keep every section and row, adding 2g, K-01 to K-06, T-25 and T-26 |
 | `docs/PHASE_4_EXECUTION_PLAN.md` | One row per phase |
 
+**Done on `integration/phase-4`, in merge `af76737`.**
+
 ### Project tracker, after the merge
 
 - **M-13, M-14 and M-15 each come out twice** if both sides are kept, as every branch edits them. Keep one row each, combining what they say.
@@ -119,7 +123,7 @@ Focused, on the merged code: Vitest, `guard`, type check, build, then `privacy-c
 
 ## The one final regression
 
-After all three are authorized and merged, on the final combined code, **once:** the complete unit suite, type check, build, every applicable guarded suite one at a time, all three browsers, the security and authorization suites, the deliberate defects for all three phases, export, deletion and data isolation, and database integrity and migration compatibility. Watch memory, and stop below 4 GB. A timeout or a suite that can't start is a failure to investigate, and not a detected defect. After a correction, rerun the affected and dependent suites. Repeat all of it only if a change invalidates the earlier result.
+**Done on `integration/phase-4` at `1e9bcb6`: 41 of 41 suites, tracker section 2h.** After all three were merged, on the combined code, **once:** the complete unit suite, type check, build, every applicable guarded suite one at a time, all three browsers, the security and authorization suites, the deliberate defects for all three phases, export, deletion and data isolation, and database integrity and migration compatibility. Watch memory, and stop below 4 GB. A timeout or a suite that can't start is a failure to investigate, and not a detected defect. After a correction, rerun the affected and dependent suites. Repeat all of it only if a change invalidates the earlier result.
 
 **It doesn't replace:** T-14's two suites, the real phones, a deployed server, real email, a production database, or legal and clinical review. `fitdb` and production need their own migration decisions.
 
@@ -132,10 +136,10 @@ The owner's direction, which guides this work and **doesn't authorize new develo
 | Keep the weight log separate from `Profile.currentWeightKg` | J-06 | Matches. `weight.ts` never touches that field |
 | Keep fitness goals optional | J-04 | Matches. `Profile.goal` is nullable |
 | Keep 10-day smoothing and a 28-day window for now | J-05 | Matches: `TREND_TIME_CONSTANT_DAYS`, `CHANGE_WINDOW_DAYS` |
-| Need enough history before showing a numerical trend | J-05 | Matches. Under `MIN_CHANGE_SPAN_DAYS`, 7 days from first to last entry, no change is stated |
+| Need enough evidence before showing a numerical change | J-05, **open** | Today, two entries spanning `MIN_CHANGE_SPAN_DAYS`, 7 days. **A threshold of three weigh-ins has been proposed, isn't built, and awaits the owner** |
 | Treat finished workouts as immutable in ordinary editing | K-04 | **Doesn't match, and isn't changed.** See below |
 
-S-28 and K-06 stay open, to be fixed or accepted.
+S-28, K-06, J-07, T-25 and T-27 stay open, to be fixed or accepted. T-27 is accepted as a non-blocker for development integration only.
 
 ### K-04: the change this direction implies, not yet made
 
