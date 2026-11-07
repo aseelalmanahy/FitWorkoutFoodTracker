@@ -26,7 +26,7 @@
 | M-11 | 4.0.3 | Production foundation | **IN PROGRESS** | Code and templates merged at `de4607f`, section 2c, with the development code independently source-reviewed. **Operational verification is incomplete: nothing is deployed, and no infrastructure exists. Not COMPLETE until the infrastructure items are done.** Needs decisions 4, 5 and 14 |
 | M-12 | 4.0.4 | Email-proven access | COMPLETE for development | Merged at `eaeff34`, and verified on `fitdb_test`, section 2d. **That covers the locally verified implementation only. The production milestone isn't complete:** no real email can be sent (G-03), and nothing is deployed |
 | M-13 | 4.0.5 | Notice, acceptance, retention | NOT STARTED | Needs legal review. Shares 4.0.4's migration |
-| M-14 | 4.0.6 | Device testing and beta go/no-go | NOT STARTED | Needs everything above |
+| M-14 | 4.0.6 | Device testing and beta go/no-go | **IN PROGRESS** | Local readiness only, on `feature/phase-4.0.6-readiness`, unmerged, section 2g. **Real devices, a deployed server, the checklist and the go/no-go have not started** |
 | M-15 | 4.1 | Core progress: weight log, goal card | NOT STARTED | Needs 4.0.2's coverage check |
 | M-16 | 4.2 | Real-user beta | NOT STARTED | Needs 4.0 and 4.1 complete |
 
@@ -181,6 +181,24 @@
 - **Chromium, `production-security-e2e`:** `ERR_PROXY_CONNECTION_FAILED` on `/account`, on the test guard's local proxy. **Cause not established.** Memory was low around that run, which is circumstantial. It passed 5 other times, and if it recurs the proxy should be investigated.
 
 **Database cleanup, 2026-11-06.** 44 rows were removed from `AccountToken` on `fitdb_test`, after a query showed 22 `PASSWORD_RESET` and 22 `SIGNUP`, all at `test.dev`. **The table was verified empty straight after MIG-03.** The three `account-data` runs that seeded links before the cleanup was added left 7, 8 and 7 seeded users (19:39, 19:45 and 19:59 UTC), so 22 users with 2 links each is exactly 44. The rows were gone before this accounting, so it's reasoned from those counts, and no row-by-row record exists. No other table was touched. The suite now removes its own links, and the table has held 0 rows after each later run. Pre-migration backup: section 4.
+
+## 2g. Phase 4.0.6 detail
+
+**Local readiness only. Results by area, and what can't be verified here: `PHASE_4_0_6_READINESS.md`.** No migration. It doesn't contain 4.0.5 or 4.1, so it can't verify privacy, consent, weight or goals.
+
+| State | Phase 4.0.6, local part |
+|---|---|
+| **IMPLEMENTED** | Yes, unmerged: unknown nutrition stays null, logging a set is safe to retry, `/previous` answers 404 |
+| **TESTED** | **Yes, on `fitdb_test`, with one unexplained failure, T-25.** 34 of 35 suites, deliberate defects 27 of 27 |
+| **REVIEWED** | **Partly.** A read-only security agent. **Independent source review is pending** |
+| **MERGED** | No |
+| **OPERATIONALLY VERIFIED** | **No. Nothing here ran on a real device or a deployed server** |
+
+| ID | Phase | Description | Status | Priority | Dependency | Acceptance Criteria |
+|---|---|---|---|---|---|---|
+| K-01 | 4.0.6 | Local readiness fixes and document | IN PROGRESS | P1 | Review, merge approval | Full regression passes on the code that merges, and the owner approves |
+| K-02 | 4.0.6 | Repeat the regression once 4.0.5 and 4.1 are merged, and verify privacy, consent, weight and goals there | NOT STARTED | P0 | H-01, J-01, K-01 | All suites pass on the merged code |
+| K-03 | 4.0.6 | About 5,150 leftover test users on `fitdb_test`, from earlier suite runs. Harmless, and not removed | NOT STARTED | P3 | Owner | Left as is, or removed with authorization, keeping the 10 QA accounts |
 
 ## 3. Tests: run, failed, blocked
 
@@ -394,6 +412,7 @@ So code from before this migration **fails for those people, and never reads a n
 | T-19 | 4.0.4 | `account-tokens`, for real races, lock order, backdated expiry, revocation and logs on a real database | COMPLETE | P0 | None | 32 of 32 on `e82cbd9`, on `fitdb_test`, section 2d |
 | T-20 | 4.0.4 | Every suite that registers, moved to the real flow, and all three browsers | COMPLETE | P0 | None | All pass on `e82cbd9`, section 2d. The first real run found two script defects, both fixed. **Excludes T-14's two suites** |
 | T-21 | 4.0.4 | **Not covered by those results:** `live-provider-check.safety`'s tests, moved to the new flow and never run, including its marker refusals. Its SIGTERM test is also skipped on Windows | BLOCKED | P1 | T-14 | Runs when T-14 is authorized |
+| T-25 | 4.0.6 | **`e2e-smoke` failed once at `ad015f0`, cause unknown:** a 30-second wait for the password field on the emailed link's page. Not reproduced in 25 reruns and 420 page loads. Memory wasn't low. Nothing shows what the page displayed | NOT STARTED | P1 | None | Cause found if it recurs, as the helper now reports what the page showed. Otherwise closed by the owner |
 | T-09 | 4.0.1b | **Not run:** dropping a CHECK on a live database, to show T38 then fails. The owner's authorization allowed only the approved migration to change the schema | DEFERRED | P2 | Owner, if wanted | **Partly covered:** NC31a and NC31b catch a removed constraint in the migration's text, T38 shows the live constraints refuse every invalid shape, and D5 and D6 show they stop the app's own bad writes |
 | T-10 | 4.0.1b, 4.0.1c | **Not run:** restoring either `fitdb_test` backup, from before 4.0.1b and 4.0.1c. Only their archive listings were read | NOT STARTED | P2 | Owner, for a restore target | Restored into a separately approved database, with row counts compared to the snapshots |
 
@@ -453,7 +472,7 @@ The merged documents hold **recommendations.** Stage A's authorization covered i
 | S-04 | 4.0 | Declared age can be false. Accepted, and never called verification | DEFERRED | P2 | R-01 | Legal confirms |
 | S-05 | 4.0.1 | Legacy `SUGGESTED` rows stay in force, possibly with defective values, until replaced or stopped | DEFERRED | P1 | R-08 | Empty production database |
 | S-06 | 4.0.1 | Legacy zeros can't be told from deliberate ones, and aren't rewritten | DEFERRED | P2 | R-08 | Empty production database |
-| S-07 | 4.0 | `POST .../sets` has no idempotency key, so a lost response could log a set twice | NOT STARTED | P1 | M-14 | Decided in 4.0.6 |
+| S-07 | 4.0 | `POST .../sets` had no idempotency key, so a lost response could log a set twice | IN PROGRESS | P1 | K-01, R-13 | **Fixed, unmerged, on `feature/phase-4.0.6-readiness`, section 2g.** Tested on `fitdb_test` and in three browsers. A real phone's network drop is still R-13 |
 | S-08 | 4.0 | Light-theme contrast defects, from the design's review | NOT STARTED | P2 | None | Contrast checked, and fixed |
 | S-10 | 4.0.2, 4.0.3 | `db.ts` passed `log: ["error"]`, so Prisma printed its own error text in production, past `safe-log`. A RESTRICT violation printed the row's id and the constraint | IN PROGRESS | P1 | T-18 | **Code correction reviewed and merged at `de4607f`:** Prisma's log is off outside development, and a console guard covers what Next.js logs itself. Verified by unit tests and live on a local production build, controls U21 to U23, U26 and A8. **Left:** a real page-render failure, which wasn't triggered (T-18) |
 | S-11 | 4.0.2 | **New.** After a deletion, upload, label-scan and food-search limiters keep the user id in memory until they expire, up to 24 hours. An id only, with no name or email | DEFERRED | P3 | None | Accepted, or cleared with them |

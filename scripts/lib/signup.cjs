@@ -96,7 +96,12 @@ async function signUpInBrowser(page, baseUrl, email, password, { dir = process.e
   const token = await readMailLink(email, "signup", { dir, timeoutMs, ignore: seen });
   // Playwright's errors quote the URL, and this one holds a token.
   try { await page.goto(`${baseUrl}/register/complete#token=${token}`); } catch { throw new Error(`sign-up for ${email}: the emailed link's page didn't load`); }
-  await page.fill("input[name=password]", password);
+  try {
+    await page.fill("input[name=password]", password);
+  } catch {
+    const shown = (await page.locator("body").innerText().catch(() => "unreadable")).replace(/\s+/g, " ").slice(0, 200);
+    throw new Error(`sign-up for ${email}: no password field on the emailed link's page. At ${new URL(page.url()).pathname}, it showed: ${shown}`);
+  }
   await page.click("button[type=submit]");
   await page.waitForURL("**/login?created=1");
   await page.fill("input[name=email]", email);

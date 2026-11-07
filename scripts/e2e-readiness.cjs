@@ -47,8 +47,11 @@ async function inBrowser(name) {
     });
     await page.getByLabel("Weight", { exact: true }).fill("60");
     await page.getByLabel("Reps", { exact: true }).fill("8");
-    await page.getByRole("button", { name: "Log set" }).click();
-    await page.getByText("We can't tell whether this was saved").waitFor({ timeout: 8000 });
+    const logButton = page.getByRole("button", { name: "Log set" });
+    await logButton.click();
+    // Finished once the button is back, and it's the page's own words that are then checked.
+    for (let i = 0; i < 80 && !(keys.length === 1 && !lose && (await logButton.count()) && (await logButton.isEnabled())); i++) await page.waitForTimeout(100);
+    assert.equal(await page.getByText("We can't tell whether this was saved").count(), 1, "a lost response says so");
     assert.equal((await rows()).length, 1, "the server did save it");
     assert.equal(await page.getByLabel("Reps", { exact: true }).inputValue(), "8", "what was typed is still there");
     step("a lost response says so, and keeps what was typed");
