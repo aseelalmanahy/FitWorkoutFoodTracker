@@ -34,23 +34,56 @@
 
 1. **Have the owner's written authorization,** naming MIG-04 and `fitdb_test`.
 2. Check out `feature/phase-4.1-progress`, or whatever was approved in its place, with a clean tree.
-3. Run `env -u DATABASE_URL npx prisma generate`. It touches no database. The generated client is shared across branches, so **generate again after returning to a branch without `BodyMetric`.**
+3. Generate Prisma's client, below. It touches no database, and the address in it is a closed port. The client is shared across branches, so **generate again after returning to a branch without `BodyMetric`.**
 4. Check that port 3000 and any other test process are idle, and that at least 4 GB of memory is available.
+
+```powershell
+$env:DATABASE_URL = "postgresql://none:none@127.0.0.1:1/fitdb_test"
+node node_modules/prisma/build/index.js generate
+Remove-Item Env:DATABASE_URL
+```
 
 ## The procedure
 
-Run each from the repository root, in order, stopping at the first failure. `env -u DATABASE_URL` keeps anything set in the shell from competing with `.env.test`.
+**In PowerShell, from the repository root, one block at a time.** Paste a block, read its output, and go on only if it ends without an error. Each works in PowerShell 7 and in Windows PowerShell 5.1, as tested.
 
+**Why each block clears `DATABASE_URL`:** `node --env-file` lets a variable already in the shell win, silently, so one left in the window would be used in place of `.env.test`. `Remove-Item` clears it for this window only. **If it's skipped, the script refuses,** as it compares the value in use with the one in `.env.test`, and it also refuses any other env file. Avoid `npx` here, as Windows PowerShell may block its script.
+
+```powershell
+# Step 1: preflight
+Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue
+if (Test-Path Env:DATABASE_URL) { throw "DATABASE_URL is still set. Stop here." }
+node --env-file=.env.test scripts/mig-04.cjs preflight
+if ($LASTEXITCODE -ne 0) { throw "preflight stopped with exit code $LASTEXITCODE. Report it, and go no further." }
 ```
-env -u DATABASE_URL node --env-file=.env.test scripts/mig-04.cjs preflight
-env -u DATABASE_URL node --env-file=.env.test scripts/mig-04.cjs backup
-env -u DATABASE_URL node --env-file=.env.test scripts/mig-04.cjs apply --owner-authorized=MIG-04
-env -u DATABASE_URL node --env-file=.env.test scripts/mig-04.cjs verify
+
+```powershell
+# Step 2: backup
+Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue
+if (Test-Path Env:DATABASE_URL) { throw "DATABASE_URL is still set. Stop here." }
+node --env-file=.env.test scripts/mig-04.cjs backup
+if ($LASTEXITCODE -ne 0) { throw "backup stopped with exit code $LASTEXITCODE. Report it, and go no further." }
+```
+
+```powershell
+# Step 3: apply. Only with the owner's written authorization.
+Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue
+if (Test-Path Env:DATABASE_URL) { throw "DATABASE_URL is still set. Stop here." }
+node --env-file=.env.test scripts/mig-04.cjs apply --owner-authorized=MIG-04
+if ($LASTEXITCODE -ne 0) { throw "apply stopped with exit code $LASTEXITCODE. Report it, and go no further." }
+```
+
+```powershell
+# Step 4: verify
+Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue
+if (Test-Path Env:DATABASE_URL) { throw "DATABASE_URL is still set. Stop here." }
+node --env-file=.env.test scripts/mig-04.cjs verify
+if ($LASTEXITCODE -ne 0) { throw "verify stopped with exit code $LASTEXITCODE. Report it, and go no further." }
 ```
 
 | # | What's verified | How | Step |
 |---|---|---|---|
-| 1 | **Effective database connection** | The setting has to name `fitdb_test` on this machine, and pass the shared guard, before anything connects. Prisma's own tool then has to report the same target whatever `.env` holds, as it would otherwise read `.env` | `preflight` |
+| 1 | **Effective database connection** | The value in use has to be the one in `.env.test`, so an inherited `DATABASE_URL` can't replace it. It has to name `fitdb_test` on this machine, and pass the shared guard, before anything connects. Prisma's own tool then has to report the same target whatever `.env` holds, as it would otherwise read `.env` | all, and Prisma's own tool in `preflight` |
 | 2 | **Exact database identity** | The connected server reports `current_database()` as `fitdb_test`, schema `public`, on a loopback address. Repeated by every step | all |
 | 3 | **Test marker** | `fitworkoutfoodtracker:test-database:v1:fitdb_test`. `verify` also checks that the marker's catalog row wasn't rewritten | all |
 | 4 | **Existing migrations** | Exactly 7 applied, none failed or unfinished, each checksum matching its file, MIG-03 last, exactly MIG-04 pending, and no drift from `main`'s schema. MIG-04's objects don't exist yet | `preflight` |
@@ -68,7 +101,18 @@ env -u DATABASE_URL node --env-file=.env.test scripts/mig-04.cjs verify
 
 ## After it's applied: tests
 
-One at a time, needing a production build of the branch: `DATABASE_URL="postgresql://none:none@127.0.0.1:1/fitdb_test" node_modules/next/dist/bin/next build`. Then `env -u DATABASE_URL node --env-file=.env.test scripts/run-guarded-suites.cjs <suite>`.
+One at a time, in PowerShell, needing a production build of the branch. The build's address is a closed port. **The runner doesn't compare its value with `.env.test` as `mig-04.cjs` does, so clearing the variable is what protects it,** though it still refuses anything but a local `fitdb_test`.
+
+```powershell
+$env:DATABASE_URL = "postgresql://none:none@127.0.0.1:1/fitdb_test"
+node node_modules/next/dist/bin/next build
+Remove-Item Env:DATABASE_URL
+```
+
+```powershell
+Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue
+node --env-file=.env.test scripts/run-guarded-suites.cjs weight-progress
+```
 
 | # | What's verified | Suite | Covers |
 |---|---|---|---|

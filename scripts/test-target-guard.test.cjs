@@ -573,7 +573,7 @@ const GUARDED = [
   "nutrition-api.test.cjs", "nutrition-target-migration-check.cjs", "nutrition-targets.test.cjs", "production-security.test.cjs", "profile-migration-check.cjs", "profile-minimization.test.cjs", "profile-nulls.test.cjs", "provider-config.test.cjs", "provider-malformed.test.cjs", "provider-protection.test.cjs", "release-workflow.test.cjs",
 ];
 const OTHER_WRITE_CAPABLE = {
-  "mig-04.cjs": { must: ["databaseUrlProblem(", "environmentProblems(", "readDatabaseIdentity(", "--owner-authorized=MIG-04"], reason: "by hand, only with the owner's authorization, on fitdb_test: reads and backs up, and applies only with the flag" },
+  "mig-04.cjs": { must: ["databaseUrlProblem(", "environmentProblems(", "readDatabaseIdentity(", "--owner-authorized=MIG-04", "process.env.DATABASE_URL !== fromFile"], reason: "by hand, only with the owner's authorization, on fitdb_test: reads and backs up, and applies only with the flag" },
   "live-provider-check.cjs": { must: ["checkTarget("], reason: "shared static checks, plus its own stricter server verification" },
   "usda-missing-nutrients.test.cjs": { must: ["databaseUrlProblem(", "verifyServerIdentity("], reason: "starts its own app, then verifies it" },
   "live-provider-check.safety.test.cjs": { must: ["databaseUrlProblem("], reason: "starts its own apps, and tests the live check's refusals" },

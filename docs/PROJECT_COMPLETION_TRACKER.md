@@ -197,7 +197,7 @@
 | ID | Phase | Description | Status | Priority | Dependency | Acceptance Criteria |
 |---|---|---|---|---|---|---|
 | J-01 | 4.1 | Weight log and goal card | IN PROGRESS | P1 | J-02, T-24, review, merge approval | All suites pass on the final code, then the owner's approval |
-| J-02 | 4.1 | Back up `fitdb_test`, and apply MIG-04 to it. **Before it's applied to a database, this code breaks the dashboard, account deletion and export there, for everyone.** Any deployment has to apply it first. **Prepared, not executed:** `docs/MIG_04_RUNBOOK.md` and `scripts/mig-04.cjs`, whose refusals are tested and which has never run on a database | BLOCKED | P1 | Owner, separate authorization | Applied with a backup, `migrate status` clean |
+| J-02 | 4.1 | Back up `fitdb_test`, and apply MIG-04 to it. **Before it's applied to a database, this code breaks the dashboard, account deletion and export there, for everyone.** Any deployment has to apply it first. **Prepared, not executed:** `docs/MIG_04_RUNBOOK.md` and `scripts/mig-04.cjs`, which has never run on a database. Its refusals and the runbook's PowerShell blocks are tested in PowerShell 7 and 5.1, against closed ports only | BLOCKED | P1 | Owner, separate authorization | Applied with a backup, `migrate status` clean |
 | J-03 | 4.1 | Merging after 4.0.5: classify `BodyMetric` in the data inventory, and add the weight log to the draft notice | NOT STARTED | P1 | H-01 | 4.0.5's inventory tests pass on the merged code |
 | J-04 | 4.1 | Whether a goal must be chosen (Decision 21). Built as optional | NOT STARTED | P2 | Owner | Recorded |
 | J-05 | 4.1 | Confirm the 10-day smoothing constant, 28-day change window and 7-day minimum, which are judgements | NOT STARTED | P2 | Owner | Confirmed or changed |

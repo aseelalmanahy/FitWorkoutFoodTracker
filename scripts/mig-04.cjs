@@ -4,13 +4,14 @@
 //   node --env-file=.env.test scripts/mig-04.cjs backup
 //   node --env-file=.env.test scripts/mig-04.cjs apply --owner-authorized=MIG-04
 //   node --env-file=.env.test scripts/mig-04.cjs verify
-// fitdb_test only. preflight, backup and verify change nothing on the database. Prints no credentials.
+// Use the runbook's PowerShell blocks, which clear any DATABASE_URL in the window first. fitdb_test only. preflight, backup and verify change nothing on the database. Prints no credentials.
 "use strict";
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
+const { parseEnv } = require("node:util");
 const { databaseUrlProblem, environmentProblems, readDatabaseIdentity } = require("./lib/test-target-guard.cjs");
 const { TEST_DB_MARKER_PREFIX } = require("./lib/test-db-guard.cjs");
 
@@ -39,6 +40,15 @@ const [step, ...flags] = process.argv.slice(2);
 if (!["preflight", "backup", "apply", "verify"].includes(step)) refuse("use preflight, backup, apply or verify.");
 if (step === "apply" && !(flags.length === 1 && flags[0] === AUTHORIZATION)) refuse(`applying needs ${AUTHORIZATION}, used only after the owner has authorized it in writing.`);
 if (step !== "apply" && flags.length) refuse(`${step} takes no options.`);
+
+// node --env-file lets a variable already in the shell win, silently, so a DATABASE_URL left in a window would be used
+// in place of the file's. Nothing else here could tell. So the value in use has to be the one in the file.
+const envFiles = process.execArgv.filter((a) => a.startsWith("--env-file"));
+if (envFiles.length !== 1 || !envFiles[0].startsWith("--env-file=") || path.basename(envFiles[0].slice("--env-file=".length)) !== ".env.test") refuse("run this with exactly --env-file=.env.test.");
+const fromFile = parseEnv(fs.readFileSync(envFiles[0].slice("--env-file=".length), "utf8")).DATABASE_URL;
+if (fromFile === undefined) refuse(".env.test doesn't set DATABASE_URL.");
+if (process.env.DATABASE_URL !== fromFile) refuse("a DATABASE_URL already in this shell is overriding .env.test. In PowerShell, run: Remove-Item Env:DATABASE_URL");
+
 const DB = process.env.DATABASE_URL;
 const problems = [databaseUrlProblem(DB), ...environmentProblems(process.env)].filter(Boolean);
 if (problems.length) refuse(problems.map((p) => p.message).join(" | "));
