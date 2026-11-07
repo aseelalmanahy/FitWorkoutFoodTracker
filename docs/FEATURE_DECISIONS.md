@@ -384,6 +384,12 @@ Covers workout reminders, food logging reminders and progress check-in reminders
 | Maintenance cost | Low |
 | What would change this decision | User reactions to mock-ups |
 
+## Owner decisions, 2026-11-07
+
+**Approved by the owner for implementation: UX-01.** Food-search reliability, responsive layouts, the Slate & Mist redesign, the login and welcome screen, and better exercise and workout notes, with no schema change. The owner chose Slate & Mist from three proposed directions. Status is in the tracker, section 2i.
+
+**Kept in the backlog, not approved:** recovery tracking, workout effort, more activity types, progress photographs, GPS routes, followers and photo sharing. The `product-strategy-agent`'s recommendations for each are summarized in the tracker, section 2i. Where it recommended rejecting GPS and followers, the owner chose to keep them as future decisions, so that disagreement stays open.
+
 ## Recommended additions
 
 These came from gaps found while inspecting the code. None was requested.

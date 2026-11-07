@@ -2,7 +2,7 @@
 
 **How to try FitWorkoutFoodTracker yourself, through its real screens, with the permanent demo account.** The sign-in details are in `demo-account.local.md`, on this machine only. This guide holds no passwords.
 
-The app is built for phones first, so a narrow browser window shows it as intended.
+Phones get a bottom bar. From 768 px a wider column, and from 1024 px a side bar with content up to 1200 px. Try it at more than one width.
 
 ## Starting the application
 
@@ -78,7 +78,7 @@ All of it is made up for demonstration. **The foods aren't a nutrition reference
 |---|---|---|---|
 | 2.1 | Nutrition | Look at today | Breakfast and lunch, with calories and macros against the 2,150 kcal target |
 | 2.2 | Nutrition → the arrows at the top | Go back a day | That day's meals |
-| 2.3 | Nutrition → add food → search "banana" | Look at the results | Your demo food, and a USDA-labelled result. **That result comes from a local stand-in, and not from USDA** |
+| 2.3 | Nutrition → add food → search "banana" | Look at the results | Your demo food, and a USDA-labelled result, with a "Test data" note. **That result comes from a local stand-in, and not from USDA** |
 | 2.4 | Add food → pick a food | Save it | It appears in that meal, and the totals rise |
 | 2.5 | Nutrition → Targets | Look at it | The current target, with carbs worked out from the rest |
 | 2.6 | Nutrition → History | Look at this week | Daily calories against the target, and weekly averages |
@@ -86,6 +86,28 @@ All of it is made up for demonstration. **The foods aren't a nutrition reference
 | 2.8 | Nutrition → History | Find a day marked "incomplete" | Its totals include only what its foods report. It isn't called below target because of that alone |
 
 **Try this error:** enter a target with very few calories for the protein and fat, and see what it says.
+
+## UX-01: food search, layout, design and notes
+
+On `feature/ux-reliability-redesign`. To try it without disturbing the demo on port 3000, build and run it from its own folder, `FitWorkoutFoodTracker-ux`, beside this one, with the same two steps above and `--port=3001`, and with `--env-file=..\FitWorkoutFoodTracker\.env.test`, as `.env.test` stays in this folder only.
+
+| # | Where | Do this | What should happen |
+|---|---|---|---|
+| X.1 | Login page, on a wide window | Look at it | A slate brand panel on the left, the same form on the right. On a phone, a small header above the form |
+| X.2 | Add food, before typing | Look under the search box | "Type at least 2 characters to search", and what the chosen source means. Recent foods are listed |
+| X.3 | Add food | Search **large egg** | "Whole egg (demo)" under My foods, as its serving is "1 large" |
+| X.4 | Add food | Search **egg**, then choose **USDA foods** | "No USDA results for "egg"", "Found in My foods (1)", and **Show all sources**, which brings it back |
+| X.5 | Add food | Search **banana**, then try each source | Each source shows only its own results, with its count on the chip. The test-data note is shown |
+| X.6 | Add food | Search **eggs** or **oatmeal** | Nothing found, and it says so plainly: the demo has no such records |
+| X.7 | Add food → Whole egg (demo) | Choose 2 servings, and add it | The sheet shows 1 large, and logging adds it to the meal |
+| X.8 | Every page, at 1440, 820 and 390 px | Look at it | Side bar on desktop, bottom bar below that. No sideways scrolling |
+| X.9 | Progress → an exercise, and Progress → Weight log | Look at the charts | Muted slate charts with a legend. Improved, Matched and Down keep their icons and words |
+| X.10 | Nutrition → History | Look at the charts | Calorie bars with a dashed target, and the trend with protein dashed |
+| X.11 | While logging a workout | Tap **Add a note on how it felt** on an exercise, type, then **Done** | The note shows on that exercise. "Saved" confirms it |
+| X.12 | While logging | Type in **Workout notes**, then Finish | The finished workout shows "Exercise note" on that exercise and "Workout notes" for the session, read-only |
+| X.13 | Profile → Units, and a dark-mode system setting | Switch | Everything stays readable in light and dark |
+
+**Logging food or finishing a workout adds rows to the demo account,** as using it always has. Nothing else changes in the demo data.
 
 ## Phase 3: photo features, unavailable here
 
@@ -120,6 +142,8 @@ All of it is made up for demonstration. **The foods aren't a nutrition reference
 - **Two unexplained one-off test failures are open.** Tracker T-25 (the emailed sign-up link's page) and T-27 (after Finish, the finished page didn't appear). If you see either, please report it.
 - **Finished workouts can still be changed by their owner** from a page left open (K-04), and a malformed address can give a bare error on some pages (J-07).
 - **Open product decisions** are in `PHASE_4_MERGE_READINESS.md`, including how much evidence a numerical weight change needs (J-05).
+- **UX-01's browser suites haven't run,** as they write to `fitdb_test` and need the owner's authorization. Its signed-in screens haven't been checked by anyone but the owner yet.
+- **The local food stand-in is small.** It has no egg, plain milk or oats, so "eggs" and "oatmeal" find nothing here. That's the demo data, not the real catalogs, which weren't called.
 
 ## Reporting a defect
 

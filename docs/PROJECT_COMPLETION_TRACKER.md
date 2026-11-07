@@ -282,10 +282,35 @@
 
 | ID | Phase | Description | Status | Priority | Dependency | Acceptance Criteria |
 |---|---|---|---|---|---|---|
-| UF-01 | Feedback | A food-search issue. Under the demo server, provider results come from a local stand-in | NOT STARTED | P1 | The owner's details | Reproduced and its cause reported, read-only, before any fix |
-| UF-02 | Feedback | A responsive redesign | NOT STARTED | P2 | The owner's details, product review | Options proposed with evidence, and the owner decides |
-| UF-03 | Feedback | Muted colors. Related to S-08 | NOT STARTED | P2 | The owner's details, product review | Options proposed with contrast checked, and the owner decides |
-| UF-04 | Feedback | Proposed health-tracking features | NOT STARTED | P2 | `product-strategy-agent`, then the owner | A recommendation per feature, and the owner's decision. Nothing built before it |
+| UF-01 | Feedback | Food search: "large egg" not found, filters confusing. **Cause:** custom-food search ignored serving labels ("Whole egg (demo)" is served "1 large"), the stand-in has no egg, and the filters gave no feedback before typing or when empty | IN PROGRESS | P1 | UX-01 A | Fixed on `feature/ux-reliability-redesign`, owner acceptance pending |
+| UF-02 | Feedback | Desktop too narrow, every page in a 576 px column | IN PROGRESS | P2 | UX-01 B | Built on `feature/ux-reliability-redesign`, owner acceptance pending |
+| UF-03 | Feedback | Colours too bright. The owner chose Slate & Mist | IN PROGRESS | P2 | UX-01 C | Built, with contrast measured, owner acceptance pending |
+| UF-04 | Feedback | Proposed health-tracking features. `product-strategy-agent` reviewed them on 2026-11-07, and its records are recommendations only | IN PROGRESS | P2 | The owner | See "Product backlog from the owner's vision" below. Nothing built |
+
+**UX-01, approved by the owner on 2026-11-07.** On `feature/ux-reliability-redesign`, from `feature/demo-account` at `aaeaade`, in a separate worktree. **Separate from Phase 4's release and merge approvals, and not merged anywhere.** The approved scope: food-search reliability, responsive layouts, the Slate & Mist redesign, the login and welcome screen, better exercise and workout notes, focused tests and a UI demonstration. **No schema change, migration or new dependency.**
+
+| ID | Phase | Description | Status | Priority | Dependency | Acceptance Criteria |
+|---|---|---|---|---|---|---|
+| UX-01A | UX-01 | Food search: serving labels count in custom-food search; filters renamed (All sources, USDA foods, Packaged foods, My foods) and explained; one all-source request per query with the filter applied in view; empty, unavailable, partly unavailable and failed searches told apart, with "Show all sources"; stale or pending results never shown or selectable; the local stand-in disclosed as test data | IN PROGRESS | P1 | Owner acceptance | `7257572`. 40 unit tests and 6 deliberate defects caught. **`e2e-nutrition` and `nutrition-api` additions not run,** as they write to `fitdb_test` |
+| UX-01B | UX-01 | Responsive shell: side bar from 1024 px with content up to 1200 px, tablet column with bottom bar, phones unchanged. Per-page widths and desktop grids for the dashboard, workouts, nutrition, history, progress and weight | IN PROGRESS | P2 | Owner acceptance | `27797e5`. Type check and build clean. Signed-in screens not yet viewed, see UX-01T |
+| UX-01C | UX-01 | Slate & Mist tokens, light and dark, every pair measured. Charts with legends and muted series. **Closes the chart part of S-08** | IN PROGRESS | P2 | Owner acceptance | `a524b44` |
+| UX-01D | UX-01 | Welcome screen around the unchanged login form: split screen on desktop, compact header on phones | IN PROGRESS | P2 | Owner acceptance | `14b5072`, `9c88a66`. Seen at 1440, 820 and 390 px in both themes, with no horizontal scroll and no console errors |
+| UX-01E | UX-01 | Exercise notes made prominent; the existing session notes exposed in the logger as "Workout notes"; both labelled in history, which stays read-only (K-04) | IN PROGRESS | P2 | Owner acceptance | `0f79e8c`. **`e2e-smoke` additions not run,** as it writes to `fitdb_test` |
+| UX-01T | UX-01 | The guarded suites that write to `fitdb_test`: `e2e-nutrition`, `nutrition-api`, `e2e-smoke`, `e2e-hardening`, `e2e-eligibility`, and a signed-in look at the demo account at three widths | BLOCKED | P1 | The owner's authorization to write to `fitdb_test` | Each run passes, with QA fixture hashes unchanged |
+| UX-01U | UX-01 | **The owner's UI acceptance of UX-01** | NOT STARTED | P1 | UX-01T | The owner has tried it and said it's accepted. **OWNER ACCEPTANCE PENDING** |
+
+**Product backlog from the owner's vision, 2026-11-07. Not approved for implementation, and not dropped.** Each needs its own product review, the owner's approval and, where noted, a migration approval.
+
+| Item | Next stage | The `product-strategy-agent`'s recommendation, not approved |
+|---|---|---|
+| Recovery: daily sleep hours, sleep quality, energy 1 to 5, optional notes, history | After UX-01 acceptance | One optional daily check-in, starting with sleep hours and energy. No recovery or readiness score, and no medical claims. Probably new `BodyMetric` kinds, which is a migration |
+| Workout effort rating | With recovery | One session-level rating, distinct from daily energy. `SetEntry.rpe` exists with no UI, and stays unused |
+| Movement: running, cycling, walking, yoga, pilates, hiking, other | After recovery | A separate activity table: type, duration, optional distance, note. Pace derived, never stored. Strength analytics unchanged. A migration |
+| Progress photographs, private by default | Later | Postponed: the first stored images, needing storage, encryption, export, deletion including backups |
+| GPS routes for running and cycling | Future decision | Rejected for the web app as planned: precise location, device limits, map costs |
+| Followers, sharing progress photos | Future decision | Rejected: conflicts with "not a social network". Needs separate privacy and security review if reopened |
+| Device-adaptive scanning (camera on phones, upload on desktop) | With Track A | Postponed with paid AI |
+| A nutrition card on the dashboard | Not scheduled | A small addition to the existing dashboard |
 
 **A known limit, not a defect:** the session cookie is `Secure`, and this Windows WebKit build won't send one over plain `http://localhost`. Sign-in succeeds there, and the browser check carries on with a non-Secure copy, as other WebKit suites do. Chrome, Edge and Firefox stay signed in. Real Safari and real phones are unverified (T-15, R-13).
 
@@ -569,7 +594,7 @@ The merged documents hold **recommendations.** Stage A's authorization covered i
 | S-05 | 4.0.1 | Legacy `SUGGESTED` rows stay in force, possibly with defective values, until replaced or stopped | DEFERRED | P1 | R-08 | Empty production database |
 | S-06 | 4.0.1 | Legacy zeros can't be told from deliberate ones, and aren't rewritten | DEFERRED | P2 | R-08 | Empty production database |
 | S-07 | 4.0 | `POST .../sets` had no idempotency key, so a lost response could log a set twice | IN PROGRESS | P1 | K-01, R-13 | **Fixed, unmerged, on `feature/phase-4.0.6-readiness`, section 2g.** Tested on `fitdb_test` and in three browsers. A real phone's network drop is still R-13 |
-| S-08 | 4.0 | Light-theme contrast defects, from the design's review | NOT STARTED | P2 | None | Contrast checked, and fixed |
+| S-08 | 4.0 | Light-theme contrast defects, from the design's review | IN PROGRESS | P2 | UX-01 | **Charts fixed on `feature/ux-reliability-redesign` at `a524b44`:** the light weight trend and calorie bars were 1.2 to 1.3:1, now 5.6:1. All new tokens measured. **Left:** the design review's other items haven't been re-checked one by one, and nothing is merged |
 | S-10 | 4.0.2, 4.0.3 | `db.ts` passed `log: ["error"]`, so Prisma printed its own error text in production, past `safe-log`. A RESTRICT violation printed the row's id and the constraint | IN PROGRESS | P1 | T-18 | **Code correction reviewed and merged at `de4607f`:** Prisma's log is off outside development, and a console guard covers what Next.js logs itself. Verified by unit tests and live on a local production build, controls U21 to U23, U26 and A8. **Left:** a real page-render failure, which wasn't triggered (T-18) |
 | S-11 | 4.0.2 | **New.** After a deletion, upload, label-scan and food-search limiters keep the user id in memory until they expire, up to 24 hours. An id only, with no name or email | DEFERRED | P3 | None | Accepted, or cleared with them |
 | S-12 | 4.0.2 | **New.** If another person's plan or session ever referred to someone's custom exercise, that person couldn't delete their account: they get 409, and nothing changes. The API refuses such references, so only direct database writes could make one | DEFERRED | P2 | None | Accepted, or a support path once one exists |

@@ -71,15 +71,13 @@ The owner named four topics in the request for this handoff. **The details didn'
 | UF-03 | Muted colors | Light-theme contrast defects are already open (S-08). Any change must keep contrast accessible |
 | UF-04 | Proposed health-tracking features | New features. **Under `CLAUDE.md`, they need the `product-strategy-agent` and the owner's approval before any design or code** |
 
-## 7. Next task: product review and investigation only
+## 7. Update, 2026-11-07: UX-01
 
-1. Get the owner's details for UF-01 to UF-04.
-2. **UF-01:** investigate read-only. Reproduce it on the demo server, find the cause, and report it, without changing code.
-3. **UF-02 and UF-03:** describe the current layout and colors with evidence, such as screenshots at phone and desktop widths, and propose options. Nothing is built.
-4. **UF-04:** run `product-strategy-agent` on each proposed feature, and give the owner its recommendation. **A recommendation isn't approval.**
-5. Stop for the owner's decisions.
+**The investigation is done, and the owner approved UX-01,** which is built on `feature/ux-reliability-redesign` in the worktree `FitWorkoutFoodTracker-ux`, from `aaeaade`. Its status, commits and untested parts are in the tracker, section 2i. **Not merged, and owner acceptance is pending.**
 
-**Not part of it:** implementing features, merging, migrations, deployment, or Phase 4.2.
+**Next:** the owner authorizes, or doesn't, the guarded suites that write to `fitdb_test` (UX-01T), then tries UX-01 with the manual guide. The backlog from the owner's vision is in the tracker, and none of it is approved.
+
+**Not part of it:** merging, migrations, deployment, Phase 4.2, or any backlog feature.
 
 ## 8. Database and authorization boundaries
 
