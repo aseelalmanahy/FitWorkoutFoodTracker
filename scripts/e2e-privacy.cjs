@@ -56,6 +56,11 @@ async function removeThisRun(failed) {
   };
   await remove();
   if (failed) {
+    if (FAIL_AT === "late-row") {
+      // Stands in for a sign-up still being written when the run gave up, arriving after the first pass.
+      await prisma.accountToken.create({ data: { id: createHash("sha256").update(`late${run}`).digest("hex"), purpose: "SIGNUP", email: created[0], expiresAt: new Date(Date.now() + 3_600_000) } });
+      console.log("injected a late row");
+    }
     await new Promise((resolve) => setTimeout(resolve, SETTLE_MS));
     await remove();
   }
@@ -107,11 +112,7 @@ async function inBrowser(name) {
   const address = `privacy${name}${run}@test.dev`;
   const token = await mint(address);
   if (FAIL_AT === "quoting-token") throw new Error(`navigating to ${BASE}/register/complete#token=${token}`);
-  if (FAIL_AT === "late-row") {
-    // Stands in for a sign-up still being written when the run gave up.
-    setTimeout(() => prisma.accountToken.create({ data: { id: createHash("sha256").update(`${token}late`).digest("hex"), purpose: "SIGNUP", email: address, expiresAt: new Date(Date.now() + 3_600_000) } }), 300);
-    throw new Error("injected failure before a late row");
-  }
+  if (FAIL_AT === "late-row") throw new Error("injected failure before a late row");
   await page.goto(`${BASE}/register/complete#token=${token}`);
   const box = page.locator("input[name=accept]");
   await box.waitFor();

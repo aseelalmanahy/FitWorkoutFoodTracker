@@ -84,6 +84,7 @@ test("a row arriving just after the run gave up is removed too", async () => {
   const r = await runScript(run, "late-row");
   assert.notEqual(r.code, 0);
   assert.match(r.err, /injected failure before a late row/);
+  assert.match(r.out, /injected a late row/, "it arrived after the first pass");
   assert.deepEqual(await rows(r.address), { tokens: 0, users: 0 });
   await bystandersIntact();
 });
