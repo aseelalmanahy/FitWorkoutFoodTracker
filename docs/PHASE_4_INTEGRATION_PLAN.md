@@ -10,7 +10,7 @@
 |---|---|---|
 | `feature/phase-4.0.5-privacy` | `7d615b0` | 40 |
 | `feature/phase-4.1-progress` | `65dd924` | 35 |
-| `feature/phase-4.0.6-readiness` | `09f0aa4`, plus the commit holding this plan | 25 |
+| `feature/phase-4.0.6-readiness` | `09f0aa4`, plus the documents-only commits holding this plan | 25 |
 
 If a tip changes after review, this plan has to be rechecked against the new one.
 
@@ -102,7 +102,7 @@ Focused, on the merged code: Vitest, `guard`, type check, build, then `privacy-c
 | **`scripts/lib/signup.cjs`** | **Don't keep both sides, or the page loads twice.** Take 4.0.6's block, which reports what the page showed, then add 4.0.5's three changes: `NOTICE_VERSION`, `acceptedVersion` in the API sign-up, and `await page.check("input[name=accept]")` straight before the browser sign-up's submit |
 | `scripts/run-guarded-suites.cjs` | Keep every suite, adding 4.0.6's `workout-sets`, `readiness-e2e` and `readiness-performance` |
 | `scripts/test-target-guard.test.cjs` | Add `workout-sets.test.cjs`, `e2e-readiness.cjs` and `readiness-performance.test.cjs` to `GUARDED` |
-| `docs/PROJECT_COMPLETION_TRACKER.md` | Keep every section and row, adding 2g, K-01 to K-05, T-25 and T-26 |
+| `docs/PROJECT_COMPLETION_TRACKER.md` | Keep every section and row, adding 2g, K-01 to K-06, T-25 and T-26 |
 | `docs/PHASE_4_EXECUTION_PLAN.md` | One row per phase |
 
 ### Project tracker, after the merge
