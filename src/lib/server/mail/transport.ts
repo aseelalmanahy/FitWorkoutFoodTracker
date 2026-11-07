@@ -2,7 +2,7 @@ import "server-only";
 import { randomBytes } from "node:crypto";
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
-import { mailStubDir } from "../production-config";
+import { mailProvider, mailStubDir } from "../production-config";
 
 export type MailKind = "signup" | "password-reset" | "password-changed";
 
@@ -43,5 +43,13 @@ const notConfigured: MailTransport = {
 
 export function mailTransport(): MailTransport {
   const dir = mailStubDir();
-  return dir ? fileStub(dir) : notConfigured;
+  if (dir) return fileStub(dir);
+  const provider = mailProvider();
+  if (provider) {
+    // Loaded only when configured. Startup has already checked these settings (production-config.ts).
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const { resendTransport } = require("./resend") as typeof import("./resend");
+    return resendTransport(provider.apiKey, provider.from);
+  }
+  return notConfigured;
 }

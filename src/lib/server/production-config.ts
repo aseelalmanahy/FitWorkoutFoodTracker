@@ -109,6 +109,29 @@ export function registrationAllowed(email: string, env: Env = process.env): bool
 }
 
 /** The file stub's folder, for development and designated test databases. A real deployment never has one. */
+/**
+ * A real email provider (EMAIL-01), when MAIL_PROVIDER names one and its settings are valid. Null otherwise. A designated
+ * test database's mail always stays in a local folder instead, so tests never send real email.
+ */
+export const MAIL_PROVIDERS = ["resend"] as const;
+const MAIL_FROM = /^(?:[^<>\r\n]{1,80} <)?[^\s@<>]+@[^\s@<>]+\.[^\s@<>]+>?$/;
+export function mailProvider(env: Env = process.env): { name: (typeof MAIL_PROVIDERS)[number]; apiKey: string; from: string } | null {
+  if (env.MAIL_PROVIDER !== "resend" || isLocalTestServer(env)) return null;
+  const apiKey = (env.RESEND_API_KEY ?? "").trim();
+  const from = (env.MAIL_FROM ?? "").trim();
+  if (!apiKey || !MAIL_FROM.test(from)) return null;
+  return { name: "resend", apiKey, from };
+}
+function mailProblems(env: Env): ConfigProblem[] {
+  if (!set(env, "MAIL_PROVIDER")) return [];
+  const problems: ConfigProblem[] = [];
+  if (!(MAIL_PROVIDERS as readonly string[]).includes(env.MAIL_PROVIDER as string)) problems.push({ id: "mail-provider", message: `MAIL_PROVIDER must be one of: ${MAIL_PROVIDERS.join(", ")}.` });
+  if (!set(env, "RESEND_API_KEY")) problems.push({ id: "mail-key", message: "RESEND_API_KEY is required with MAIL_PROVIDER=resend." });
+  else if (PLACEHOLDER_KEY.test(env.RESEND_API_KEY as string) || !/^re_[A-Za-z0-9_]{16,}$/.test((env.RESEND_API_KEY as string).trim())) problems.push({ id: "mail-key", message: "RESEND_API_KEY doesn't look like a Resend API key." });
+  if (!MAIL_FROM.test((env.MAIL_FROM ?? "").trim())) problems.push({ id: "mail-from", message: "MAIL_FROM must be an address on a domain verified with the provider, such as \"FitWorkoutFoodTracker <no-reply@example.com>\"." });
+  return problems;
+}
+
 export function mailStubDir(env: Env = process.env): string | null {
   if (env.NODE_ENV === "production" && !isLocalTestServer(env)) return null;
   return env.MAIL_STUB_DIR || (env.NODE_ENV === "production" ? null : ".mail-outbox");
@@ -181,6 +204,7 @@ export function productionConfigProblems(env: Env = process.env): ConfigProblem[
   if (review && hops) add("proxy-hops", "TRUST_PROXY_HOPS must not be set on a local review server, as nothing is in front of it.");
 
   if (allowlistEntries(env).some((e) => !ALLOWLIST_ENTRY.test(e))) add("allowlist-invalid", "REGISTRATION_ALLOWLIST must hold exact email addresses only.");
+  problems.push(...mailProblems(env));
   if (set(env, "FDC_API_KEY") && PLACEHOLDER_KEY.test(env.FDC_API_KEY as string)) add("placeholder-key", "FDC_API_KEY is a placeholder.");
   if (noticeIsMalformed()) add("notice-malformed", "The notice says it's final, and doesn't pass as final.");
   if (env.NODE_TLS_REJECT_UNAUTHORIZED === "0") add("tls-disabled", "NODE_TLS_REJECT_UNAUTHORIZED must not disable certificate checks.");

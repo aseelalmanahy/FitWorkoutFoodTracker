@@ -1,4 +1,4 @@
-import { databaseIdentityProblems, isLocalReviewServer, isLocalTestServer, mailStubDir, noticeGateOpen, productionConfigProblems, reviewDatabaseProblems, reviewServerWarnings, testDatabaseMarkerProblems, type ConfigProblem } from "./production-config";
+import { databaseIdentityProblems, isLocalReviewServer, isLocalTestServer, mailProvider, mailStubDir, noticeGateOpen, productionConfigProblems, reviewDatabaseProblems, reviewServerWarnings, testDatabaseMarkerProblems, type ConfigProblem } from "./production-config";
 import { installSafeConsole } from "./safe-log";
 
 const IDENTITY_SQL = `SELECT current_database() AS name, shobj_description((SELECT oid FROM pg_database WHERE datname = current_database()), 'pg_database') AS comment`;
@@ -36,7 +36,7 @@ export async function runProductionPreflight(): Promise<void> {
   const problems = await preflightProblems();
   if (!problems.length) {
     for (const w of reviewServerWarnings()) console.warn(`[preflight] Local review server, not refused: ${w.message}`);
-    if (!mailStubDir()) console.warn("[preflight] No email provider exists yet, so sign-up and password reset emails won't be sent.");
+    if (!mailStubDir() && !mailProvider()) console.warn("[preflight] No email provider is configured, so sign-up and password reset emails won't be sent.");
     if (!noticeGateOpen()) console.warn("[preflight] The privacy notice and terms are drafts, so registration is closed.");
     return;
   }
