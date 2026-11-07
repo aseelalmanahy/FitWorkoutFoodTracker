@@ -9,8 +9,8 @@
 | Branch | Tip reviewed | Files changed from `main` |
 |---|---|---|
 | `feature/phase-4.0.5-privacy` | `7d615b0` | 40 |
-| `feature/phase-4.1-progress` | `65dd924` | 35 |
-| `feature/phase-4.0.6-readiness` | `09f0aa4`, plus the documents-only commits holding this plan | 25 |
+| `feature/phase-4.1-progress` | `27f8577` | 35 |
+| `feature/phase-4.0.6-readiness` | Last code change `09f0aa4`, then documents-only commits, including the one holding this plan | 26 |
 
 If a tip changes after review, this plan has to be rechecked against the new one.
 
@@ -22,11 +22,11 @@ The merges were tried in a **throwaway clone, in a temporary folder, with its re
 |---|---|
 | Unit tests | 1,789 of 1,789 |
 | Guard suite | 51 of 51, so every script is classified |
-| MIG-04's refusals | 24 of 24 |
+| MIG-04's refusals and PowerShell blocks | 42 of 42, closed ports only |
 | Type check | Clean |
 | Production build | Clean |
 
-Before those changes, the data-inventory test failed, as it should, as the merged code held a table the inventory didn't list. The trial was run at 4.0.5 `7d615b0`, 4.1 `65dd924` and 4.0.6 `09f0aa4`.
+Before those changes, the data-inventory test failed, as it should, as the merged code held a table the inventory didn't list. The trial was last run at 4.0.5 `7d615b0`, 4.1 `27f8577` and 4.0.6 `3d9bf62`, after 4.1's PowerShell correction. Only that correction and documents changed since the run before, and it gave the same conflicts.
 
 **What this doesn't show:** no database or browser test ran on the combined code, as they need MIG-04 on `fitdb_test`. Passing on one branch isn't passing when combined. T-14's two suites can't run at all while `fitdb_test_other` is off limits.
 
@@ -52,7 +52,7 @@ Fast-forward, with no conflict. **Needs first:** the owner's ruling on whether i
 
 **Needs first:** MIG-04 applied to `fitdb_test` by `docs/MIG_04_RUNBOOK.md`, with its own authorization. Without it, this code breaks the dashboard, deletion and export, so nothing can be tested. The owner's decisions J-04, J-05 and J-06 should be settled too, or recorded as carried over.
 
-Then run `env -u DATABASE_URL npx prisma generate`, as 4.1 adds a model.
+Then generate Prisma's client with the PowerShell block in the runbook, as 4.1 adds a model.
 
 ### Conflicts
 
