@@ -3,6 +3,8 @@
 //   node --env-file=.env.review scripts/review-server.cjs --confirm=fitdb_review [--port=3003]
 // --port=3003 runs a candidate build from another folder beside the stable one on 3002, on the same database. Only
 // those two ports are accepted.
+//   node scripts/review-server.cjs --stop --port=3003
+// stops a server left running on that port, only if it is provably this folder's own (RC-02). Nothing else is stopped.
 // Needs a production build, and fitdb_review prepared with scripts/local-db.cjs. Registration stays closed, no email
 // is sent, and paid AI stays off. The app's own startup check refuses anything else, and so does this first.
 "use strict";
@@ -11,6 +13,8 @@ const path = require("node:path");
 const net = require("node:net");
 const { spawn } = require("node:child_process");
 const { REVIEW_MARKER, localDatabaseProblem, envFileProblem, readLocalIdentity, scrubber } = require("./lib/local-databases.cjs");
+const { describePortOwner, stopOwnServer } = require("./lib/port-owner.cjs");
+const EXIT_WITH_PARENT = path.join(__dirname, "lib", "exit-with-parent.cjs");
 
 const NAME = "fitdb_review";
 const PORTS = ["3002", "3003"];
@@ -20,10 +24,22 @@ const refuse = (m) => { console.error(`REFUSED (nothing was started): ${m}`); pr
 
 const args = process.argv.slice(2);
 const portArg = args.find((a) => a.startsWith("--port="));
-if (args[0] !== `--confirm=${NAME}` || args.length > 2 || (args.length === 2 && !portArg)) refuse(`use --confirm=${NAME}, and optionally --port=3003.`);
+const stopMode = args[0] === "--stop";
+if (stopMode ? args.length !== 2 || !portArg : args[0] !== `--confirm=${NAME}` || args.length > 2 || (args.length === 2 && !portArg)) {
+  refuse(`use --confirm=${NAME}, and optionally --port=3003; or --stop --port=<port>.`);
+}
 const portValue = portArg ? portArg.slice("--port=".length) : "3002";
 if (!PORTS.includes(portValue)) refuse(`the port can only be ${PORTS.join(" or ")}.`);
 const PORT = Number(portValue);
+
+if (stopMode) {
+  // Stops only this folder's own server on this port, identified by its command line; never anything else.
+  stopOwnServer(PORT, { bin: NEXT_BIN }).then((r) => {
+    if (r.stopped) { console.log(`Stopped this folder's server on port ${PORT} (process ${r.pid}). The port is free.`); process.exit(0); }
+    console.error(`NOT STOPPED: ${r.reason}`); process.exit(5);
+  }, (e) => { console.error(`FAILED: ${e.message}`); process.exit(1); });
+  return;
+}
 const fileProblem = envFileProblem(NAME);
 if (fileProblem) refuse(fileProblem);
 const DB = process.env.DATABASE_URL;
@@ -46,7 +62,12 @@ const portInUse = (port) => new Promise((resolve) => {
 });
 
 (async () => {
-  if (await portInUse(PORT)) refuse(`port ${PORT} is already in use. Is the review server already running?`);
+  if (await portInUse(PORT)) {
+    const owner = describePortOwner(PORT, { bin: NEXT_BIN });
+    refuse(owner.own
+      ? `${owner.text} Use it, or stop it first with: node scripts/review-server.cjs --stop --port=${PORT}`
+      : `${owner.text} Nothing was stopped. Choose the other port, or stop that program yourself.`);
+  }
   // The database is fitdb_review, on this machine, carrying its review marker. Read-only.
   const { PrismaClient } = require("@prisma/client");
   const db = new PrismaClient({ datasources: { db: { url: DB } }, errorFormat: "minimal" });
@@ -61,14 +82,16 @@ const portInUse = (port) => new Promise((resolve) => {
   Object.assign(env, { NODE_ENV: "production", FIT_LOCAL_REVIEW_SERVER: "1", APP_ORIGIN: `http://localhost:${PORT}`, DATABASE_URL: DB });
   if (usdaKey) env.FDC_API_KEY = usdaKey; else delete env.FDC_API_KEY;
   // Bound to this machine's loopback address only, so nothing else on the network can reach it.
-  const app = spawn(process.execPath, [NEXT_BIN, "start", "-H", "127.0.0.1", "-p", String(PORT)], { cwd: ROOT, env, stdio: ["ignore", "pipe", "pipe"], windowsHide: true });
+  // The app ends with this script, however this script ends (RC-02): it watches a pipe the operating system closes.
+  env.FIT_EXIT_WITH_PARENT = "1";
+  const app = spawn(process.execPath, ["-r", EXIT_WITH_PARENT, NEXT_BIN, "start", "-H", "127.0.0.1", "-p", String(PORT)], { cwd: ROOT, env, stdio: ["pipe", "pipe", "pipe"], windowsHide: true });
   const relay = (d) => { for (const line of scrub(d).split(/\r?\n/)) if (/preflight|error|Error|warn/i.test(line)) console.log(`  app: ${line.trim()}`); };
   app.stdout.on("data", relay);
   app.stderr.on("data", relay);
   let stopping = false;
   const stop = (code) => { if (stopping) return; stopping = true; try { app.kill(); } catch { /* already gone */ } setTimeout(() => process.exit(code), 500); };
-  process.on("SIGINT", () => stop(0));
-  process.on("SIGTERM", () => stop(0));
+  // Ctrl+C, a stop request, the console window closing (SIGHUP on Windows) and Ctrl+Break all stop the app first.
+  for (const signal of ["SIGINT", "SIGTERM", "SIGHUP", "SIGBREAK"]) { try { process.on(signal, () => stop(0)); } catch { /* not on this platform */ } }
   app.once("exit", (code) => { console.error(`The review server stopped (exit ${code}).`); stop(code === 0 ? 0 : 1); });
 
   const url = `http://localhost:${PORT}`;

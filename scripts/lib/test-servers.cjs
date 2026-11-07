@@ -31,17 +31,20 @@ function portInUse(port) {
   });
 }
 
-/** Spawn `node <args>` (cwd = repo root), tracked for cleanup. NODE_PATH is removed. */
+/** Ends a child when the script that started it ends, however it ends (RC-02). See exit-with-parent.cjs. */
+const EXIT_WITH_PARENT = path.join(__dirname, "exit-with-parent.cjs");
+
+/** Spawn `node <args>` (cwd = repo root), tracked for cleanup, ending with this process. NODE_PATH is removed. */
 function spawnNode(args, env = {}, { capture = false } = {}) {
-  const e = { ...process.env, ...env };
+  const e = { ...process.env, ...env, FIT_EXIT_WITH_PARENT: "1" };
   delete e.NODE_PATH;
   // Set by `node --test` for its workers. A nested `node --test` that inherits it runs in
   // child-reporter mode and exits 0 even when tests fail, so never pass it on.
   delete e.NODE_TEST_CONTEXT;
-  const child = spawn(process.execPath, args, {
+  const child = spawn(process.execPath, ["-r", EXIT_WITH_PARENT, ...args], {
     cwd: ROOT, env: e,
     detached: process.platform !== "win32", // own process group on POSIX, so the whole tree can be killed
-    stdio: capture ? ["ignore", "pipe", "pipe"] : "ignore",
+    stdio: capture ? ["pipe", "pipe", "pipe"] : ["pipe", "ignore", "ignore"], // stdin: the pipe that ends it with us
     windowsHide: true,
   });
   children.add(child);
@@ -123,4 +126,4 @@ for (const sig of ["SIGINT", "SIGTERM", "SIGHUP", "SIGBREAK"]) {
 /** Every app and stand-in these scripts start listens here only, so nothing on the network can reach them (SEC-01). */
 const LOOPBACK_HOST = "127.0.0.1";
 
-module.exports = { LOOPBACK_HOST, ROOT, NEXT_BIN, freePort, portInUse, spawnNode, killTree, waitForChild, startApp, startStub, runNode, killAll, children };
+module.exports = { EXIT_WITH_PARENT, LOOPBACK_HOST, ROOT, NEXT_BIN, freePort, portInUse, spawnNode, killTree, waitForChild, startApp, startStub, runNode, killAll, children };
