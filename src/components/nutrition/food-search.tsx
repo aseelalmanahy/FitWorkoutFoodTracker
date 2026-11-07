@@ -9,7 +9,7 @@ import { Button, Card, ErrorText, Field, Input, Select, cx } from "@/components/
 import { Sheet } from "./sheet";
 import { PortionEditor } from "./portion-editor";
 import type { FoodDto, SearchItem, SearchResponse } from "@/lib/server/foods/service";
-import { FILTERS, MIN_QUERY_LENGTH, SOURCE_LABEL, SOURCE_NOTE, covers, localTestNotice, requestKey, searchPath, searchView, type Filter } from "@/lib/food-search-view";
+import { FILTERS, MIN_EXTERNAL_QUERY_LENGTH, MIN_QUERY_LENGTH, SOURCE_LABEL, SOURCE_NOTE, covers, localTestNotice, requestKey, searchPath, searchView, type Filter } from "@/lib/food-search-view";
 
 function Per100({ item }: { item: Pick<SearchItem, "per100" | "basisUnit"> }) {
   const n = item.per100;
@@ -82,7 +82,8 @@ export function FoodSearch({ date, today, initialMeal, embedded }: {
       return;
     }
     if (covers(data, q, filter)) return;
-    const t = setTimeout(() => search(q, filter), 350);
+    // Half a second after the last keystroke, so a word being typed doesn't spend provider searches on its first letters.
+    const t = setTimeout(() => search(q, filter), 500);
     return () => clearTimeout(t);
   }, [q, filter, data, search]);
 
@@ -203,7 +204,8 @@ export function FoodSearch({ date, today, initialMeal, embedded }: {
                   : view.kind === "partly" ? "The sources that answered have no matches, and the others couldn't be searched. Try again shortly."
                   : [
                     view.elsewhere.length ? `Found in ${view.elsewhere.map((x) => `${SOURCE_LABEL[x.source]} (${x.count})`).join(" and ")}.` : "",
-                    view.unsearched.length ? `${view.unsearched.map((s) => SOURCE_LABEL[s]).join(" and ")} ${view.unsearched.length > 1 ? "weren't" : "wasn't"} searched.` : "",
+                    view.tooShortForProviders ? `Type ${MIN_EXTERNAL_QUERY_LENGTH} or more characters to search USDA and packaged foods too.`
+                      : view.unsearched.length ? `${view.unsearched.map((s) => SOURCE_LABEL[s]).join(" and ")} ${view.unsearched.length > 1 ? "weren't" : "wasn't"} searched.` : "",
                     !view.elsewhere.length && !view.unsearched.length ? "Try a simpler or different word, check the spelling, or create a custom food." : "",
                   ].filter(Boolean).join(" ")}
               </p>

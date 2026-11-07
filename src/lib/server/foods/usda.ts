@@ -6,7 +6,7 @@
  */
 import "server-only";
 import { MAX_SERVING_AMOUNT, sanitizePer100, type Nutrients } from "@/lib/nutrition";
-import { guardedFetchJson, isObject, logProviderConfigError, PROVIDER_UNAVAILABLE, TtlCache } from "./http";
+import { guardedFetchJson, isObject, logProviderConfigError, PROVIDER_UNAVAILABLE, searchKey, SingleFlight, TtlCache } from "./http";
 
 /** /foods/search must return an object with a `foods` array. */
 export const isUsdaSearchResponse = (d: unknown) => isObject(d) && Array.isArray(d.foods);
@@ -131,14 +131,20 @@ export function normalizeUsdaFood(food: Record<string, unknown>): NormalizedFood
   };
 }
 
-const searchCache = new TtlCache<NormalizedFood[]>(10 * 60 * 1000);
+// USDA's generic records change a few times a year, so a search is kept for 6 hours (FOOD-01), bounded in size.
+const searchCache = new TtlCache<NormalizedFood[]>(6 * 60 * 60 * 1000, 500);
+const inFlight = new SingleFlight<NormalizedFood[]>();
 export const _resetUsdaCache = () => searchCache.clear();
 
 export async function searchUsda(query: string, userId?: string, pageSize = 20): Promise<NormalizedFood[]> {
   const key = apiKey();
-  const cacheKey = `${query.toLowerCase()}|${pageSize}`;
+  const cacheKey = searchKey(query, pageSize);
   const cached = searchCache.get(cacheKey);
   if (cached) return cached;
+  return inFlight.run(cacheKey, () => fetchUsdaSearch(query, userId, pageSize, key, cacheKey));
+}
+
+async function fetchUsdaSearch(query: string, userId: string | undefined, pageSize: number, key: string, cacheKey: string): Promise<NormalizedFood[]> {
   // POST, the form the API guide documents for dataType. GET with a dataType query parameter
   // intermittently returned an HTML 400 from nginx, in both encodings; POST never did (see PHASE_2_PROGRESS.md).
   const init = {

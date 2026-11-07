@@ -6,6 +6,14 @@ import { logServerError } from "../safe-log";
 import { MAX_SERVING_AMOUNT, NUTRIENT_KEYS, sanitizePer100, type Nutrients } from "@/lib/nutrition";
 import { getUsdaFood, searchUsda, usdaOrigin } from "./usda";
 import { getOffProduct, offOrigin, searchOff } from "./openfoodfacts";
+import { rankFoods } from "./rank";
+
+/**
+ * Candidates asked of each provider in one request, then ordered by relevance (FOOD-02) and trimmed to what's shown.
+ * A larger pool costs no extra request, and lets the plain food surface when the provider ranks it lower.
+ */
+export const SEARCH_CANDIDATES = { USDA: 50, OPEN_FOOD_FACTS: 40 } as const;
+export const SEARCH_SHOWN = 25;
 import { ExternalFoodError, hasAnyNutrient, type ExternalSource, type NormalizedFood } from "./types";
 
 /** Cached external foods are refreshed from the source after this age. */
@@ -272,8 +280,8 @@ export async function searchFoods(userId: string, query: string, sources: Search
   if (barcode) {
     if (sources.includes("OPEN_FOOD_FACTS")) external.push(["OPEN_FOOD_FACTS", async () => [await getOffProduct(q, userId)]]);
   } else {
-    if (sources.includes("USDA")) external.push(["USDA", () => searchUsda(q, userId)]);
-    if (sources.includes("OPEN_FOOD_FACTS")) external.push(["OPEN_FOOD_FACTS", () => searchOff(q, userId)]);
+    if (sources.includes("USDA")) external.push(["USDA", () => searchUsda(q, userId, SEARCH_CANDIDATES.USDA)]);
+    if (sources.includes("OPEN_FOOD_FACTS")) external.push(["OPEN_FOOD_FACTS", () => searchOff(q, userId, SEARCH_CANDIDATES.OPEN_FOOD_FACTS)]);
   }
   for (const [source, run] of external) {
     tasks.push(
@@ -302,6 +310,8 @@ export async function searchFoods(userId: string, query: string, sources: Search
     const ids = new Map(cached.filter(isTrustedFood).map((c) => [`${c.source}:${c.sourceId}`, c.id]));
     for (const i of ext) i.foodId = ids.get(i.key) ?? null;
   }
+  // Most relevant first, for a text search. A barcode answers with one product, in the provider's order.
+  if (!barcode) for (const s of ["USDA", "OPEN_FOOD_FACTS"] as const) res.results[s] = rankFoods(q, res.results[s]).slice(0, SEARCH_SHOWN);
   // Deduplicate within each source.
   for (const k of Object.keys(res.results) as SearchSource[]) {
     const seen = new Set<string>();

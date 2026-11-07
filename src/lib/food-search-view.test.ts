@@ -138,3 +138,20 @@ describe("local test data is disclosed", () => {
     expect(localTestNotice(["USDA"])).toMatch(/not the full catalog\./);
   });
 });
+
+describe("short queries ask no provider (FOOD-01)", () => {
+  it("under three characters, only My foods is asked, whatever the filter", () => {
+    for (const filter of ["ALL", "USDA", "OPEN_FOOD_FACTS", "CUSTOM"] as const) {
+      expect(sourcesFor(filter, "gr")).toEqual(["CUSTOM"]);
+      expect(sourcesInPath(searchPath(" gr ", filter))).toEqual(["CUSTOM"]);
+    }
+    expect([...sourcesFor("ALL", "gre")].sort()).toEqual(["CUSTOM", "OPEN_FOOD_FACTS", "USDA"]);
+  });
+  it("a two-letter answer is never taken for a longer query's, and says why providers weren't asked", () => {
+    const short = answer("gr", {}, { sources: ["CUSTOM"] });
+    expect(covers(short, "gr", "ALL")).toBe(true);
+    expect(view("gr", "ALL", short)).toMatchObject({ state: "empty", tooShortForProviders: true });
+    expect(covers(answer("gre", {}, { sources: ["CUSTOM"] }), "gre", "ALL")).toBe(false);
+    expect(view("egg", "USDA", answer("egg", {}, { sources: ["CUSTOM", "USDA"] }))).toMatchObject({ tooShortForProviders: false });
+  });
+});

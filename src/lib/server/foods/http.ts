@@ -200,3 +200,23 @@ export class TtlCache<V> {
     this.map.clear();
   }
 }
+
+/** One cache key per meaning: case and runs of spaces don't make a second provider request. */
+export const searchKey = (query: string, pageSize: number) => `${query.trim().toLowerCase().replace(/\s+/g, " ")}|${pageSize}`;
+
+/**
+ * At most one request in flight per key (FOOD-01). A second identical search while the first is still on its way,
+ * from another person or another tab, shares the first one's answer instead of costing another provider request.
+ * A failure is shared too, and isn't kept: the next search after it asks again.
+ */
+export class SingleFlight<V> {
+  private pending = new Map<string, Promise<V>>();
+  run(key: string, fn: () => Promise<V>): Promise<V> {
+    const existing = this.pending.get(key);
+    if (existing) return existing;
+    const p = fn().finally(() => this.pending.delete(key));
+    this.pending.set(key, p);
+    return p;
+  }
+  get size() { return this.pending.size; }
+}

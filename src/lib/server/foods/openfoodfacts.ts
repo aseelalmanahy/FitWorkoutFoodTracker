@@ -10,7 +10,7 @@
  */
 import "server-only";
 import { MAX_SERVING_AMOUNT, sanitizePer100, type Nutrients } from "@/lib/nutrition";
-import { guardedFetchJson, isObject, TtlCache } from "./http";
+import { guardedFetchJson, isObject, searchKey, SingleFlight, TtlCache } from "./http";
 
 /**
  * /search must return an object with a `hits` array. Its own errors arrive as HTTP 200 with
@@ -104,13 +104,19 @@ export function normalizeOffProduct(p: Record<string, unknown>): NormalizedFood 
 
 const OFF_PRODUCT_CODE = /^\d{6,14}$/;
 const headers = () => ({ "User-Agent": userAgent(), Accept: "application/json" });
-const searchCache = new TtlCache<NormalizedFood[]>(10 * 60 * 1000);
+// Open Food Facts changes continually, so a search is kept for an hour (FOOD-01), bounded in size.
+const searchCache = new TtlCache<NormalizedFood[]>(60 * 60 * 1000, 500);
+const inFlight = new SingleFlight<NormalizedFood[]>();
 export const _resetOffCache = () => searchCache.clear();
 
 export async function searchOff(query: string, userId?: string, pageSize = 20): Promise<NormalizedFood[]> {
-  const cacheKey = `${query.toLowerCase()}|${pageSize}`;
+  const cacheKey = searchKey(query, pageSize);
   const cached = searchCache.get(cacheKey);
   if (cached) return cached;
+  return inFlight.run(cacheKey, () => fetchOffSearch(query, userId, pageSize, cacheKey));
+}
+
+async function fetchOffSearch(query: string, userId: string | undefined, pageSize: number, cacheKey: string): Promise<NormalizedFood[]> {
   const q = plainSearchTerms(query);
   if (!q) return [];
   const params = new URLSearchParams({ q, page_size: String(pageSize), langs: "en", fields: OFF_FIELDS });

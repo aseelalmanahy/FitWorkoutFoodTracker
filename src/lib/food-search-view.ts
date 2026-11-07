@@ -6,6 +6,12 @@ import type { SearchResponse, SearchSource } from "@/lib/server/foods/service";
 export type Filter = "ALL" | SearchSource;
 
 export const MIN_QUERY_LENGTH = 2;
+/**
+ * The external providers are asked only from this many characters (FOOD-01). Two letters match too much to be useful
+ * there, and each provider search counts against a small per-person allowance (Open Food Facts: 4 a minute).
+ * My foods, a query on this app's own data, starts at two.
+ */
+export const MIN_EXTERNAL_QUERY_LENGTH = 3;
 
 export const FILTERS: { v: Filter; label: string; description: string }[] = [
   { v: "ALL", label: "All sources", description: "Search across the available sources." },
@@ -52,6 +58,8 @@ export type SearchView =
       elsewhere: { source: SearchSource; count: number }[];
       /** Sources not searched for this filter, so nothing is said about them. */
       unsearched: SearchSource[];
+      /** The query is too short for the external providers, so only My foods was searched. */
+      tooShortForProviders: boolean;
       counts: Partial<Record<SearchSource, number>>;
     };
 
@@ -62,17 +70,18 @@ type SourceError = SearchResponse["errors"][number];
  * My foods is a query on this app's own database, with no provider call, so it comes along: that's what lets an
  * empty filtered view say "Found in My foods" without guessing.
  */
-export function sourcesFor(filter: Filter): SearchSource[] {
+export function sourcesFor(filter: Filter, query?: string): SearchSource[] {
+  if (query !== undefined && query.trim().length < MIN_EXTERNAL_QUERY_LENGTH) return ["CUSTOM"];
   return filter === "ALL" ? [...SOURCE_ORDER] : filter === "CUSTOM" ? ["CUSTOM"] : ["CUSTOM", filter];
 }
 
 /** The search request for a query and filter. Only the filter's sources are named, so only they are searched. */
 export function searchPath(query: string, filter: Filter): string {
-  return `/api/foods/search?q=${encodeURIComponent(query.trim())}&sources=${sourcesFor(filter).join(",")}`;
+  return `/api/foods/search?q=${encodeURIComponent(query.trim())}&sources=${sourcesFor(filter, query).join(",")}`;
 }
 
 /** Identifies one request, so a failure is shown only against the same query and sources. */
-export const requestKey = (query: string, filter: Filter) => `${query.trim()}|${sourcesFor(filter).join(",")}`;
+export const requestKey = (query: string, filter: Filter) => `${query.trim()}|${sourcesFor(filter, query).join(",")}`;
 
 /** The answer is for exactly this query. The server trims the query as the client does, so they compare directly. */
 export const isCurrent = (data: SearchResponse | null, query: string): data is SearchResponse =>
@@ -80,7 +89,7 @@ export const isCurrent = (data: SearchResponse | null, query: string): data is S
 
 /** The answer is for this query and searched every source this filter needs, so it can be shown without asking again. */
 export const covers = (data: SearchResponse | null, query: string, filter: Filter): data is SearchResponse =>
-  isCurrent(data, query) && sourcesFor(filter).every((s) => data.sources.includes(s));
+  isCurrent(data, query) && sourcesFor(filter, query).every((s) => data.sources.includes(s));
 
 export function searchView(args: { query: string; filter: Filter; data: SearchResponse | null; failure: { key: string; message: string } | null }): SearchView {
   const q = args.query.trim();
@@ -106,7 +115,7 @@ export function searchView(args: { query: string; filter: Filter; data: SearchRe
     : kind === "partly" ? "Search is partly unavailable"
     : data.barcode ? `No product matches barcode ${q}${args.filter === "ALL" ? "" : ` in ${SOURCE_LABEL[args.filter]}`}`
     : NO_MATCH[args.filter](q);
-  return { state: "empty", kind, title, unavailable, elsewhere, unsearched, counts };
+  return { state: "empty", kind, title, unavailable, elsewhere, unsearched, counts, tooShortForProviders: q.length < MIN_EXTERNAL_QUERY_LENGTH };
 }
 
 /** Wording for the local stand-in, so the demo never suggests it holds the real catalogs. */
