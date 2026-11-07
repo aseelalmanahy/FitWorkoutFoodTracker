@@ -130,6 +130,8 @@ const SUITES = {
   // By hand, once the demo account exists. It signs in with the password in demo-account.local.md, which it never prints.
   "demo-account-e2e": () => withApp("demo-account-e2e", {}, ({ url }) => runNode([script("e2e-demo-account.cjs")], { BASE_URL: url, SHOTS_DIR: LOGS }, 590_000)),
   "guard-browser": () => runNode(nodeTest("test-target-guard.browser.test.cjs"), { DATABASE_URL: "" }, 300_000),
+  // RC-02: no database or app; stand-in processes only.
+  "server-lifecycle": () => runNode(nodeTest("server-lifecycle.test.cjs"), { DATABASE_URL: "" }, 120_000),
   units: () => runNode(nodeTest("live-check.units.test.cjs"), {}, 120_000),
   "live-identity": () => withoutMarkerWrite(() => runNode(nodeTest("live-check.identity.test.cjs"), {}, 300_000)),
   "nutrition-api": () => withApp("nutrition-api", { appEnv: MANY }, ({ url, stubUrl, serverLog }) => runNode(nodeTest("nutrition-api.test.cjs"), { BASE_URL: url, FDC_BASE_URL: `${stubUrl}/fdc/v1`, SERVER_LOG_FILE: serverLog }, 300_000)),
