@@ -2,6 +2,7 @@ import { LegalLinks } from "@/components/legal-links";
 import { redirect } from "next/navigation";
 import { getCurrentUser } from "@/lib/server/auth";
 import { AuthForm } from "../auth-form";
+import { WelcomeLayout } from "../welcome-layout";
 
 export const metadata = { title: "Log in" };
 
@@ -14,9 +15,9 @@ export default async function LoginPage({ searchParams }: { searchParams: Promis
     : params.reset === "1" ? "Your password was changed. Log in with the new one."
     : undefined;
   return (
-    <>
+    <WelcomeLayout>
       <AuthForm notice={notice} />
-      <LegalLinks className="-mt-4 pb-8" />
-    </>
+      <LegalLinks className="mt-8" />
+    </WelcomeLayout>
   );
 }

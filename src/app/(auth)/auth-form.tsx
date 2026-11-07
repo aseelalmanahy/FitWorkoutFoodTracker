@@ -27,9 +27,8 @@ export function AuthForm({ notice }: { notice?: string }) {
   }
 
   return (
-    <div className="mx-auto flex min-h-dvh max-w-sm flex-col justify-center px-5 py-10">
+    <div>
       <div className="mb-8">
-        <div className="mb-6 grid h-12 w-12 place-items-center rounded-2xl bg-accent text-xl font-black text-accent-fg">F</div>
         <h1 className="text-3xl font-bold tracking-tight">Welcome back</h1>
         <p className="mt-1 text-muted">Log in to continue your training.</p>
         {notice && <p role="status" className="mt-2 text-sm font-medium">{notice}</p>}

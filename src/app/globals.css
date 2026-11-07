@@ -31,6 +31,11 @@
   --chart-4: #7e6ea6;     /* fourth: muted violet */
   --chart-grid: #e3e7ed;
   --shadow: 0 1px 2px rgb(26 31 39 / 0.04), 0 4px 16px rgb(26 31 39 / 0.04);
+  /* Welcome panel: deep slate in both themes. Text 12.7:1, secondary text 7.3:1. */
+  --hero: #1f2b3a;
+  --hero-fg: #eef1f5;
+  --hero-muted: #aebacb;
+  --hero-accent: #e8c9b0;
   color-scheme: light;
 }
 
@@ -60,6 +65,10 @@
     --chart-4: #b8aada;
     --chart-grid: #232a34;
     --shadow: none;
+    --hero: #18212d;
+    --hero-fg: #eef1f5;
+    --hero-muted: #aebacb;
+    --hero-accent: #e8c9b0;
     color-scheme: dark;
   }
 }
@@ -88,6 +97,10 @@
   --chart-4: #b8aada;
   --chart-grid: #232a34;
   --shadow: none;
+  --hero: #18212d;
+  --hero-fg: #eef1f5;
+  --hero-muted: #aebacb;
+  --hero-accent: #e8c9b0;
   color-scheme: dark;
 }
 
@@ -112,6 +125,10 @@
   --color-chart-2: var(--chart-2);
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
+  --color-hero: var(--hero);
+  --color-hero-fg: var(--hero-fg);
+  --color-hero-muted: var(--hero-muted);
+  --color-hero-accent: var(--hero-accent);
   --font-sans: ui-sans-serif, system-ui, -apple-system, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", Inter, Roboto, sans-serif;
   --font-display: ui-sans-serif, system-ui, -apple-system, "SF Pro Display", "Segoe UI Variable Display", "Segoe UI", Inter, Roboto, sans-serif;
 }

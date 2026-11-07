@@ -27,8 +27,8 @@ export function WelcomeArt(props: SVGProps<SVGSVGElement>) {
       {[[70, 250, 46], [140, 228, 68], [210, 206, 90], [280, 180, 116], [350, 150, 146]].map(([x, y, h], i) => (
         <rect key={i} x={x} y={y} width="34" height={h} rx="10" fill="currentColor" fillOpacity={0.08 + i * 0.03} />
       ))}
-      <path d="M60 236 C 140 222, 200 196, 268 168 S 380 110, 420 92" stroke="var(--accent-2-soft)" strokeWidth="3" strokeLinecap="round" />
-      <circle cx="420" cy="92" r="7" fill="var(--accent-2-soft)" />
+      <path d="M60 236 C 140 222, 200 196, 268 168 S 380 110, 420 92" stroke="var(--hero-accent)" strokeWidth="3" strokeLinecap="round" />
+      <circle cx="420" cy="92" r="7" fill="var(--hero-accent)" />
     </svg>
   );
 }
