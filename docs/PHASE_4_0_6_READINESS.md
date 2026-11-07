@@ -18,31 +18,37 @@ It was built on `feature/phase-4.0.6-readiness`, from `main` at `5434f90`. **So 
 | Error handling | Verified locally | `hardening`, `provider-malformed` 4, `provider-protection` 7. T-18, a real page-render failure, is still unobserved |
 | Security headers | Verified locally | `production-security`, `production-security-e2e`, in three browsers. Over HTTP on loopback, so HTTPS behaviour is only what `production-https` 3 shows |
 | Production startup | Verified locally | `production-startup` 17, `release-workflow` 8. It says nothing about a real host |
-| Database isolation | Verified locally | `guard` 51, `guard-browser` 21, `live-identity` 9. Every run checked the database's name and marker |
+| Database isolation | Verified locally, **except T-14** | `guard` 51, `guard-browser` 21, `live-identity` 9. Every run checked the database's name and marker. **`safety-no-marker` and `db-guard-scoped` weren't run,** as they connect to `fitdb_test_other`, which is off limits |
 | Performance | Measured, for one person on one machine | Below |
 
-**The regression at `ad015f0`: 34 of 35 suites passed, with `e2e-smoke` failing once, below.** Unit tests 1,618 of 1,618, and type check and build clean. Since then, only `e2e-readiness.cjs` and the sign-up helper's error path changed, and `readiness-e2e` and `e2e-smoke` were rerun on them. Lowest available memory in the regression was 15.6 GB, with one step at a time.
+**The regression at `d363e4c`: 35 of 35 suites passed, one step at a time, with memory never below 15.5 GB.** Unit tests 1,620 of 1,620, with type check and build clean. An earlier run at `ad015f0` had one failure, below. **`safety-no-marker` and `db-guard-scoped` weren't run (T-14).** Four migration suites weren't run either, as they apply to earlier migrations.
 
-**Deliberate defects:** 18 of 18 at unit level, and 9 of 9 in a real browser against a rebuilt server, each by a failed assertion. Two of the browser ones first failed for the wrong reasons, a wait running out and a build error, and neither was counted. They were corrected and rerun.
+**Deliberate defects:** 25 of 25 at unit level, and 16 of 16 in a real browser against a rebuilt server, each by a failed assertion. Several first failed for the wrong reasons, a wait running out, a build error or an out-of-date pattern, and none of those was counted. They were corrected and rerun. One older control no longer applied once the code it broke was replaced, and another now covers that defect.
+
+**Security:** a read-only agent reviewed `5763413`. **Its findings are addressed in `d363e4c`, which no agent has re-read.** The most serious was in a test: `readiness-performance`'s cleanup could have removed every person's rows on `fitdb_test` if its setup had failed. It hadn't, and the 10 QA accounts are intact. Independent source review is still to come.
 
 ## Defects corrected here
 
 | Defect | Fix | Tests |
 |---|---|---|
-| **A day or meal whose foods report no value for a nutrient showed 0.** This broke "missing nutrition stays null, never 0" | Totals are null when entries exist and none reports the nutrient. An empty day is still 0, as nothing was eaten. Pages show a dash. Remaining calories aren't worked out from an unknown amount. Averages leave such days out, and they aren't called below target | `nutrition.test.ts`, `nutrition-api`, `readiness-e2e` |
-| **A lost response could log a set twice (S-07).** Someone in a gym with a bad connection sees an error, taps again, and has two sets | Logging a set takes an idempotency key, with the method already used for food. It needs no migration. Trying again returns the saved set, and the same key with different values is refused | `workout-sets.test.ts`, `workout-sets`, `readiness-e2e`, which saves a set, loses the response, and retries |
+| **A day or meal whose foods report no value for a nutrient showed 0.** This broke "missing nutrition stays null, never 0" | Totals are null when entries exist and none reports the nutrient, and so is anything worked out from them. An empty day is still 0, as nothing was eaten. Pages show a dash. Averages leave such days out |
+| **A day with some foods missing a nutrient was treated as complete.** It could be called "below target", and "kcal left" had no mark | A partial total is a lower bound, so it can show a target was reached, and can't show one was missed. Those days aren't counted in protein consistency. What's left is marked, and history says "incomplete" | `nutrition.test.ts`, `readiness-e2e` | `nutrition.test.ts`, `nutrition-api`, `readiness-e2e` |
+| **A lost response could log a set twice (S-07).** Someone in a gym with a bad connection sees an error, taps again, and has two sets | Logging a set takes an idempotency key, with the method already used for food. It needs no migration. Trying again returns the saved set, and the same key with different values is refused. After a lost response, the page re-reads the workout, so it usually finds the saved set without anyone retrying. A second Enter is ignored | `workout-sets.test.ts`, `workout-sets`, `readiness-e2e`, which saves a set, loses the response, and retries |
+| **A retry or a second tab could add a set to a finished workout,** changing its records. Nothing in the app offers that on purpose | New sets are refused once it's finished. An honest retry still gets the set it saved | `workout-sets` |
 | **`GET /api/exercises/{id}/previous` answered 200 null for another person's exercise,** where `/history` answers 404. No data leaked | Both answer 404 | `workout-sets` |
 
-**Limits of the S-07 fix:** if someone changes the values after a lost response, and the first attempt did save, the app says so, and they have to reload to see that set. A deliberate second set gets a new key. A screen lock between sets, and a network drop on a real phone, are still R-13.
+**Limits of the S-07 fix:** a key lasts until its set is known to be saved. If the answer is lost and the re-read fails too, then someone who ignores the message, does a second set with the same values and taps once the connection is back gets the first set returned. So one row stands for two real sets. A screen lock between sets, and a network drop on a real phone, are still R-13.
+
+**Also limits, not fixed here:** weekly averages count a partly reported day as a whole day. Sets racing with different keys can share a set number, as they could before, and a constraint would need a migration. If the page's client code fails to load, the emailed link's page shows only its heading, with no message.
 
 ## Unexplained failure
 
 **`e2e-smoke` failed once in the full regression at `ad015f0`, with no change to application code since, and that run is not counted as a pass.** It waited 30 seconds for the password field on the emailed link's page, during its second sign-up.
 
-- **It didn't recur.** It then passed 25 of 25 reruns, 10 of them directly after the suite that ran before it, and the page showed its form on 420 of 420 loads with a fake token, with up to 16 at once.
-- **The cause is unknown.** Memory wasn't low (lowest 17.5 GB in that step), and the server log shows no error. Nothing shows what the page displayed, so it can't be ruled out that a real person could see this.
+- **It didn't recur.** It then passed 25 of 25 reruns, 10 of them directly after the suite that ran before it, and the regression at `d363e4c`, and the page showed its form on 420 of 420 loads with a fake token, with up to 16 at once. Those loads didn't follow the real sequence of a sign-up and an emailed link.
+- **The cause is unknown.** Memory wasn't low (lowest 17.5 GB in that step). The server log shows no error, which rules out little, as a failed script or a guard-proxy error wouldn't reach it. Nothing shows what the page displayed. Three states fit: its client code never finished loading, the response wasn't the page, or the token was lost. A read-only review of the code found no mechanism for losing the token, and that doesn't prove it can't happen. So it can't be ruled out that a real person could see this.
 - **What it could mean for a person:** if that page were to lose its token, they'd see "This link isn't complete", and need a new link. Nothing suggests that's what happened, and nothing rules it out.
-- **The sign-up helper now reports what the page showed,** so another occurrence says more. Tracked as T-25.
+- **The sign-up helper now reports the response status, what the page showed, and any script errors or failed requests,** so another occurrence can tell those apart. Tracked as T-25.
 
 ## Performance
 
@@ -74,7 +80,7 @@ The 10 QA accounts were read in the fixture run at `7ee5498`, where the slowest 
 | Reviewers | Legal review of the notice, clinical review of safeguards, including 800 kcal still being accepted | R-02, R-03, R-12, H-01 on the 4.0.5 branch |
 | The owner's authorization | MIG-04 on `fitdb_test`, merging 4.0.5, 4.1 and this branch, a real week of use, the signed checklist, the database reset | J-02, K-01 |
 
-**`fitdb_test` holds about 5,150 leftover test users from earlier suite runs,** besides the 10 QA accounts, which are intact. They don't affect these results, and they weren't removed, as nothing here authorizes that.
+**`fitdb_test` holds about 5,300 leftover test users from suite runs, and each regression adds about 90,** besides the 10 QA accounts, which are intact. They don't affect these results, and they weren't removed, as nothing here authorizes that.
 
 ## Phase 4.2 requirements
 
