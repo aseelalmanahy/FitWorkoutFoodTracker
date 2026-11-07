@@ -133,7 +133,8 @@ export function FoodSearch({ date, today, initialMeal, embedded }: {
           </div>
         )}
         <Input type="search" placeholder="Search foods or enter a barcode" value={q} onChange={(e) => setQ(e.target.value)} autoFocus={!embedded} aria-label="Search foods" />
-        <div className="mt-2 flex gap-1.5 overflow-x-auto" role="group" aria-label="Food source" aria-describedby="food-source-help">
+        {/* relative: the chips' screen-reader text is positioned, and must be clipped by this row's own scrolling, not widen the page. */}
+        <div className="relative mt-2 flex gap-1.5 overflow-x-auto" role="group" aria-label="Food source" aria-describedby="food-source-help">
           {FILTERS.map((f) => (
             <button key={f.v} type="button" onClick={() => setFilter(f.v)} aria-pressed={filter === f.v} data-testid="food-filter" data-filter={f.v}
               className={cx("inline-flex h-8 shrink-0 items-center gap-1 rounded-full border px-3 text-xs font-medium transition",

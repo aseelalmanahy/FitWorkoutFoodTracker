@@ -48,9 +48,9 @@ export default async function ProgressPage() {
       {rows.length === 0 ? (
         <EmptyState title="No progress data yet" body="Complete a workout to start tracking progressive overload and personal records." action={<ButtonLink href="/workouts">Go to workouts</ButtonLink>} />
       ) : (
-        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
           {rows.map((r) => (
-            <Link key={r.exercise.id} href={`/progress/${r.exercise.id}`} className="flex items-center gap-3 rounded-2xl border border-line bg-surface px-4 py-3 transition hover:border-accent/40">
+            <Link key={r.exercise.id} href={`/progress/${r.exercise.id}`} className="flex min-w-0 items-center gap-3 rounded-2xl border border-line bg-surface px-4 py-3 transition hover:border-accent/40">
               <div className="min-w-0 flex-1">
                 <p className="truncate font-semibold">{r.exercise.name}</p>
                 <p className="num truncate text-xs text-muted">

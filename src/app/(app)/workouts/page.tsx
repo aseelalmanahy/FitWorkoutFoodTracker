@@ -78,11 +78,11 @@ export default async function WorkoutsPage() {
       {plans.length === 0 ? (
         <EmptyState title="No workout plans yet" body="Create a plan like “Upper Body” with exercises, target sets, reps and weights." action={<ButtonLink href="/workouts/plans/new">Create a plan</ButtonLink>} />
       ) : (
-        <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-1">
+        <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-1">
           {plans.map((p) => (
-            <Card key={p.id} className="flex items-center gap-3 p-4">
+            <Card key={p.id} className="flex min-w-0 items-center gap-3 p-4">
               <Link href={`/workouts/plans/${p.id}`} className="min-w-0 flex-1">
-                <p className="font-semibold">{p.name}</p>
+                <p className="font-semibold break-words">{p.name}</p>
                 <p className="truncate text-sm text-muted">{p.exercises.length ? p.exercises.map((e) => e.exercise.name).join(" · ") : "No exercises"}</p>
               </Link>
               {!active && p.exercises.length > 0 && (
