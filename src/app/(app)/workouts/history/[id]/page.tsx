@@ -76,12 +76,22 @@ export default async function SessionDetailPage({ params, searchParams }: { para
                   </li>
                 ))}
               </ul>
-              {e.notes && <p className="mt-2 rounded-lg bg-surface-2 px-3 py-2 text-sm text-muted">{e.notes}</p>}
+              {e.notes && (
+                <div className="mt-3 rounded-xl bg-surface-2 px-3 py-2" data-testid="history-exercise-note">
+                  <p className="text-[11px] font-semibold uppercase tracking-wide text-muted">Exercise note</p>
+                  <p className="mt-0.5 whitespace-pre-line text-sm">{e.notes}</p>
+                </div>
+              )}
             </Card>
           );
         })}
       </div>
-      {session.notes && <Card className="mt-3 p-4 text-sm text-muted">{session.notes}</Card>}
+      {session.notes && (
+        <Card className="mt-3 p-4 lg:max-w-3xl" data-testid="history-workout-notes">
+          <h2 className="text-xs font-semibold uppercase tracking-wider text-muted">Workout notes</h2>
+          <p className="mt-1 whitespace-pre-line text-sm">{session.notes}</p>
+        </Card>
+      )}
 
       <div className="mx-auto mt-5 max-w-xl space-y-2">
         <StartWorkoutButton source={{ fromSessionId: session.id }} size="lg" className="w-full">Repeat this workout</StartWorkoutButton>

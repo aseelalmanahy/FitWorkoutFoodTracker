@@ -34,11 +34,18 @@ interface Props {
   startedAt: string;
   units: UnitSystem;
   initial: LoggerExercise[];
+  /** The workout's own notes, as already saved. */
+  initialNotes?: string | null;
 }
 
 const DEFAULT_REST = 90;
+/** The longest note the API accepts, for both exercise and workout notes. */
+export const NOTE_MAX = 1000;
 
-export function WorkoutLogger({ sessionId, name, startedAt, units, initial }: Props) {
+type SaveState = "idle" | "saving" | "saved" | "failed";
+const SAVE_STATE_TEXT: Record<SaveState, string> = { idle: "", saving: "Saving…", saved: "Saved", failed: "Not saved. Try again." };
+
+export function WorkoutLogger({ sessionId, name, startedAt, units, initial, initialNotes }: Props) {
   const router = useRouter();
   const [exercises, setExercises] = useState(initial);
   const [error, setError] = useState<string | null>(null);
@@ -46,6 +53,10 @@ export function WorkoutLogger({ sessionId, name, startedAt, units, initial }: Pr
   const [busy, setBusy] = useState(false);
   const [now, setNow] = useState(() => Date.now());
   const [restEnd, setRestEnd] = useState<number | null>(null);
+  // Workout notes: how the whole session went. Separate from each exercise's own note.
+  const [sessionNotes, setSessionNotes] = useState(initialNotes ?? "");
+  const [savedSessionNotes, setSavedSessionNotes] = useState(initialNotes ?? "");
+  const [sessionNotesState, setSessionNotesState] = useState<SaveState>("idle");
 
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 1000);
@@ -160,6 +171,15 @@ export function WorkoutLogger({ sessionId, name, startedAt, units, initial }: Pr
   async function saveExerciseMeta(ex: LoggerExercise, patch: { notes?: string | null; restSeconds?: number | null }) {
     const ok = await run(() => api("PATCH", `${base}/${ex.id}`, patch));
     if (ok) patchEx(ex.id, (e) => ({ ...e, ...patch }));
+    return Boolean(ok);
+  }
+
+  async function saveSessionNotes() {
+    const value = sessionNotes.trim();
+    if (value === savedSessionNotes.trim()) return;
+    setSessionNotesState("saving");
+    const ok = await run(() => api("PATCH", `/api/sessions/${sessionId}`, { notes: value || null }));
+    if (ok) { setSavedSessionNotes(value); setSessionNotesState("saved"); } else setSessionNotesState("failed");
   }
 
   async function finish() {
@@ -170,7 +190,9 @@ export function WorkoutLogger({ sessionId, name, startedAt, units, initial }: Pr
     const skipped = exercises.filter((e) => e.sets.length === 0).length;
     if (!confirm(skipped ? `Finish workout? ${skipped} exercise(s) with no sets will be removed.` : "Finish workout?")) return;
     setBusy(true);
-    const ok = await run(() => api("PATCH", `/api/sessions/${sessionId}`, { finish: true }));
+    // Unsaved workout notes are saved with the finish itself, under the same lock.
+    const notesChanged = sessionNotes.trim() !== savedSessionNotes.trim();
+    const ok = await run(() => api("PATCH", `/api/sessions/${sessionId}`, notesChanged ? { finish: true, notes: sessionNotes.trim() || null } : { finish: true }));
     if (ok) {
       router.replace(`/workouts/history/${sessionId}?done=1`);
       router.refresh();
@@ -223,6 +245,14 @@ export function WorkoutLogger({ sessionId, name, startedAt, units, initial }: Pr
         <Button variant="secondary" size="lg" className="w-full" onClick={() => setPicker(true)}>
           <PlusIcon width={18} height={18} /> Add exercise
         </Button>
+        <Card className="p-4" data-testid="workout-notes">
+          <label htmlFor="workout-notes" className="block font-semibold">Workout notes</label>
+          <p id="workout-notes-help" className="mt-0.5 text-xs text-muted">How the whole workout went: energy, difficulty, anything to remember next time. Optional. For one exercise, use its own note.</p>
+          <Textarea id="workout-notes" className="mt-2" maxLength={NOTE_MAX} aria-describedby="workout-notes-help workout-notes-status"
+            placeholder="For example: felt strong, short on time, gym was busy…"
+            value={sessionNotes} onChange={(e) => { setSessionNotes(e.target.value); setSessionNotesState("idle"); }} onBlur={() => void saveSessionNotes()} />
+          <p id="workout-notes-status" className={cx("mt-1 min-h-4 text-xs", sessionNotesState === "failed" ? "text-down" : "text-muted")} aria-live="polite">{SAVE_STATE_TEXT[sessionNotesState]}</p>
+        </Card>
         <Button variant="ghost" className="w-full text-down" onClick={discard} disabled={busy}>Discard workout</Button>
       </div>
 
@@ -260,7 +290,7 @@ function ExerciseCard({ ex, units, first, last, onLog, onUpdate, onDelete, onRem
   onDelete: (s: LoggedSet) => void;
   onRemove: () => void;
   onMove: (d: "up" | "down") => void;
-  onMeta: (p: { notes?: string | null; restSeconds?: number | null }) => void;
+  onMeta: (p: { notes?: string | null; restSeconds?: number | null }) => Promise<boolean>;
 }) {
   const mu = massUnit(units);
   const working = ex.sets.filter((s) => !s.isWarmup);
@@ -277,8 +307,25 @@ function ExerciseCard({ ex, units, first, last, onLog, onUpdate, onDelete, onRem
   const [warmup, setWarmup] = useState(false);
   const [invalid, setInvalid] = useState(false);
   const [busy, setBusy] = useState(false);
-  const [showMeta, setShowMeta] = useState(false);
+  const [showRest, setShowRest] = useState(false);
+  const [editingNote, setEditingNote] = useState(false);
   const [notes, setNotes] = useState(ex.notes ?? "");
+  const [noteState, setNoteState] = useState<SaveState>("idle");
+  const noteId = `exercise-note-${ex.id}`;
+
+  // Choosing Done also blurs the box, so both ask to save: they share one request.
+  const pendingNote = useRef<Promise<boolean> | null>(null);
+  function saveNote(): Promise<boolean> {
+    if (pendingNote.current) return pendingNote.current;
+    const value = notes.trim();
+    if (value === (ex.notes ?? "").trim()) return Promise.resolve(true);
+    setNoteState("saving");
+    pendingNote.current = onMeta({ notes: value || null }).then((ok) => {
+      setNoteState(ok ? "saved" : "failed");
+      return ok;
+    }).finally(() => { pendingNote.current = null; });
+    return pendingNote.current;
+  }
   const [rest, setRest] = useState(ex.restSeconds != null ? String(ex.restSeconds) : "");
 
   const comparison = useMemo(() => {
@@ -351,9 +398,34 @@ function ExerciseCard({ ex, units, first, last, onLog, onUpdate, onDelete, onRem
 
       {invalid && <p className="px-4 pb-2 text-xs text-down" role="alert" data-testid="set-input-error">Enter the weight and reps as plain numbers, such as 62.5 and 8. Nothing was logged.</p>}
 
+      <div className="border-t border-line px-4 py-3" data-testid="exercise-note">
+        {editingNote ? (
+          <div>
+            <label htmlFor={noteId} className="block text-sm font-semibold">Exercise note</label>
+            <p id={`${noteId}-help`} className="mt-0.5 text-xs text-muted">How {ex.exercise.name} felt: difficulty, form, cues, seat height. Shown in its history.</p>
+            <Textarea id={noteId} className="mt-2" maxLength={NOTE_MAX} autoFocus aria-describedby={`${noteId}-help ${noteId}-status`}
+              placeholder="For example: last set was hard, keep elbows tucked…"
+              value={notes} onChange={(e) => { setNotes(e.target.value); setNoteState("idle"); }} onBlur={() => void saveNote()} />
+            <div className="mt-1 flex items-center justify-between gap-2">
+              <p id={`${noteId}-status`} className={cx("min-h-4 text-xs", noteState === "failed" ? "text-down" : "text-muted")} aria-live="polite">{SAVE_STATE_TEXT[noteState]}</p>
+              <Button size="sm" variant="secondary" onClick={async () => { if (await saveNote()) setEditingNote(false); }}>Done</Button>
+            </div>
+          </div>
+        ) : ex.notes ? (
+          <button type="button" onClick={() => setEditingNote(true)} className="block w-full rounded-xl bg-surface-2 px-3 py-2 text-left" aria-label={`Edit exercise note for ${ex.exercise.name}`}>
+            <span className="block text-[11px] font-semibold uppercase tracking-wide text-muted">Exercise note</span>
+            <span className="mt-0.5 block whitespace-pre-line text-sm text-fg">{ex.notes}</span>
+          </button>
+        ) : (
+          <Button variant="ghost" size="sm" className="-ml-2 text-accent-ink" onClick={() => setEditingNote(true)}>
+            <PlusIcon width={16} height={16} /> Add a note on how it felt
+          </Button>
+        )}
+      </div>
+
       <div className="flex items-center justify-between border-t border-line px-2 py-1">
-        <Button variant="ghost" size="sm" className="text-muted" onClick={() => setShowMeta((v) => !v)}>
-          {ex.notes ? "Notes ✓" : "Notes"} · Rest {ex.restSeconds ?? DEFAULT_REST}s
+        <Button variant="ghost" size="sm" className="text-muted" aria-expanded={showRest} onClick={() => setShowRest((v) => !v)}>
+          <TimerIcon width={15} height={15} /> Rest {ex.restSeconds ?? DEFAULT_REST}s
         </Button>
         <div className="flex">
           <Button variant="ghost" size="sm" aria-label="Move up" onClick={() => onMove("up")} disabled={first}>↑</Button>
@@ -361,10 +433,8 @@ function ExerciseCard({ ex, units, first, last, onLog, onUpdate, onDelete, onRem
           <Button variant="ghost" size="sm" aria-label={`Remove ${ex.exercise.name}`} onClick={onRemove}><TrashIcon width={16} height={16} /></Button>
         </div>
       </div>
-      {showMeta && (
+      {showRest && (
         <div className="space-y-2 border-t border-line p-4">
-          <Textarea placeholder="Exercise notes (seat height, cues, how it felt…)" value={notes} onChange={(e) => setNotes(e.target.value)}
-            onBlur={() => notes !== (ex.notes ?? "") && onMeta({ notes: notes.trim() || null })} />
           <label className="flex items-center gap-2 text-sm">
             Rest timer (sec)
             <Input inputMode="numeric" className="w-24" value={rest} placeholder={String(DEFAULT_REST)} onChange={(e) => setRest(e.target.value)}

@@ -37,7 +37,7 @@ export default async function SessionPage({ params }: { params: Promise<{ id: st
   // The logger stays one focused column on every screen: it's a task, and wider wouldn't help.
   return (
     <Page width="focused">
-      <WorkoutLogger sessionId={id} name={session.name} startedAt={session.startedAt.toISOString()} units={profile.unitSystem} initial={initial} />
+      <WorkoutLogger sessionId={id} name={session.name} startedAt={session.startedAt.toISOString()} units={profile.unitSystem} initial={initial} initialNotes={session.notes} />
     </Page>
   );
 }
