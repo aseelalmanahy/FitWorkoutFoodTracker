@@ -1,6 +1,8 @@
 // Runs the local review environment: this folder's production build, on fitdb_review, with the real USDA FoodData
 // Central and Open Food Facts services, served only on this machine. Leave the window open; Ctrl+C stops it.
-//   node --env-file=.env.review scripts/review-server.cjs --confirm=fitdb_review
+//   node --env-file=.env.review scripts/review-server.cjs --confirm=fitdb_review [--port=3003]
+// --port=3003 runs a candidate build from another folder beside the stable one on 3002, on the same database. Only
+// those two ports are accepted.
 // Needs a production build, and fitdb_review prepared with scripts/local-db.cjs. Registration stays closed, no email
 // is sent, and paid AI stays off. The app's own startup check refuses anything else, and so does this first.
 "use strict";
@@ -11,13 +13,17 @@ const { spawn } = require("node:child_process");
 const { REVIEW_MARKER, localDatabaseProblem, envFileProblem, readLocalIdentity, scrubber } = require("./lib/local-databases.cjs");
 
 const NAME = "fitdb_review";
-const PORT = 3002;
+const PORTS = ["3002", "3003"];
 const ROOT = path.join(__dirname, "..");
 const NEXT_BIN = path.join(ROOT, "node_modules", "next", "dist", "bin", "next");
 const refuse = (m) => { console.error(`REFUSED (nothing was started): ${m}`); process.exit(4); };
 
 const args = process.argv.slice(2);
-if (args.length !== 1 || args[0] !== `--confirm=${NAME}`) refuse(`use --confirm=${NAME}.`);
+const portArg = args.find((a) => a.startsWith("--port="));
+if (args[0] !== `--confirm=${NAME}` || args.length > 2 || (args.length === 2 && !portArg)) refuse(`use --confirm=${NAME}, and optionally --port=3003.`);
+const portValue = portArg ? portArg.slice("--port=".length) : "3002";
+if (!PORTS.includes(portValue)) refuse(`the port can only be ${PORTS.join(" or ")}.`);
+const PORT = Number(portValue);
 const fileProblem = envFileProblem(NAME);
 if (fileProblem) refuse(fileProblem);
 const DB = process.env.DATABASE_URL;
