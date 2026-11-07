@@ -19,6 +19,8 @@ const f = vi.hoisted(() => ({
   inTx: false,
   /** The workout's row has gone by the time the lock looks for it. */
   gone: false,
+  /** What the transaction fails with, as when the database is too busy. */
+  failure: null as unknown,
   dropped: 0,
   updated: null as unknown,
 }));
@@ -38,6 +40,7 @@ vi.mock("@/lib/server/db", () => ({
   prisma: {
     $transaction: async (fn: (tx: unknown) => Promise<unknown>) => {
       const { prisma } = await import("@/lib/server/db");
+      if (f.failure) throw f.failure;
       return fn(throughTx(prisma));
     },
     $executeRaw: async (strings: TemplateStringsArray) => { f.events.push(`${f.inTx ? "tx" : "outside"}:limit`); expect(strings.join("")).toMatch(/SET LOCAL lock_timeout/); return 0; },
@@ -87,7 +90,7 @@ const SET = { weightKg: 60, reps: 8, isWarmup: false };
 const params = { id: "s", seId: "se" };
 const sets = () => import("@/app/api/sessions/[id]/exercises/[seId]/sets/route");
 
-beforeEach(() => { f.rows = []; f.user = "me"; f.visible = true; f.status = "IN_PROGRESS"; f.raceWith = null; f.next = 0; f.events = []; f.inTx = false; f.gone = false; f.dropped = 0; f.updated = null; });
+beforeEach(() => { f.rows = []; f.user = "me"; f.visible = true; f.status = "IN_PROGRESS"; f.raceWith = null; f.next = 0; f.events = []; f.inTx = false; f.gone = false; f.failure = null; f.dropped = 0; f.updated = null; });
 
 describe("logging a set", () => {
   it("a retry with the same key returns the set that was saved, and adds nothing", async () => {
@@ -112,6 +115,14 @@ describe("logging a set", () => {
     const { POST } = await sets();
     f.gone = true;
     expect((await POST(post(SET), ctx(params))).status).toBe(404);
+    expect(f.rows).toEqual([]);
+  });
+  it.each([["ran out of time", "P2028"], ["found no free connection", "P2024"]])("a transaction that %s says to try again, with nothing saved", async (_name, code) => {
+    const { POST } = await sets();
+    f.failure = new Prisma.PrismaClientKnownRequestError("busy", { code, clientVersion: "test" });
+    const res = await POST(post(SET, KEY), ctx(params));
+    expect(res.status).toBe(503);
+    expect(res.headers.get("Retry-After")).toBe("5");
     expect(f.rows).toEqual([]);
   });
   it("a second attempt that loses a race returns the first, and adds nothing", async () => {

@@ -60,10 +60,13 @@ type Ctx<P> = { params: Promise<P> };
 const isLockTimeout = (err: unknown) =>
   (err instanceof Prisma.PrismaClientKnownRequestError || err instanceof Prisma.PrismaClientUnknownRequestError) && /\b55P03\b|lock timeout/.test(err.message);
 
+/** No connection came free (P2024), or a transaction ran out of time and rolled back (P2028). */
+const isBusy = (err: unknown) => err instanceof Prisma.PrismaClientKnownRequestError && (err.code === "P2024" || err.code === "P2028");
+
 function handleError(err: unknown) {
   if (err instanceof HttpError) return jsonError(err.status, err.message, err.details, err.headers);
   if (err instanceof ZodError) return jsonError(400, "Invalid input", z.flattenError(err));
-  if (isLockTimeout(err)) return jsonError(503, "This is taking longer than usual, and nothing was changed. Try again shortly.", undefined, { "Retry-After": "5" });
+  if (isLockTimeout(err) || isBusy(err)) return jsonError(503, "This is taking longer than usual, and nothing was changed. Try again shortly.", undefined, { "Retry-After": "5" });
   if (err instanceof Prisma.PrismaClientKnownRequestError) {
     if (err.code === "P2025") return jsonError(404, "Not found");
     if (err.code === "P2002") return jsonError(409, "Already exists");

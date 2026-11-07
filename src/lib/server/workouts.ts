@@ -42,9 +42,30 @@ interface NewSet { reps: number; weightKg: number; isWarmup?: boolean; rpe?: num
  * Logging a set and finishing a workout each hold the workout's row from their status check to their commit, so one
  * finishes before the other starts, and the second sees what the first did. The holder only does a few quick queries.
  * A stuck lock fails the request with a 503 and nothing saved, which is safe to retry. limitLockWait is what bounds that
- * wait, as Prisma's own timeout doesn't end a query that's already waiting.
+ * wait, as Prisma's own timeout doesn't end a query that's already waiting. A request can wait on the workout's row for
+ * about 8 seconds, then 4 on its exercise, and this leaves room for that, so the lock limit is what answers.
  */
-const HOLDING_THE_WORKOUT = { maxWait: 5_000, timeout: 10_000 };
+const HOLDING_THE_WORKOUT = { maxWait: 5_000, timeout: 15_000 };
+
+/**
+ * Each request waiting on a workout's row holds a database connection, and those are shared with everyone. So one person
+ * can only have this many at once, which an app sending one set at a time won't reach. Per server process, like the throttles.
+ */
+const MOST_WAITING_PER_PERSON = 8;
+const waitingFor = new Map<string, number>();
+
+async function holdingTheWorkout<T>(userId: string, work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+  const waiting = waitingFor.get(userId) ?? 0;
+  if (waiting >= MOST_WAITING_PER_PERSON) throw new HttpError(503, "Too many saves are in progress, and this one wasn't saved. Try again shortly.", undefined, { "Retry-After": "5" });
+  waitingFor.set(userId, waiting + 1);
+  try {
+    return await prisma.$transaction(work, HOLDING_THE_WORKOUT);
+  } finally {
+    const left = (waitingFor.get(userId) ?? 1) - 1;
+    if (left) waitingFor.set(userId, left);
+    else waitingFor.delete(userId);
+  }
+}
 
 async function lockSession(tx: Prisma.TransactionClient, userId: string, sessionId: string) {
   await limitLockWait(tx);
@@ -66,7 +87,7 @@ async function earlierSet(db: Pick<Prisma.TransactionClient, "setEntry">, id: st
 export async function logSet(userId: string, sessionId: string, sessionExerciseId: string, input: NewSet, idempotencyKey: string | null = null) {
   const id = idempotencyKey ? idempotentId("set", userId, idempotencyKey) : undefined;
   try {
-    return await prisma.$transaction(async (tx) => {
+    return await holdingTheWorkout(userId, async (tx) => {
       const status = await lockSession(tx, userId, sessionId);
       if (id) {
         const earlier = await earlierSet(tx, id, sessionExerciseId, input);
@@ -86,7 +107,7 @@ export async function logSet(userId: string, sessionId: string, sessionExerciseI
           rpe: input.rpe ?? null,
         },
       });
-    }, HOLDING_THE_WORKOUT);
+    });
   } catch (err) {
     // The same key used on another of this person's workouts, whose row wasn't held. That transaction has ended, so this reads outside it.
     if (id && isUniqueViolation(err)) {
@@ -99,14 +120,14 @@ export async function logSet(userId: string, sessionId: string, sessionExerciseI
 
 /** Status first and under the lock, so finishing twice is refused, and a set still being saved counts. */
 export async function finishSession(userId: string, sessionId: string, changes: { name?: string; notes?: string | null }) {
-  return prisma.$transaction(async (tx) => {
+  return holdingTheWorkout(userId, async (tx) => {
     if ((await lockSession(tx, userId, sessionId)) === "COMPLETED") throw new HttpError(409, "Workout already finished");
     const sets = await tx.setEntry.count({ where: { sessionExercise: { sessionId } } });
     if (sets === 0) throw new HttpError(400, "Log at least one set before finishing");
     // Drop exercises that were planned but never performed.
     await tx.sessionExercise.deleteMany({ where: { sessionId, sets: { none: {} } } });
     return tx.workoutSession.update({ where: { id: sessionId }, data: { ...changes, status: "COMPLETED", endedAt: new Date() } });
-  }, HOLDING_THE_WORKOUT);
+  });
 }
 
 export const templateInclude = {

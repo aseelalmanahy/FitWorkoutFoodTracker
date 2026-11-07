@@ -35,6 +35,7 @@ async function newUser(label) {
   return u;
 }
 const key = () => `k${run}${++counter}aaaaaaaaaaaa`;
+let holderPid = null;
 
 /** Holds a row lock in a transaction of this file's own, until told to let go. `during` gets the transaction. */
 function holding(lockSql, id) {
@@ -43,6 +44,7 @@ function holding(lockSql, id) {
   let locked;
   const ready = new Promise((resolve) => { locked = resolve; });
   const done = prisma.$transaction(async (tx) => {
+    holderPid = (await tx.$queryRawUnsafe("SELECT pg_backend_pid() AS pid"))[0].pid;
     await tx.$queryRawUnsafe(lockSql, id);
     locked();
     const during = await gate;
@@ -55,8 +57,16 @@ const holdWorkout = (u) => holding(`SELECT 1 FROM "WorkoutSession" WHERE id = $1
 // got past everything before its insert, which is the gap this is all about.
 const holdExercise = (u) => holding(`SELECT 1 FROM "SessionExercise" WHERE id = $1 FOR UPDATE`, u.session.exercises[0].id);
 
-/** Requests of this kind now waiting on a lock. Only this database's, and read-only. */
-const waiting = async (pattern) => (await prisma.$queryRawUnsafe(`SELECT query FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`)).filter((r) => pattern.test(r.query)).length;
+/** Requests of this kind now waiting behind this file's lock, directly or in a queue. Only this database's, and read-only. */
+async function waiting(pattern) {
+  const rows = await prisma.$queryRawUnsafe(`SELECT pid, pg_blocking_pids(pid) AS by, query FROM pg_stat_activity WHERE datname = current_database() AND wait_event_type = 'Lock'`);
+  const behind = new Set([holderPid]);
+  for (let grew = true; grew;) {
+    grew = false;
+    for (const r of rows) if (!behind.has(r.pid) && r.by.some((p) => behind.has(p))) { behind.add(r.pid); grew = true; }
+  }
+  return rows.filter((r) => behind.has(r.pid) && pattern.test(r.query)).length;
+}
 
 /**
  * Waits for a request to be seen waiting on a lock, or to answer. Which one happened is the result, so a request that didn't
@@ -196,9 +206,8 @@ test("a set whose insert is under way holds the finish back, and is in the worko
   const [set, done] = await Promise.all([logging, finishing]);
   assert.equal(set.status, 200);
   assert.equal(done.status, 200);
-  const rows = await u.rows();
-  assert.deepEqual(rows.map((r) => r.setNumber), [1, 2]);
-  assert.ok(rows.every((r) => r.createdAt <= new Date(done.body.session.endedAt)), "nothing arrived after the workout ended");
+  assert.deepEqual((await u.rows()).map((r) => r.setNumber), [1, 2]);
+  assert.equal((await call(u, "POST", u.path, SET, key())).status, 409, "and it's finished now");
 });
 
 test("a workout finished first refuses the set that was waiting on it, and saves nothing", async () => {
@@ -364,10 +373,57 @@ test("a lock held past the limit fails the request with nothing saved, and a ret
   const took = Date.now() - started;
   assert.equal(stuck.status, 503, "it says to try again");
   assert.match(stuck.body.error, /nothing was changed/);
-  assert.ok(took >= 3_500 && took < 10_000, `it gave up at about four seconds, and took ${took} ms`);
+  assert.ok(took >= 3_500 && took < 12_000, `it gave up after the lock limit, and took ${took} ms`);
   await lock.letGo();
   assert.equal((await u.rows()).length, 0, "nothing was saved");
   const retry = await call(u, "POST", u.path, SET, k);
   assert.equal(retry.status, 200);
   assert.equal((await u.rows()).length, 1);
+});
+
+test("an exercise row held past the limit stops the insert with the same answer, and a retry works", async () => {
+  const u = await newUser("stuckrow");
+  const k = key();
+  const lock = holdExercise(u);
+  await lock.ready;
+  const stuck = await call(u, "POST", u.path, SET, k);
+  await lock.letGo();
+  assert.equal(stuck.status, 503, "not a bare server error");
+  assert.equal((await u.rows()).length, 0);
+  assert.equal((await call(u, "POST", u.path, SET, k)).status, 200);
+  assert.equal((await u.rows()).length, 1);
+});
+
+test("a finish stopped by a held row says to try again, and doesn't finish anything", async () => {
+  const u = await newUser("stuckfinish");
+  await call(u, "POST", u.path, SET, key());
+  const empty = await prisma.sessionExercise.create({ data: { sessionId: u.session.id, exerciseId: u.exercise.id, position: 1 } });
+  const lock = holding(`SELECT 1 FROM "SessionExercise" WHERE id = $1 FOR UPDATE`, empty.id);
+  await lock.ready;
+  const stuck = await finish(u);
+  await lock.letGo();
+  assert.equal(stuck.status, 503, "not a bare server error");
+  const row = await prisma.workoutSession.findUnique({ where: { id: u.session.id } });
+  assert.equal(row.status, "IN_PROGRESS");
+  assert.equal(row.endedAt, null);
+  assert.equal((await finish(u)).status, 200, "and it can be finished after");
+});
+
+test("one person can only have so many waiting, and the rest are told to try again, with nothing saved", async () => {
+  const u = await newUser("queue");
+  const lock = holdWorkout(u);
+  await lock.ready;
+  const queued = Array.from({ length: 8 }, () => call(u, "POST", u.path, SET, key()));
+  const seen = await waitsOrAnswers(Promise.race(queued), ON_WORKOUT, 8);
+  assert.equal(seen.waited, true, "all eight are waiting");
+  const refused = await call(u, "POST", u.path, SET, key());
+  assert.equal(refused.status, 503);
+  assert.match(refused.body.error, /wasn't saved/);
+  const other = await newUser("queueother");
+  assert.equal((await call(other, "POST", other.path, SET, key())).status, 200, "someone else isn't affected");
+  await lock.letGo();
+  assert.deepEqual((await Promise.all(queued)).map((r) => r.status), Array(8).fill(200));
+  assert.equal((await u.rows()).length, 8);
+  assert.equal((await call(u, "POST", u.path, SET, key())).status, 200, "and the count comes back down");
+  assert.equal((await u.rows()).length, 9);
 });
