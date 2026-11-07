@@ -31,7 +31,8 @@
     "server": {
       "src/lib/server/foods/http.ts": "The one server fetch, used for food search and barcode lookup",
       "src/lib/server/labels/anthropic.ts": "The one Anthropic client, used for label and meal photos",
-      "src/lib/server/login-throttle.ts": "Imports node:net for isIP only, and opens no connection"
+      "src/lib/server/login-throttle.ts": "Imports node:net for isIP only, and opens no connection",
+      "src/lib/server/mail/resend.ts": "The email provider client: an account email's address, subject and text, with its link, only when MAIL_PROVIDER is set"
     },
     "browser": {
       "src/lib/client/api.ts": "Same origin, by CSP",
@@ -44,7 +45,8 @@
   "hosts": {
     "api.nal.usda.gov": "usda",
     "world.openfoodfacts.org": "open-food-facts",
-    "search.openfoodfacts.org": "open-food-facts"
+    "search.openfoodfacts.org": "open-food-facts",
+    "api.resend.com": "email-provider"
   },
   "notDestinations": {
     "github.com": "Named inside the User-Agent sent to Open Food Facts, and never called",
@@ -53,7 +55,7 @@
   },
   "mail": {
     "factory": "src/lib/server/mail/transport.ts",
-    "transports": ["fileStub", "notConfigured"],
+    "transports": ["fileStub", "notConfigured", "resendTransport"],
     "holdsLiveTokens": "The file stub writes addresses and live links to MAIL_STUB_DIR, on development and designated test databases only"
   },
   "dependencies": {
