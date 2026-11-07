@@ -833,3 +833,26 @@ test("a server claiming the right marker still can't pass without the database's
     assert.deepEqual([...new Set(server.requests)], ["GET /api/health/db-identity"]);
   } finally { await server.close(); }
 });
+
+// ─── SEC-01: everything these scripts start listens on loopback only ─────────
+
+test("every script that starts the app binds it to loopback, and every server it opens listens on loopback", () => {
+  const files = [...fs.readdirSync(SCRIPTS).filter((f) => f.endsWith(".cjs")).map((f) => path.join(SCRIPTS, f)),
+    ...fs.readdirSync(path.join(SCRIPTS, "lib")).filter((f) => f.endsWith(".cjs")).map((f) => path.join(SCRIPTS, "lib", f))];
+  const unbound = [];
+  let starts = 0;
+  for (const file of files) {
+    const source = fs.readFileSync(file, "utf8").replace(/^\s*\/\/.*$/gm, "");
+    for (const m of source.matchAll(/NEXT_BIN,\s*"start",([^\]]*)\]/g)) {
+      starts++;
+      if (!/^\s*"-H",\s*(LOOPBACK_HOST|"127\.0\.0\.1")/.test(m[1])) unbound.push(`${path.basename(file)}: next start without -H loopback`);
+    }
+    // A server opened with .listen(port …) names loopback on the same line. (This audit's own pattern is excluded.)
+    for (const line of source.split("\n").filter((l) => /\.listen\(\s*\S/.test(l) && !l.includes("unbound.push"))) {
+      if (!line.includes('"127.0.0.1"')) unbound.push(`${path.basename(file)}: ${line.trim().slice(0, 80)}`);
+    }
+  }
+  assert.ok(starts >= 4, `found ${starts} app starts`);
+  assert.deepEqual(unbound, []);
+  assert.equal(require("./lib/test-servers.cjs").LOOPBACK_HOST, "127.0.0.1");
+});

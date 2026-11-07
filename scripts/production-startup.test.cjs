@@ -6,7 +6,7 @@
 const { test } = require("node:test");
 const assert = require("node:assert/strict");
 const net = require("node:net");
-const { ROOT, NEXT_BIN, freePort, spawnNode, killTree } = require("./lib/test-servers.cjs");
+const { ROOT, NEXT_BIN, LOOPBACK_HOST, freePort, spawnNode, killTree } = require("./lib/test-servers.cjs");
 
 const SECRET = "fake-sentinel-password-5f3a9c1e";
 const HOST = "db.example.invalid";
@@ -25,7 +25,7 @@ const listening = (port) => new Promise((resolve) => {
 /** Runs the server until it exits, or until it's clearly serving. */
 async function start(env) {
   const port = await freePort();
-  const child = spawnNode([NEXT_BIN, "start", "-p", String(port)], env, { capture: true, cwd: ROOT });
+  const child = spawnNode([NEXT_BIN, "start", "-H", LOOPBACK_HOST, "-p", String(port)], env, { capture: true, cwd: ROOT });
   let output = "";
   child.stdout.on("data", (d) => { output += d; });
   child.stderr.on("data", (d) => { output += d; });

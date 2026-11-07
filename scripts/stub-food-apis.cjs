@@ -125,4 +125,4 @@ http.createServer((req, res) => {
     try { body = JSON.parse(raw); } catch { /* handled as an empty query */ }
     handle(req, res, body);
   });
-}).listen(port, () => console.log(`stub food APIs on :${port}`));
+}).listen(port, "127.0.0.1", () => console.log(`stub food APIs on 127.0.0.1:${port}`));

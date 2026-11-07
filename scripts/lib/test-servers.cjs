@@ -78,7 +78,7 @@ async function startApp(env) {
   const port = await freePort();
   if (await portInUse(port)) throw new Error(`port ${port} unexpectedly in use`);
   // A production build refuses a test setup unless it's told this is one. See production-config.ts.
-  const child = spawnNode([NEXT_BIN, "start", "-p", String(port)], { FIT_LOCAL_TEST_SERVER: "1", FIT_TEST_OPEN_REGISTRATION: "1", ...env });
+  const child = spawnNode([NEXT_BIN, "start", "-H", LOOPBACK_HOST, "-p", String(port)], { FIT_LOCAL_TEST_SERVER: "1", FIT_TEST_OPEN_REGISTRATION: "1", ...env });
   await waitForChild(`http://localhost:${port}/login`, child);
   return { child, port, url: `http://localhost:${port}` };
 }
@@ -120,4 +120,7 @@ for (const sig of ["SIGINT", "SIGTERM", "SIGHUP", "SIGBREAK"]) {
   try { process.once(sig, () => { syncKillAll(); process.exit(130); }); } catch {}
 }
 
-module.exports = { ROOT, NEXT_BIN, freePort, portInUse, spawnNode, killTree, waitForChild, startApp, startStub, runNode, killAll, children };
+/** Every app and stand-in these scripts start listens here only, so nothing on the network can reach them (SEC-01). */
+const LOOPBACK_HOST = "127.0.0.1";
+
+module.exports = { LOOPBACK_HOST, ROOT, NEXT_BIN, freePort, portInUse, spawnNode, killTree, waitForChild, startApp, startStub, runNode, killAll, children };

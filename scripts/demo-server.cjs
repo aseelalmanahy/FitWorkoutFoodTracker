@@ -9,7 +9,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { parseEnv } = require("node:util");
 const { databaseUrlProblem, environmentProblems, verifyServerIdentity } = require("./lib/test-target-guard.cjs");
-const { ROOT, NEXT_BIN, startStub, spawnNode, waitForChild, killTree, portInUse } = require("./lib/test-servers.cjs");
+const { ROOT, NEXT_BIN, LOOPBACK_HOST, startStub, spawnNode, waitForChild, killTree, portInUse } = require("./lib/test-servers.cjs");
 
 const TARGET = "fitdb_test";
 const refuse = (message) => { console.error(`REFUSED (nothing was started): ${message}`); process.exit(4); };
@@ -32,7 +32,8 @@ if (!fs.existsSync(path.join(ROOT, ".next", "BUILD_ID"))) refuse("there's no pro
   if (await portInUse(port)) refuse(`port ${port} is already in use. Stop what's using it, or add --port=<number>.`);
   const mailDir = fs.mkdtempSync(path.join(os.tmpdir(), "fit-demo-mail-"));
   const stub = await startStub({});
-  const app = spawnNode([NEXT_BIN, "start", "-p", String(port)], {
+  // Only this machine can reach it (SEC-01): it holds the demo sign-in and publishes its database identity.
+  const app = spawnNode([NEXT_BIN, "start", "-H", LOOPBACK_HOST, "-p", String(port)], {
     DATABASE_URL: DB, FDC_BASE_URL: `${stub.url}/fdc/v1`, OFF_BASE_URL: `${stub.url}/off`, FDC_API_KEY: "stub", EXPOSE_DB_IDENTITY: "1", MAIL_STUB_DIR: mailDir, FIT_LOCAL_TEST_SERVER: "1",
     ANTHROPIC_API_KEY: "", ANTHROPIC_BASE_URL: "", LABEL_EXTRACTION_MODEL: "", MEAL_IDENTIFICATION_MODEL: "", FOOD_RATE_LIMIT_MULTIPLIER: "100",
   });

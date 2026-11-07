@@ -8,7 +8,7 @@ const os = require("node:os");
 const path = require("node:path");
 const { databaseUrlProblem, environmentProblems, verifyServerIdentity } = require("./lib/test-target-guard.cjs");
 const { urlSecrets } = require("./lib/test-db-guard.cjs");
-const { ROOT, NEXT_BIN, startStub, freePort, spawnNode, waitForChild, killTree, killAll, runNode: runNodeRaw } = require("./lib/test-servers.cjs");
+const { ROOT, NEXT_BIN, LOOPBACK_HOST, startStub, freePort, spawnNode, waitForChild, killTree, killAll, runNode: runNodeRaw } = require("./lib/test-servers.cjs");
 
 const DB = process.env.DATABASE_URL;
 const unsafe = [databaseUrlProblem(DB), ...environmentProblems(process.env)].filter(Boolean);
@@ -46,7 +46,7 @@ async function withApp(name, { appEnv = {}, stubLog = false }, run) {
   fs.mkdirSync(mailDir, { recursive: true });
   const stub = await startStub(stubLog ? { STUB_LOG_FILE: stubLogFile } : {});
   const port = await freePort();
-  const app = spawnNode([NEXT_BIN, "start", "-p", String(port)], {
+  const app = spawnNode([NEXT_BIN, "start", "-H", LOOPBACK_HOST, "-p", String(port)], {
     DATABASE_URL: DB, FDC_BASE_URL: `${stub.url}/fdc/v1`, OFF_BASE_URL: `${stub.url}/off`, FDC_API_KEY: "stub", EXPOSE_DB_IDENTITY: "1", MAIL_STUB_DIR: mailDir, ...LOCAL_TEST_SERVER, ...AI_OFF, ...appEnv,
   }, { capture: true });
   const out = fs.createWriteStream(serverLog);
