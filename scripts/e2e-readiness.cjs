@@ -1,11 +1,13 @@
 // Phase 4.0.6 in real browsers, one at a time: a set whose response is lost, and days whose foods report nothing.
 const assert = require("node:assert/strict");
+const path = require("node:path");
 const playwright = require("playwright");
 const { PrismaClient } = require("@prisma/client");
 const { createSignedInUser } = require("./lib/test-users.cjs");
 const target = require("./lib/test-target-guard.cjs").requireSafeTarget();
 
 const BASE = target.baseUrl;
+const SHOTS_DIR = process.env.SHOTS_DIR;
 const prisma = new PrismaClient({ datasources: { db: { url: target.databaseUrl } } });
 const run = Date.now();
 const created = [];
@@ -143,6 +145,49 @@ async function inBrowser(name) {
     assert.equal(await shown(), 6, "one more on the screen");
     assert.equal((await rows()).length, 6);
     step("pressing Enter twice logs one set");
+    await ctx.close();
+  }
+
+  // ─── Finishing a workout, then repeating it, in each browser (T-27) ───────
+  {
+    const { user, ctx, page } = await signedIn(browser, `finish${name}`);
+    const exercise = await prisma.exercise.create({ data: { userId: user.id, name: `Press ${run}`, primaryMuscle: "CHEST", equipment: "BARBELL" } });
+    const session = await prisma.workoutSession.create({ data: { userId: user.id, name: "Finish me", exercises: { create: { exerciseId: exercise.id, position: 0, sets: { create: { setNumber: 1, reps: 5, weightKg: 60 } } } } } });
+    const recent = [], errors = [];
+    const note = (line) => { recent.push(line); if (recent.length > 20) recent.shift(); };
+    page.on("dialog", (d) => d.accept());
+    page.on("pageerror", (err) => errors.push(err.message));
+    page.on("console", (m) => { if (m.type() === "error") errors.push(m.text()); });
+    page.on("response", (r) => { const u = new URL(r.url()); if (!u.pathname.startsWith("/_next/static")) note(`${r.status()} ${r.request().method()} ${u.pathname}${u.searchParams.has("_rsc") ? " [rsc]" : ""}`); });
+    page.on("requestfailed", (r) => note(`failed ${new URL(r.url()).pathname} ${r.failure()?.errorText ?? ""}`));
+    page.on("framenavigated", (f) => { if (f === page.mainFrame()) note(`at ${new URL(f.url()).pathname}`); });
+    try {
+      await page.goto(`${BASE}/workouts/session/${session.id}`);
+      await settled(page);
+      await page.getByRole("button", { name: "Finish" }).click();
+      await page.waitForURL(`**/workouts/history/${session.id}**`);
+      const repeat = page.getByRole("button", { name: "Repeat this workout" });
+      assert.ok(await repeat.waitFor({ timeout: 15_000 }).then(() => true, () => false), "the finished page offers to repeat the workout");
+      assert.equal(await page.getByRole("heading", { name: "Finish me" }).count(), 1, "and shows the finished workout");
+      assert.equal(await page.getByText(exercise.name).count(), 1, "with its exercise");
+      assert.equal((await prisma.workoutSession.findUnique({ where: { id: session.id } })).status, "COMPLETED");
+      await repeat.click();
+      await page.waitForURL((url) => url.pathname.startsWith("/workouts/session/") && !url.pathname.endsWith(session.id));
+      const sessions = await prisma.workoutSession.findMany({ where: { userId: user.id }, orderBy: { startedAt: "asc" }, include: { exercises: { include: { sets: true } } } });
+      assert.equal(sessions.length, 2, "repeating makes one new workout");
+      const repeated = sessions.find((s) => s.id !== session.id);
+      assert.equal(repeated.status, "IN_PROGRESS");
+      assert.ok(page.url().endsWith(repeated.id), "and opens it");
+      assert.deepEqual(repeated.exercises.map((x) => [x.exerciseId, x.sets.length]), [[exercise.id, 0]], "with the same exercise, and no sets yet");
+      assert.equal((await prisma.setEntry.count({ where: { sessionExercise: { sessionId: session.id } } })), 1, "and the finished workout keeps its set");
+      assert.deepEqual(errors.filter((m) => !/_rsc.*access control checks/.test(m)), [], "no browser error");
+    } catch (err) {
+      console.error(`WHEN IT FAILED [${name}]: at`, new URL(page.url()).pathname, "| headings:", JSON.stringify(await page.getByRole("heading").allInnerTexts().catch(() => [])));
+      console.error(`WHEN IT FAILED [${name}]: browser errors:`, JSON.stringify(errors), "| last activity:", JSON.stringify(recent));
+      if (SHOTS_DIR) await page.screenshot({ path: path.join(SHOTS_DIR, `finish-failure-${name}.png`), fullPage: true }).catch(() => {});
+      throw err;
+    }
+    step("finishing reaches the finished page, and repeating makes a new workout");
     await ctx.close();
   }
 
