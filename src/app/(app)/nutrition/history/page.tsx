@@ -5,6 +5,7 @@ import { localToday } from "@/lib/server/nutrition/targets";
 import { addDays, fmtG, fmtKcal, fromIsoDate, isIsoDate, mondayOf, PROTEIN_ON_TARGET_THRESHOLD, proteinAgainstTarget, summarizePeriod } from "@/lib/nutrition";
 import { Card, PageHeader, SectionTitle, Stat, cx } from "@/components/ui";
 import { DailyIntakeChart, WeeklyTrendChart } from "@/components/nutrition/history-charts";
+import { Page } from "@/components/page";
 
 export const metadata = { title: "Nutrition history" };
 const TREND_WEEKS = 8;
@@ -31,9 +32,9 @@ export default async function NutritionHistoryPage({ searchParams }: { searchPar
   const weekLabel = `${fmtDay(week, { month: "short", day: "numeric" })} – ${fmtDay(weekEnd, { month: "short", day: "numeric", year: "numeric" })}`;
 
   return (
-    <>
+    <Page width="wide">
       <PageHeader title="History" subtitle="Nutrition over time" back="/nutrition" />
-      <nav aria-label="Week" className="flex items-center justify-between rounded-2xl bg-surface-2 p-1">
+      <nav aria-label="Week" className="lg:max-w-md flex items-center justify-between rounded-2xl bg-surface-2 p-1">
         <Link href={`/nutrition/history?week=${addDays(week, -7)}`} aria-label="Previous week" className="grid h-9 w-10 place-items-center rounded-xl text-lg hover:bg-surface">‹</Link>
         <span className="text-sm font-semibold">{week === thisWeek ? "This week" : weekLabel}</span>
         {week < thisWeek ? (
@@ -41,11 +42,13 @@ export default async function NutritionHistoryPage({ searchParams }: { searchPar
         ) : <span className="grid h-9 w-10 place-items-center text-lg text-muted/40" aria-hidden>›</span>}
       </nav>
 
+      <div className="grid gap-x-8 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] lg:items-start">
+      <section className="min-w-0">
       <SectionTitle>Weekly averages</SectionTitle>
       <Card className="p-4">
         {s.avg ? (
           <>
-            <div className="grid grid-cols-2 gap-4">
+            <div className="grid grid-cols-2 gap-4 md:grid-cols-4 lg:grid-cols-2 xl:grid-cols-4">
               <Stat label="Avg calories" value={`${fmtKcal(s.avg.kcal)} kcal`} sub={s.avgTargetKcal ? `Avg target ${fmtKcal(s.avgTargetKcal)}` : undefined} />
               <Stat label="Days logged" value={`${s.daysLogged} / ${s.days}`} sub={week === thisWeek ? "Days so far this week; averages use logged days that report the value" : "Averages use logged days that report the value"} />
               <Stat label="Avg protein" value={`${fmtG(s.avg.protein)} g`} sub={`C ${fmtG(s.avg.carbs)} g · F ${fmtG(s.avg.fat)} g`} />
@@ -57,7 +60,9 @@ export default async function NutritionHistoryPage({ searchParams }: { searchPar
           </>
         ) : <p className="text-sm text-muted">Nothing logged this week.</p>}
       </Card>
+      </section>
 
+      <section className="min-w-0">
       <SectionTitle>Days</SectionTitle>
       <Card className="divide-y divide-line">
         {[...weekDays].reverse().filter((d) => d.date <= today).map((d) => {
@@ -77,6 +82,8 @@ export default async function NutritionHistoryPage({ searchParams }: { searchPar
           );
         })}
       </Card>
+      </section>
+      </div>
 
       <SectionTitle>{TREND_WEEKS}-week trend</SectionTitle>
       <Card className="p-4">
@@ -87,6 +94,6 @@ export default async function NutritionHistoryPage({ searchParams }: { searchPar
           </>
         ) : <p className="text-sm text-muted">Log food for a few weeks to see your intake trend.</p>}
       </Card>
-    </>
+    </Page>
   );
 }

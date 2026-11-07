@@ -7,7 +7,7 @@ const axis = { tick: { fill: "var(--muted)", fontSize: 11 }, tickLine: false, ax
 
 export function DailyIntakeChart({ data }: { data: { label: string; kcal: number | null; target: number | null }[] }) {
   return (
-    <div className="h-52 w-full">
+    <div className="h-52 w-full md:h-60 lg:h-72">
       <ResponsiveContainer width="100%" height="100%">
         <ComposedChart data={data} margin={{ top: 8, right: 4, bottom: 0, left: -14 }}>
           <CartesianGrid stroke="var(--line)" vertical={false} />
@@ -24,7 +24,7 @@ export function DailyIntakeChart({ data }: { data: { label: string; kcal: number
 
 export function WeeklyTrendChart({ data }: { data: { label: string; kcal: number | null; protein: number | null }[] }) {
   return (
-    <div className="h-48 w-full">
+    <div className="h-48 w-full md:h-56 lg:h-64">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={data} margin={{ top: 8, right: 4, bottom: 0, left: -14 }}>
           <CartesianGrid stroke="var(--line)" vertical={false} />

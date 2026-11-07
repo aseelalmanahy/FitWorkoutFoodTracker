@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { requireProfile } from "@/lib/server/profile";
 import { getPreviousPerformances, getSessionDetail } from "@/lib/server/workouts";
 import { WorkoutLogger, type LoggerExercise } from "@/components/workouts/workout-logger";
+import { Page } from "@/components/page";
 
 export const metadata = { title: "Log workout" };
 
@@ -33,5 +34,10 @@ export default async function SessionPage({ params }: { params: Promise<{ id: st
     };
   });
 
-  return <WorkoutLogger sessionId={id} name={session.name} startedAt={session.startedAt.toISOString()} units={profile.unitSystem} initial={initial} />;
+  // The logger stays one focused column on every screen: it's a task, and wider wouldn't help.
+  return (
+    <Page width="focused">
+      <WorkoutLogger sessionId={id} name={session.name} startedAt={session.startedAt.toISOString()} units={profile.unitSystem} initial={initial} />
+    </Page>
+  );
 }

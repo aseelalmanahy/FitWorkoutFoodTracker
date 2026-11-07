@@ -12,7 +12,7 @@ const fmt = (t: number) => new Intl.DateTimeFormat("en-US", { month: "short", da
 export function WeightChart({ data, unit }: { data: { date: string; weight: number; trend: number }[]; unit: string }) {
   const points = data.map((d) => ({ t: toTime(d.date), weight: d.weight, trend: d.trend }));
   return (
-    <div className="h-56 w-full">
+    <div className="h-56 w-full md:h-64 lg:h-80">
       <ResponsiveContainer width="100%" height="100%">
         <LineChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: -12 }}>
           <CartesianGrid stroke="var(--line)" vertical={false} />

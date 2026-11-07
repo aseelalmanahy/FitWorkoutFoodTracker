@@ -37,7 +37,7 @@ export function ExerciseChart({ data, unit, bodyweight }: { data: ChartPoint[]; 
           </button>
         ))}
       </div>
-      <div className="h-56 w-full">
+      <div className="h-56 w-full md:h-64 lg:h-80">
         <ResponsiveContainer width="100%" height="100%">
           <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: -12 }}>
             <CartesianGrid stroke="var(--line)" vertical={false} />

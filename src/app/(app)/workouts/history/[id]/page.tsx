@@ -10,6 +10,7 @@ import { Card, PageHeader, Stat } from "@/components/ui";
 import { OverloadBadge, PrBadge } from "@/components/overload-badge";
 import { StartWorkoutButton } from "@/components/workouts/start-workout-button";
 import { DeleteSessionButton } from "./delete-button";
+import { Page } from "@/components/page";
 
 export const metadata = { title: "Workout" };
 
@@ -32,7 +33,7 @@ export default async function SessionDetailPage({ params, searchParams }: { para
   const prCount = [...prsByExercise.values()].reduce((n, l) => n + l.length, 0);
 
   return (
-    <>
+    <Page width="wide">
       <PageHeader
         title={session.name}
         subtitle={formatLocalDate(session.startedAt, profile.timezone, { weekday: "long", month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}
@@ -44,14 +45,14 @@ export default async function SessionDetailPage({ params, searchParams }: { para
           <p className="text-sm text-muted">{prCount > 0 ? `You set ${prCount} personal record${prCount > 1 ? "s" : ""}.` : "Logged and saved."}</p>
         </Card>
       )}
-      <Card className="grid grid-cols-4 gap-2 p-4">
+      <Card className="grid grid-cols-4 gap-2 p-4 lg:max-w-3xl">
         <Stat label="Time" value={formatDuration(sum.seconds)} />
         <Stat label="Sets" value={sum.sets} />
         <Stat label={`Vol (${massUnit(units)})`} value={Math.round(toDisplayMass(sum.volumeKg, units)).toLocaleString()} />
         <Stat label="PRs" value={prCount} />
       </Card>
 
-      <div className="mt-4 space-y-3">
+      <div className="mt-4 grid gap-3 md:grid-cols-2 md:items-start">
         {session.exercises.map((e) => {
           const p = prev.get(e.exerciseId);
           const cmp = compareToPrevious(p ? summarizeSets(p.sets) : null, summarizeSets(e.sets));
@@ -82,12 +83,12 @@ export default async function SessionDetailPage({ params, searchParams }: { para
       </div>
       {session.notes && <Card className="mt-3 p-4 text-sm text-muted">{session.notes}</Card>}
 
-      <div className="mt-5 space-y-2">
+      <div className="mx-auto mt-5 max-w-xl space-y-2">
         <StartWorkoutButton source={{ fromSessionId: session.id }} size="lg" className="w-full">Repeat this workout</StartWorkoutButton>
         <p className="text-center text-xs text-muted">Starts a new workout with the same exercises. Your sets from this session show as “previous”.</p>
         <DeleteSessionButton sessionId={session.id} />
       </div>
       <p className="mt-2 text-center text-xs text-muted">Total volume = Σ weight × reps for working sets. {formatVolume(sum.volumeKg, units)}.</p>
-    </>
+    </Page>
   );
 }

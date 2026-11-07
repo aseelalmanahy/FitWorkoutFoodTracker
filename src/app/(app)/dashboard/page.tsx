@@ -11,6 +11,7 @@ import { ChevronRight } from "@/components/icons";
 import { PrBadge } from "@/components/overload-badge";
 import { StartWorkoutButton } from "@/components/workouts/start-workout-button";
 import { GoalCard } from "@/components/progress/goal-card";
+import { Page } from "@/components/page";
 import { goalProgress } from "@/lib/goal-progress";
 import { getWeightEntries } from "@/lib/server/weight";
 import { weightTrend } from "@/lib/weight-trend";
@@ -68,13 +69,17 @@ export default async function DashboardPage() {
   const greeting = hour < 12 ? "Good morning" : hour < 18 ? "Good afternoon" : "Good evening";
 
   return (
-    <>
-      <header className="pt-6 pb-4">
+    <Page width="wide">
+      <header className="pt-6 pb-4 lg:pt-10 lg:pb-6">
         <p className="text-sm text-muted">{formatLocalDate(now, tz, { weekday: "long", month: "long", day: "numeric" })}</p>
-        <h1 className="text-[28px] font-bold tracking-tight">{greeting}, {profile.name.split(" ")[0]}</h1>
+        <h1 className="text-[28px] font-bold tracking-tight lg:text-[34px]">{greeting}, {profile.name.split(" ")[0]}</h1>
       </header>
 
+      <div className="grid gap-x-8 lg:grid-cols-[minmax(0,1.35fr)_minmax(0,1fr)] lg:items-start">
+      <div className="min-w-0">
+
       {/* Today */}
+      <h2 className="mb-2 hidden text-xs font-semibold uppercase tracking-wider text-muted lg:mt-6 lg:block">Today</h2>
       {active ? (
         <Link href={`/workouts/session/${active.id}`} className="flex items-center justify-between rounded-3xl bg-accent p-5 text-accent-fg">
           <span>
@@ -140,10 +145,16 @@ export default async function DashboardPage() {
         </div>
       </Card>
 
+      </div>
+
+      <div className="min-w-0 md:grid md:grid-cols-2 md:gap-x-6 lg:block">
+      <div className="min-w-0">
       {/* Goal */}
       <SectionTitle>Goal</SectionTitle>
       <GoalCard progress={goalProgress({ goal: profile.goal, goalWeightKg: profile.goalWeightKg, trend: weightTrend(weightEntries), recentRecords: recentPrs.length })} units={profile.unitSystem} />
 
+      </div>
+      <div className="min-w-0">
       {/* PRs */}
       <SectionTitle action={<Link href="/progress" className="text-sm font-medium text-accent-ink">Progress</Link>}>Recent PRs</SectionTitle>
       {recentPrs.length === 0 ? (
@@ -161,6 +172,9 @@ export default async function DashboardPage() {
           ))}
         </Card>
       )}
-    </>
+      </div>
+      </div>
+      </div>
+    </Page>
   );
 }

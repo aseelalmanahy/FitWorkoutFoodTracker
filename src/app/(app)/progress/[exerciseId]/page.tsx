@@ -9,6 +9,7 @@ import { formatMass, formatVolume, massUnit, round, toDisplayMass } from "@/lib/
 import { Card, EmptyState, PageHeader, SectionTitle } from "@/components/ui";
 import { OverloadBadge, PrBadge } from "@/components/overload-badge";
 import { ExerciseChart } from "@/components/progress/exercise-chart";
+import { Page } from "@/components/page";
 
 export const metadata = { title: "Exercise progress" };
 
@@ -38,13 +39,13 @@ export default async function ExerciseProgressPage({ params }: { params: Promise
     k === "mostReps" ? `${v} reps` : k === "bestVolume" ? formatVolume(v, units) : formatMass(v, units);
 
   return (
-    <>
+    <Page width="wide">
       <PageHeader title={exercise.name} subtitle={`${history.length} session${history.length === 1 ? "" : "s"} logged`} back="/progress" />
       {history.length === 0 ? (
         <EmptyState title="No completed sessions" body="Log this exercise in a workout to see its progress." />
       ) : (
         <>
-          <Card className="p-4">
+          <Card className="p-4 lg:p-6">
             {history.length < 2 ? (
               <p className="py-8 text-center text-sm text-muted">Log at least two sessions to see a trend.</p>
             ) : (
@@ -52,8 +53,10 @@ export default async function ExerciseProgressPage({ params }: { params: Promise
             )}
           </Card>
 
+          <div className="grid gap-x-8 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] lg:items-start">
+          <section className="min-w-0">
           <SectionTitle>Personal records</SectionTitle>
-          <div className="grid grid-cols-2 gap-2">
+          <div className="grid grid-cols-2 gap-2 md:grid-cols-4 lg:grid-cols-2">
             {(Object.keys(RECORD_LABELS) as RecordKind[]).map((k) => {
               const r = records.current[k];
               if (!r) return null;
@@ -66,7 +69,9 @@ export default async function ExerciseProgressPage({ params }: { params: Promise
               );
             })}
           </div>
+          </section>
 
+          <section className="min-w-0">
           <SectionTitle>Sessions</SectionTitle>
           <Card className="divide-y divide-line">
             {[...summaries].reverse().map((s, i, arr) => {
@@ -91,8 +96,10 @@ export default async function ExerciseProgressPage({ params }: { params: Promise
               );
             })}
           </Card>
+          </section>
+          </div>
         </>
       )}
-    </>
+    </Page>
   );
 }

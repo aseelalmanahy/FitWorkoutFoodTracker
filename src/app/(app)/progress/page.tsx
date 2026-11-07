@@ -9,6 +9,7 @@ import { MUSCLE_LABELS } from "@/lib/labels";
 import { ButtonLink, Card, EmptyState, PageHeader } from "@/components/ui";
 import { OverloadBadge } from "@/components/overload-badge";
 import { ChevronRight } from "@/components/icons";
+import { Page } from "@/components/page";
 
 export const metadata = { title: "Progress" };
 
@@ -39,17 +40,17 @@ export default async function ProgressPage() {
     .sort((a, b) => (b.lastDate?.getTime() ?? 0) - (a.lastDate?.getTime() ?? 0));
 
   return (
-    <>
+    <Page width="wide">
       <PageHeader title="Progress" subtitle="Per-exercise performance over time" />
-      <Link href="/progress/weight" className="mb-4 flex items-center justify-between rounded-2xl border border-line px-4 py-3 font-semibold">
+      <Link href="/progress/weight" className="mb-4 flex items-center justify-between rounded-2xl border border-line bg-surface px-4 py-3 font-semibold md:max-w-sm">
         Weight log <ChevronRight width={18} height={18} className="shrink-0 text-muted" />
       </Link>
       {rows.length === 0 ? (
         <EmptyState title="No progress data yet" body="Complete a workout to start tracking progressive overload and personal records." action={<ButtonLink href="/workouts">Go to workouts</ButtonLink>} />
       ) : (
-        <Card className="divide-y divide-line">
+        <div className="grid gap-2 md:grid-cols-2 xl:grid-cols-3">
           {rows.map((r) => (
-            <Link key={r.exercise.id} href={`/progress/${r.exercise.id}`} className="flex items-center gap-3 px-4 py-3">
+            <Link key={r.exercise.id} href={`/progress/${r.exercise.id}`} className="flex items-center gap-3 rounded-2xl border border-line bg-surface px-4 py-3 transition hover:border-accent/40">
               <div className="min-w-0 flex-1">
                 <p className="truncate font-semibold">{r.exercise.name}</p>
                 <p className="num truncate text-xs text-muted">
@@ -62,9 +63,9 @@ export default async function ProgressPage() {
               <ChevronRight width={18} height={18} className="shrink-0 text-muted" />
             </Link>
           ))}
-        </Card>
+        </div>
       )}
       <p className="mt-4 text-xs text-muted">Status compares each exercise’s latest session with the one before it: load first, then reps at that load, then total volume.</p>
-    </>
+    </Page>
   );
 }

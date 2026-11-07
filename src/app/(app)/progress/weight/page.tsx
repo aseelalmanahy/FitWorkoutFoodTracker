@@ -7,6 +7,7 @@ import { trendChange, weightTrend } from "@/lib/weight-trend";
 import { Card, EmptyState, PageHeader, SectionTitle, Stat } from "@/components/ui";
 import { DeleteWeightButton, WeightLogForm } from "@/components/progress/weight-log";
 import { WeightChart } from "@/components/progress/weight-chart";
+import { Page } from "@/components/page";
 
 export const metadata = { title: "Weight" };
 
@@ -33,14 +34,18 @@ export default async function WeightPage({ searchParams }: { searchParams: Promi
   const signed = (kg: number) => `${toDisplayMass(Math.abs(kg), units) === 0 ? "" : kg > 0 ? "+" : "−"}${formatMass(Math.abs(kg), units)}`;
 
   return (
-    <>
+    <Page width="wide">
       <PageHeader title="Weight" subtitle="Optional. Log it if it helps, and skip any day" back="/progress" />
-      <WeightLogForm today={today} units={units} logged={Object.fromEntries(entries.map((e) => [e.date, e.weightKg]))} />
+      <div className="grid gap-x-8 lg:grid-cols-[minmax(0,1.6fr)_minmax(0,1fr)] lg:items-start">
+      <div className="min-w-0 lg:col-start-2 lg:row-start-1">
+        <WeightLogForm today={today} units={units} logged={Object.fromEntries(entries.map((e) => [e.date, e.weightKg]))} />
+      </div>
 
       {!latest ? (
-        <div className="mt-4"><EmptyState title="No weight logged yet" body="Once you've logged more than one day, a smoothed trend appears here." /></div>
+        <div className="mt-4 lg:col-start-1 lg:row-start-1 lg:mt-0"><EmptyState title="No weight logged yet" body="Once you've logged more than one day, a smoothed trend appears here." /></div>
       ) : (
         <>
+          <section className="min-w-0 lg:col-start-1 lg:row-span-2 lg:row-start-1">
           <SectionTitle>{trend.length > 1 ? "Trend" : "Logged"}</SectionTitle>
           <Card className="p-4">
             <div className="grid grid-cols-2 gap-4">
@@ -57,7 +62,9 @@ export default async function WeightPage({ searchParams }: { searchParams: Promi
             )}
             <p className="mt-3 text-xs text-muted">Daily weight moves with water and food, so the trend is a smoothed average. It lags behind recent changes, so change here can read smaller than it is. Days you didn&apos;t log aren&apos;t counted as zero, and the first entry after a long gap moves the trend further. It doesn&apos;t show body composition, or predict anything.</p>
           </Card>
+          </section>
 
+          <section className="min-w-0 lg:col-start-2">
           <SectionTitle>Entries</SectionTitle>
           <Card className="divide-y divide-line">
             {shown.map((p) => (
@@ -79,8 +86,10 @@ export default async function WeightPage({ searchParams }: { searchParams: Promi
               {page < pages ? <Link href={`?page=${page + 1}`}>Older</Link> : <span />}
             </nav>
           )}
+          </section>
         </>
       )}
-    </>
+      </div>
+    </Page>
   );
 }

@@ -6,6 +6,7 @@ import { formatLocalDate } from "@/lib/time";
 import { formatDuration, formatVolume } from "@/lib/units";
 import { ButtonLink, Card, EmptyState, PageHeader } from "@/components/ui";
 import { ChevronRight } from "@/components/icons";
+import { Page } from "@/components/page";
 
 export const metadata = { title: "Workout history" };
 const PAGE = 25;
@@ -33,7 +34,7 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
   }
 
   return (
-    <>
+    <Page width="medium">
       <PageHeader title="History" subtitle={`${total} completed workout${total === 1 ? "" : "s"}`} back="/workouts" />
       {total === 0 ? (
         <EmptyState title="No workouts yet" body="Finish a workout and it will show up here." action={<ButtonLink href="/workouts">Go to workouts</ButtonLink>} />
@@ -69,6 +70,6 @@ export default async function HistoryPage({ searchParams }: { searchParams: Prom
           {page * PAGE < total && <ButtonLink href={`?page=${page + 1}`} variant="secondary" size="sm">Older</ButtonLink>}
         </div>
       )}
-    </>
+    </Page>
   );
 }

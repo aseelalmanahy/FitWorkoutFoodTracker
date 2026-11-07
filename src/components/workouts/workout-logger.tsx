@@ -227,7 +227,7 @@ export function WorkoutLogger({ sessionId, name, startedAt, units, initial }: Pr
       </div>
 
       {restEnd && (
-        <div className="fixed inset-x-0 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-40 px-4">
+        <div className="fixed inset-x-0 bottom-[calc(4.5rem+env(safe-area-inset-bottom))] z-40 px-4 lg:bottom-6 lg:pl-60">
           <div className="mx-auto flex max-w-xl items-center gap-3 rounded-2xl bg-fg px-4 py-3 text-bg shadow-xl">
             <TimerIcon width={20} height={20} />
             <span className="num flex-1 text-lg font-bold">Rest {Math.floor(restLeft / 60)}:{String(restLeft % 60).padStart(2, "0")}</span>

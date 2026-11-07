@@ -3,6 +3,7 @@ import { prisma } from "@/lib/server/db";
 import { requireProfile } from "@/lib/server/profile";
 import { PageHeader } from "@/components/ui";
 import { PlanEditor } from "@/components/workouts/plan-editor";
+import { Page } from "@/components/page";
 
 export const metadata = { title: "Edit plan" };
 
@@ -15,7 +16,7 @@ export default async function EditPlanPage({ params }: { params: Promise<{ id: s
   });
   if (!plan) notFound();
   return (
-    <>
+    <Page width="medium">
       <PageHeader title="Edit plan" back="/workouts" />
       <PlanEditor
         planId={plan.id}
@@ -35,6 +36,6 @@ export default async function EditPlanPage({ params }: { params: Promise<{ id: s
           })),
         }}
       />
-    </>
+    </Page>
   );
 }

@@ -8,6 +8,7 @@ import { summarizeSessions } from "@/lib/server/stats";
 import { ButtonLink, Card, EmptyState, PageHeader, SectionTitle, cx } from "@/components/ui";
 import { ChevronRight, PlusIcon } from "@/components/icons";
 import { StartWorkoutButton } from "@/components/workouts/start-workout-button";
+import { Page } from "@/components/page";
 
 export const metadata = { title: "Workouts" };
 
@@ -33,7 +34,7 @@ export default async function WorkoutsPage() {
   ]);
 
   return (
-    <>
+    <Page width="wide">
       <PageHeader title="Workouts" action={<ButtonLink href="/workouts/history" variant="secondary" size="sm">History</ButtonLink>} />
 
       {active && (
@@ -46,6 +47,8 @@ export default async function WorkoutsPage() {
         </Link>
       )}
 
+      <div className="grid gap-x-8 lg:grid-cols-2 lg:items-start">
+      <div className="min-w-0">
       <SectionTitle action={<Link href="/workouts/schedule" className="text-sm font-medium text-accent-ink">Edit</Link>}>This week</SectionTitle>
       <Card className="divide-y divide-line">
         {schedule.map((slots, d) => {
@@ -69,11 +72,13 @@ export default async function WorkoutsPage() {
         })}
       </Card>
 
+      </div>
+      <div className="min-w-0">
       <SectionTitle action={<Link href="/workouts/plans/new" className="flex items-center gap-1 text-sm font-medium text-accent-ink"><PlusIcon width={16} height={16} />New</Link>}>My plans</SectionTitle>
       {plans.length === 0 ? (
         <EmptyState title="No workout plans yet" body="Create a plan like “Upper Body” with exercises, target sets, reps and weights." action={<ButtonLink href="/workouts/plans/new">Create a plan</ButtonLink>} />
       ) : (
-        <div className="space-y-2">
+        <div className="grid gap-2 md:grid-cols-2 lg:grid-cols-1">
           {plans.map((p) => (
             <Card key={p.id} className="flex items-center gap-3 p-4">
               <Link href={`/workouts/plans/${p.id}`} className="min-w-0 flex-1">
@@ -112,6 +117,8 @@ export default async function WorkoutsPage() {
           })}
         </Card>
       )}
-    </>
+      </div>
+      </div>
+    </Page>
   );
 }

@@ -7,6 +7,7 @@ import { ButtonLink, Card, PageHeader } from "@/components/ui";
 import { DateNav } from "@/components/nutrition/date-nav";
 import { MacroBar } from "@/components/nutrition/macro-bar";
 import { MealList } from "@/components/nutrition/meal-list";
+import { Page } from "@/components/page";
 
 export const metadata = { title: "Nutrition" };
 
@@ -33,15 +34,17 @@ export default async function NutritionPage({ searchParams }: { searchParams: Pr
   const partialKcal = day.totals.kcal !== null && day.totals.incomplete.includes("kcal");
 
   return (
-    <>
+    <Page width="wide">
       <PageHeader title="Nutrition" action={
         <div className="flex gap-2">
           <ButtonLink href="/nutrition/history" variant="secondary" size="sm">History</ButtonLink>
           <ButtonLink href="/nutrition/targets" variant="secondary" size="sm">Targets</ButtonLink>
         </div>
       } />
-      <DateNav date={date} today={today} basePath="/nutrition" />
+      <div className="lg:max-w-md"><DateNav date={date} today={today} basePath="/nutrition" /></div>
 
+      <div className="grid gap-x-8 lg:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)] lg:items-start">
+      <div className="min-w-0 lg:sticky lg:top-6 lg:col-start-2 lg:row-start-1">
       <Card className="mt-3 p-5">
         {t && day.calories ? (
           <div className="flex items-center gap-5">
@@ -77,8 +80,10 @@ export default async function NutritionPage({ searchParams }: { searchParams: Pr
           <p className="mt-2 text-xs text-muted">* Some logged foods don&apos;t report this value, so the total includes only reported values, and what&apos;s left may be less. A dash means none of them do.</p>
         )}
       </Card>
+      </div>
 
-      <div className="mt-4">
+      <div className="min-w-0 lg:col-start-1 lg:row-start-1">
+      <div className="mt-4 lg:mt-3">
         <MealList meals={day.meals} date={date} />
       </div>
 
@@ -89,6 +94,8 @@ export default async function NutritionPage({ searchParams }: { searchParams: Pr
         <div><p className="text-lg font-bold">{fmtG(day.totals.fat)}</p><p className="text-[11px] text-muted">Fat g</p></div>
       </Card>
       <p className="mt-2 text-center text-xs text-muted">Daily totals</p>
-    </>
+      </div>
+      </div>
+    </Page>
   );
 }
