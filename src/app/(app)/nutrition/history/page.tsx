@@ -2,7 +2,7 @@ import Link from "next/link";
 import { requireProfile } from "@/lib/server/profile";
 import { history } from "@/lib/server/nutrition/entries";
 import { localToday } from "@/lib/server/nutrition/targets";
-import { addDays, fmtG, fmtKcal, fromIsoDate, isIsoDate, mondayOf, PROTEIN_ON_TARGET_THRESHOLD, summarizePeriod } from "@/lib/nutrition";
+import { addDays, fmtG, fmtKcal, fromIsoDate, isIsoDate, mondayOf, PROTEIN_ON_TARGET_THRESHOLD, proteinAgainstTarget, summarizePeriod } from "@/lib/nutrition";
 import { Card, PageHeader, SectionTitle, Stat, cx } from "@/components/ui";
 import { DailyIntakeChart, WeeklyTrendChart } from "@/components/nutrition/history-charts";
 
@@ -47,7 +47,7 @@ export default async function NutritionHistoryPage({ searchParams }: { searchPar
           <>
             <div className="grid grid-cols-2 gap-4">
               <Stat label="Avg calories" value={`${fmtKcal(s.avg.kcal)} kcal`} sub={s.avgTargetKcal ? `Avg target ${fmtKcal(s.avgTargetKcal)}` : undefined} />
-              <Stat label="Days logged" value={`${s.daysLogged} / ${s.days}`} sub={week === thisWeek ? "Days so far this week; averages use logged days" : "Averages use logged days only"} />
+              <Stat label="Days logged" value={`${s.daysLogged} / ${s.days}`} sub={week === thisWeek ? "Days so far this week; averages use logged days that report the value" : "Averages use logged days that report the value"} />
               <Stat label="Avg protein" value={`${fmtG(s.avg.protein)} g`} sub={`C ${fmtG(s.avg.carbs)} g · F ${fmtG(s.avg.fat)} g`} />
               <Stat label="Protein consistency" value={s.proteinDaysWithTarget ? `${s.proteinOnTargetDays} / ${s.proteinDaysWithTarget} days` : "—"}
                 sub={s.proteinDaysWithTarget ? `Days ≥ ${Math.round(PROTEIN_ON_TARGET_THRESHOLD * 100)} % of protein target` : undefined} />
@@ -61,18 +61,17 @@ export default async function NutritionHistoryPage({ searchParams }: { searchPar
       <SectionTitle>Days</SectionTitle>
       <Card className="divide-y divide-line">
         {[...weekDays].reverse().filter((d) => d.date <= today).map((d) => {
-          // The weekly summary already leaves out a protein target of 0, as any intake would "reach" it.
-          const hasProteinTarget = !!d.target && d.target.proteinG !== null && d.target.proteinG > 0;
-          const proteinOk = hasProteinTarget && d.entries > 0 && d.totals.protein >= PROTEIN_ON_TARGET_THRESHOLD * d.target!.proteinG!;
+          const verdict = proteinAgainstTarget(d);
+          const partial = d.totals.incomplete.some((k) => k !== "fiber");
           return (
             <Link key={d.date} href={d.date === today ? "/nutrition" : `/nutrition?date=${d.date}`} className="flex items-center justify-between gap-3 px-4 py-3">
               <span>
                 <span className="block text-sm font-semibold">{fmtDay(d.date, { weekday: "short", month: "short", day: "numeric" })}</span>
-                <span className="num text-xs text-muted">{d.entries ? `P ${fmtG(d.totals.protein)} · C ${fmtG(d.totals.carbs)} · F ${fmtG(d.totals.fat)} g` : "Not logged"}</span>
+                <span className="num text-xs text-muted">{d.entries ? `P ${fmtG(d.totals.protein)} · C ${fmtG(d.totals.carbs)} · F ${fmtG(d.totals.fat)} g${partial ? " · incomplete" : ""}` : "Not logged"}</span>
               </span>
               <span className="num text-right">
                 <span className="block text-sm font-semibold">{d.entries ? fmtKcal(d.totals.kcal) : "—"}{d.target && <span className="font-normal text-muted"> / {fmtKcal(d.target.kcal)}</span>}</span>
-                {d.entries > 0 && hasProteinTarget && <span className={cx("text-[11px]", proteinOk ? "text-up" : "text-muted")}>{proteinOk ? "Protein on target" : "Protein below target"}</span>}
+                {(verdict === "on" || verdict === "below") && <span className={cx("text-[11px]", verdict === "on" ? "text-up" : "text-muted")}>{verdict === "on" ? "Protein on target" : "Protein below target"}</span>}
               </span>
             </Link>
           );

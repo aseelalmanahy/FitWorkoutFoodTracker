@@ -1,8 +1,8 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useState } from "react";
-import { api, parseNum } from "@/lib/client/api";
+import { useEffect, useMemo, useState, useRef } from "react";
+import { api, parseNum, ApiError, isUncertainFailure, newIdempotencyKey, SAVE_TIMEOUT_MS, saveFailureMessage } from "@/lib/client/api";
 import { compareToPrevious, summarizeSets } from "@/lib/overload";
 import { formatDuration, fromDisplayMass, massUnit, round, toDisplayMass, type UnitSystem } from "@/lib/units";
 import { Button, Card, ErrorText, Input, Textarea, cx } from "@/components/ui";
@@ -70,12 +70,51 @@ export function WorkoutLogger({ sessionId, name, startedAt, units, initial }: Pr
     }
   }
 
+  // One key per exercise until its set is saved, so trying again after a lost response can't log it twice.
+  const setKeys = useRef(new Map<string, string>());
+  // A second Enter can land before the button is disabled.
+  const logging = useRef(new Set<string>());
+
+  /** What's really saved for this exercise, or null if that can't be found out either. */
+  async function savedSets(exId: string): Promise<LoggedSet[] | null> {
+    const res = await api<{ session: { exercises: { id: string; sets: LoggedSet[] }[] } }>("GET", `/api/sessions/${sessionId}`, undefined, { timeoutMs: SAVE_TIMEOUT_MS }).catch(() => null);
+    return res?.session.exercises.find((x) => x.id === exId)?.sets ?? null;
+  }
+
   async function logSet(ex: LoggerExercise, weightKg: number, reps: number, isWarmup: boolean) {
-    const res = await run(() => api<{ set: LoggedSet }>("POST", `${base}/${ex.id}/sets`, { weightKg, reps, isWarmup }));
-    if (!res) return false;
-    patchEx(ex.id, (e) => ({ ...e, sets: [...e.sets, res.set] }));
-    if (!isWarmup) setRestEnd(Date.now() + (ex.restSeconds ?? DEFAULT_REST) * 1000);
-    return true;
+    if (logging.current.has(ex.id)) return false;
+    logging.current.add(ex.id);
+    setError(null);
+    const startRest = () => { if (!isWarmup) setRestEnd(Date.now() + (ex.restSeconds ?? DEFAULT_REST) * 1000); };
+    const idempotencyKey = setKeys.current.get(ex.id) ?? newIdempotencyKey();
+    setKeys.current.set(ex.id, idempotencyKey);
+    try {
+      const res = await api<{ set: LoggedSet }>("POST", `${base}/${ex.id}/sets`, { weightKg, reps, isWarmup }, { idempotencyKey, timeoutMs: SAVE_TIMEOUT_MS });
+      setKeys.current.delete(ex.id);
+      patchEx(ex.id, (e) => ({ ...e, sets: e.sets.some((s) => s.id === res.set.id) ? e.sets : [...e.sets, res.set] }));
+      startRest();
+      return true;
+    } catch (e) {
+      // A conflict means an earlier attempt saved other values, so the next save is a new set.
+      const conflict = e instanceof ApiError && e.status === 409;
+      if (conflict) setKeys.current.delete(ex.id);
+      if (conflict || isUncertainFailure(e)) {
+        const saved = await savedSets(ex.id);
+        if (saved) {
+          patchEx(ex.id, (x) => ({ ...x, sets: saved }));
+          // It did save, and only the answer was lost. The screen now shows it, so the next save is a new set.
+          if (!conflict && saved.length > ex.sets.length) {
+            setKeys.current.delete(ex.id);
+            startRest();
+            return true;
+          }
+        }
+      }
+      setError(saveFailureMessage(e));
+      return false;
+    } finally {
+      logging.current.delete(ex.id);
+    }
   }
 
   async function updateSet(ex: LoggerExercise, set: LoggedSet, patch: Partial<LoggedSet>) {
@@ -246,6 +285,7 @@ function ExerciseCard({ ex, units, first, last, onLog, onUpdate, onDelete, onRem
   }, [ex.sets, ex.prev, working.length]);
 
   async function submit() {
+    if (busy) return;
     const w = weight.trim() === "" ? (suggestedWeightKg != null ? toDisplayMass(suggestedWeightKg, units) : 0) : parseNum(weight);
     const r = reps.trim() === "" ? suggestedReps ?? NaN : parseInt(reps);
     if (!Number.isFinite(w) || w < 0 || !Number.isFinite(r) || r < 0) return setInvalid(true);

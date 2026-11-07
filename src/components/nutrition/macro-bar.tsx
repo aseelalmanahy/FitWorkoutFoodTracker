@@ -1,13 +1,13 @@
 import { cx } from "@/components/ui";
 import { fmtG, fmtKcal } from "@/lib/nutrition";
 
-/** Consumed vs target. The bar is capped at 100 %; exceeding it is stated in neutral colour. With no target: text only, never a 0. */
+/** Consumed vs target. The bar is capped at 100 %; exceeding it is stated in neutral colour. With no target, or nothing reported: text only, never a 0. */
 export function MacroBar({ label, consumed, target, unit = "g", incomplete, color = "bg-accent" }: {
-  label: string; consumed: number; target: number | null; unit?: "g" | "kcal"; incomplete?: boolean; color?: string;
+  label: string; consumed: number | null; target: number | null; unit?: "g" | "kcal"; incomplete?: boolean; color?: string;
 }) {
   const fmt = unit === "kcal" ? fmtKcal : fmtG;
-  const ratio = target && target > 0 ? consumed / target : 0;
-  const over = target != null && consumed > target;
+  const ratio = consumed !== null && target && target > 0 ? consumed / target : 0;
+  const over = consumed !== null && target != null && consumed > target;
   return (
     <div>
       <div className="flex items-baseline justify-between text-sm">
@@ -18,12 +18,12 @@ export function MacroBar({ label, consumed, target, unit = "g", incomplete, colo
           {incomplete && <span title="Some foods don't report this nutrient" className="ml-1 text-xs">*</span>}
         </span>
       </div>
-      {target != null && (
+      {target != null && consumed !== null && (
         <div className="mt-1.5 h-2 overflow-hidden rounded-full bg-surface-2" role="progressbar" aria-label={label} aria-valuenow={Math.round(consumed)} aria-valuemax={target}>
           <div className={cx("h-full rounded-full transition-[width]", color)} style={{ width: `${Math.min(100, ratio * 100)}%` }} />
         </div>
       )}
-      {over && <p className="num mt-1 text-xs text-muted">{fmt(consumed - target!)} {unit} over target</p>}
+      {over && <p className="num mt-1 text-xs text-muted">{fmt(consumed! - target!)} {unit} over target</p>}
     </div>
   );
 }

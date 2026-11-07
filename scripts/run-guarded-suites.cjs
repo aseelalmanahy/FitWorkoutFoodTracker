@@ -129,6 +129,9 @@ const SUITES = {
   "privacy-cleanup": () => withApp("privacy-cleanup", {}, ({ url }) => runNode(nodeTest("e2e-privacy-cleanup.test.cjs"), { BASE_URL: url }, 590_000)),
   "weight-progress": () => withApp("weight-progress", {}, ({ url }) => runNode(nodeTest("weight-progress.test.cjs"), { BASE_URL: url }, 300_000)),
   "weight-e2e": () => withApp("weight-e2e", {}, ({ url }) => runNode([script("e2e-weight.cjs")], { BASE_URL: url }, 590_000)),
+  "workout-sets": () => withApp("workout-sets", {}, ({ url }) => runNode(nodeTest("workout-sets.test.cjs"), { BASE_URL: url }, 300_000)),
+  "readiness-performance": () => withApp("readiness-performance", {}, ({ url }) => runNode(nodeTest("readiness-performance.test.cjs"), { BASE_URL: url }, 300_000)),
+  "readiness-e2e": () => withApp("readiness-e2e", {}, ({ url }) => runNode([script("e2e-readiness.cjs")], { BASE_URL: url }, 590_000)),
   "account-data-e2e": () => withApp("account-data-e2e", {}, ({ url }) => runNode([script("e2e-account-data.cjs")], { BASE_URL: url }, 590_000)),
   "production-startup": () => runNode(nodeTest("production-startup.test.cjs"), { DATABASE_URL: "" }, 590_000),
   "production-security": () => {

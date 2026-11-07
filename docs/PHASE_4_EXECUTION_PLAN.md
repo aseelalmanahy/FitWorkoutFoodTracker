@@ -24,7 +24,7 @@ These are six separate states, and one never implies another.
 | 4.0.4 Email-proven access | M-12 | Yes, `eaeff34` | Yes, on `fitdb_test` | Yes, independent review for development | Yes, `eaeff34` | **No: COMPLETE for development only** | G-03 for real email, a deployed server, and T-15 |
 | 4.0.5 Notice and acceptance | M-13 | No, proposed in `PHASE_4_0_5_PLAN.md` | No | No | No | No | Review of that plan. R-01 and Decisions 2 to 6, 12, 14, 16 for the final text |
 | 4.1 Core progress | M-15 | Yes, on `feature/phase-4.1-progress` | **Focused, on `fitdb_test`,** with MIG-04 applied there only | **Partly:** a read-only agent | No | No | Independent review, merge approval, and the regression on combined code |
-| 4.0.6 Device test and go/no-go | M-14 | No | No | No | No | No | Everything above, T-15, R-13 |
+| 4.0.6 Device test and go/no-go | M-14 | **Local part only,** on `feature/phase-4.0.6-readiness` | **Local part only** | **Partly:** a read-only agent | No | No | Everything above, T-15, R-13. **Devices, deployment and the go/no-go haven't started** |
 
 ## 2. Tooling is frozen
 

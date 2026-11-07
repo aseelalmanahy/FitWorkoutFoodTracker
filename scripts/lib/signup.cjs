@@ -97,8 +97,22 @@ async function signUpInBrowser(page, baseUrl, email, password, { dir = process.e
   await page.getByRole("heading", { name: "Check your email" }).waitFor();
   const token = await readMailLink(email, "signup", { dir, timeoutMs, ignore: seen });
   // Playwright's errors quote the URL, and this one holds a token.
-  try { await page.goto(`${baseUrl}/register/complete#token=${token}`); } catch { throw new Error(`sign-up for ${email}: the emailed link's page didn't load`); }
-  await page.fill("input[name=password]", password);
+  // Fragments aren't in request URLs, so none of this can hold the token.
+  const problems = [];
+  const onPageError = (e) => problems.push(`pageerror: ${String(e.message).slice(0, 150)}`);
+  const onRequestFailed = (r) => problems.push(`failed: ${new URL(r.url()).pathname} ${r.failure()?.errorText ?? ""}`);
+  page.on("pageerror", onPageError);
+  page.on("requestfailed", onRequestFailed);
+  let response;
+  try { response = await page.goto(`${baseUrl}/register/complete#token=${token}`); } catch { throw new Error(`sign-up for ${email}: the emailed link's page didn't load`); }
+  try {
+    await page.fill("input[name=password]", password);
+  } catch {
+    const shown = (await page.locator("body").innerText().catch(() => "unreadable")).replace(/\s+/g, " ").slice(0, 200);
+    throw new Error(`sign-up for ${email}: no password field on the emailed link's page. Status ${response?.status()}, at ${new URL(page.url()).pathname}, it showed: ${shown}. Problems: ${problems.join("; ") || "none seen"}`);
+  }
+  page.off("pageerror", onPageError);
+  page.off("requestfailed", onRequestFailed);
   await page.check("input[name=accept]");
   await page.click("button[type=submit]");
   await page.waitForURL("**/login?created=1");

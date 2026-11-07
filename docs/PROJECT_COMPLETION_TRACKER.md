@@ -26,8 +26,8 @@
 | M-11 | 4.0.3 | Production foundation | **IN PROGRESS** | Code and templates merged at `de4607f`, section 2c, with the development code independently source-reviewed. **Operational verification is incomplete: nothing is deployed, and no infrastructure exists. Not COMPLETE until the infrastructure items are done.** Needs decisions 4, 5 and 14 |
 | M-12 | 4.0.4 | Email-proven access | COMPLETE for development | Merged at `eaeff34`, and verified on `fitdb_test`, section 2d. **That covers the locally verified implementation only. The production milestone isn't complete:** no real email can be sent (G-03), and nothing is deployed |
 | M-13 | 4.0.5 | Notice, acceptance, retention | **IN PROGRESS** | L1 to L5 built on `feature/phase-4.0.5-privacy`, unmerged, section 2e. **Not COMPLETE:** the notice is a draft with no legal review, no retention rule exists, and a draft keeps real registration closed |
-| M-14 | 4.0.6 | Device testing and beta go/no-go | NOT STARTED | Needs everything above |
 | M-15 | 4.1 | Core progress: weight log, goal card | **IN PROGRESS** | Code on `feature/phase-4.1-progress`, unmerged, section 2f. MIG-04 is applied to `fitdb_test` only, and focused database and browser tests pass there. **Not COMPLETE:** not merged, not in a full regression, independent review pending |
+| M-14 | 4.0.6 | Device testing and beta go/no-go | **IN PROGRESS** | Local readiness only, on `feature/phase-4.0.6-readiness`, unmerged, section 2g. **Real devices, a deployed server, the checklist and the go/no-go have not started** |
 | M-16 | 4.2 | Real-user beta | NOT STARTED | Needs 4.0 and 4.1 complete |
 
 **Roadmap after the beta, deliberately not started:** Phases 4.3 and 4.4, Track A (paid AI) and Initiative T (trainers) in `PRODUCT_STRATEGY.md`. The beta's findings revise them.
@@ -217,6 +217,26 @@
 | J-04 | 4.1 | Whether a goal must be chosen (Decision 21). Built as optional | NOT STARTED | P2 | Owner | Recorded |
 | J-05 | 4.1 | Confirm the 10-day smoothing constant, 28-day change window and 7-day minimum, which are judgements | NOT STARTED | P2 | Owner | Confirmed or changed |
 | J-06 | 4.1 | Open decision 8: how the log relates to `currentWeightKg`. Built as separate, as the execution plan recommends. The strategy recommends the latest entry becoming current weight | NOT STARTED | P1 | Owner | Recorded |
+## 2g. Phase 4.0.6 detail
+
+**Local readiness only. Results by area, and what can't be verified here: `PHASE_4_0_6_READINESS.md`.** No migration. It doesn't contain 4.0.5 or 4.1, so it can't verify privacy, consent, weight or goals.
+
+| State | Phase 4.0.6, local part |
+|---|---|
+| **IMPLEMENTED** | Yes, unmerged: unknown nutrition stays null, a partial total isn't called a miss, logging a set is safe to retry, finished workouts take no new set, `/previous` answers 404 |
+| **TESTED** | **Yes, on `fitdb_test`.** 35 of 35 suites at `d363e4c`, deliberate defects 41 of 41, then focused suites and 23 of 23 deliberate defects for the locking at `09f0aa4`. **No full regression has run at `09f0aa4`,** by the phase-level approach: one final regression on the combined code. **One unexplained failure in an earlier run, T-25. `safety-no-marker` and `db-guard-scoped` weren't run, T-14** |
+| **REVIEWED** | **Partly.** A read-only security agent read `5763413`, and its findings are addressed in `d363e4c`. Another read the locking at `846c8c7`, and its findings are addressed in `09f0aa4` or recorded as K-04. No agent has re-read those. **Independent source review is pending** |
+| **MERGED** | No |
+| **OPERATIONALLY VERIFIED** | **No. Nothing here ran on a real device or a deployed server** |
+
+| ID | Phase | Description | Status | Priority | Dependency | Acceptance Criteria |
+|---|---|---|---|---|---|---|
+| K-01 | 4.0.6 | Local readiness fixes and document | IN PROGRESS | P1 | Review, merge approval | Full regression passes on the code that merges, and the owner approves |
+| K-02 | 4.0.6 | Repeat the regression once 4.0.5 and 4.1 are merged, and verify privacy, consent, weight and goals there | NOT STARTED | P0 | H-01, J-01, K-01 | All suites pass on the merged code |
+| K-04 | 4.0.6 | **Whether a finished workout can still change. Needs a decision, as it changes what the product does.** Its owner can still edit or delete its sets, delete an exercise with its sets, and add an empty exercise, for example from a stale tab, though the history page offers none of it. That alters personal records and "previous" figures, and deleting the last set leaves a finished workout with none. A delete committing just after a finish counts its sets can do the same. Found in review, and older than 4.0.6. **No new set can be added** | NOT STARTED | P2 | Owner | Decided: refused under the same lock, or kept as a way to correct records. **The owner's provisional direction is immutable in ordinary editing. Nothing is built, and the proposal is in `PHASE_4_INTEGRATION_PLAN.md`** |
+| K-05 | 4.0.6 | Integration order and every required change: `PHASE_4_INTEGRATION_PLAN.md`. Tried in a throwaway clone at the latest commits, with no database. Nothing merged. **No database or browser test has run on the combined code** | NOT STARTED | P1 | H-01, J-01, K-01, owner approvals | All three merged by that plan, with one final regression on the combined code |
+| K-06 | 4.0.6 | Two deadlocks found by reading, both older than this work, involving one person only, and ended by the database rolling one side back: finishing against moving an exercise, with two empty exercises, and deleting an account against deleting a template. Low, and not observed. The other side gets an error and can retry | NOT STARTED | P3 | None | Fixed, or accepted by the owner |
+| K-03 | 4.0.6 | About 5,300 leftover test users on `fitdb_test`, from suite runs, and each regression adds about 90. Harmless so far, and not removed | NOT STARTED | P3 | Owner | Left as is, or removed with authorization, keeping the 10 QA accounts |
 
 ## 3. Tests: run, failed, blocked
 
@@ -433,6 +453,8 @@ So code from before this migration **fails for those people, and never reads a n
 | T-23 | 4.0.5 | `privacy-consent` and `privacy-e2e`, on `fitdb_test` and in three browsers | COMPLETE for `fitdb_test` | P1 | None | Passing on `feature/phase-4.0.5-privacy`, with 34 suites in all. **A real deployment's closed gate is unit-tested, and has never been seen on one** |
 | T-27 | 4.1 | **`e2e-smoke` failed once on this branch, cause unknown.** After Finish, the URL changed to the workout's history page, and "Repeat this workout" didn't appear in 30 seconds, with nothing in the server log. Not reproduced in 22 later runs, or in 200 finishes in Chromium with responses deliberately delayed, so the timing race first suspected isn't supported. The page and logger aren't changed on this branch, and this may or may not be related to T-25. **A person could hit it, as far as is known.** `e2e-smoke` now reports what's on screen if it recurs | NOT STARTED | P2 | None | Cause found, or the owner accepts it |
 | T-24 | 4.1 | `weight-progress`, `weight-e2e`, and the suites that open the dashboard or delete or export an account | COMPLETE for `fitdb_test` | P1 | None | `weight-progress` 22 of 22, `weight-e2e` in Chromium, Firefox and WebKit, `account-data` 26, `account-data-e2e`, `profile-minimization` 7, `profile-nulls` 16, `profile-minimization-e2e`, `eligibility`, `account-tokens` 32. **`e2e-smoke` passes, with one unexplained failure, T-27. Focused, and not a full regression** |
+| T-26 | 4.0.6 | `workout-sets`, forcing each ordering of logging a set and finishing a workout, on `fitdb_test` | COMPLETE for `fitdb_test` | P0 | None | 25 of 25 at `09f0aa4`. Docs: `PHASE_4_0_6_READINESS.md` |
+| T-25 | 4.0.6 | **`e2e-smoke` failed once at `ad015f0`, cause unknown:** a 30-second wait for the password field on the emailed link's page. Not reproduced in 25 reruns, the next regression, and 420 page loads. Memory wasn't low. Nothing shows what the page displayed | NOT STARTED | P1 | None | Cause found if it recurs, as the helper now reports what the page showed. Otherwise closed by the owner |
 | T-09 | 4.0.1b | **Not run:** dropping a CHECK on a live database, to show T38 then fails. The owner's authorization allowed only the approved migration to change the schema | DEFERRED | P2 | Owner, if wanted | **Partly covered:** NC31a and NC31b catch a removed constraint in the migration's text, T38 shows the live constraints refuse every invalid shape, and D5 and D6 show they stop the app's own bad writes |
 | T-10 | 4.0.1b, 4.0.1c | **Not run:** restoring either `fitdb_test` backup, from before 4.0.1b and 4.0.1c. Only their archive listings were read | NOT STARTED | P2 | Owner, for a restore target | Restored into a separately approved database, with row counts compared to the snapshots |
 
@@ -495,7 +517,7 @@ The merged documents hold **recommendations.** Stage A's authorization covered i
 | S-04 | 4.0 | Declared age can be false. Accepted, and never called verification | DEFERRED | P2 | R-01 | Legal confirms |
 | S-05 | 4.0.1 | Legacy `SUGGESTED` rows stay in force, possibly with defective values, until replaced or stopped | DEFERRED | P1 | R-08 | Empty production database |
 | S-06 | 4.0.1 | Legacy zeros can't be told from deliberate ones, and aren't rewritten | DEFERRED | P2 | R-08 | Empty production database |
-| S-07 | 4.0 | `POST .../sets` has no idempotency key, so a lost response could log a set twice | NOT STARTED | P1 | M-14 | Decided in 4.0.6 |
+| S-07 | 4.0 | `POST .../sets` had no idempotency key, so a lost response could log a set twice | IN PROGRESS | P1 | K-01, R-13 | **Fixed, unmerged, on `feature/phase-4.0.6-readiness`, section 2g.** Tested on `fitdb_test` and in three browsers. A real phone's network drop is still R-13 |
 | S-08 | 4.0 | Light-theme contrast defects, from the design's review | NOT STARTED | P2 | None | Contrast checked, and fixed |
 | S-10 | 4.0.2, 4.0.3 | `db.ts` passed `log: ["error"]`, so Prisma printed its own error text in production, past `safe-log`. A RESTRICT violation printed the row's id and the constraint | IN PROGRESS | P1 | T-18 | **Code correction reviewed and merged at `de4607f`:** Prisma's log is off outside development, and a console guard covers what Next.js logs itself. Verified by unit tests and live on a local production build, controls U21 to U23, U26 and A8. **Left:** a real page-render failure, which wasn't triggered (T-18) |
 | S-11 | 4.0.2 | **New.** After a deletion, upload, label-scan and food-search limiters keep the user id in memory until they expire, up to 24 hours. An id only, with no name or email | DEFERRED | P3 | None | Accepted, or cleared with them |

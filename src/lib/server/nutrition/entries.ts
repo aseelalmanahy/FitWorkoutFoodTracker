@@ -206,14 +206,13 @@ export async function history(userId: string, profile: Profile, end: string, day
     const g = byDate.get(date);
     const n = g?._count._all ?? 0;
     const incomplete = g ? (["kcal", "protein", "carbs", "fat", "fiber"] as const).filter((k) => g._count[k] < n) : [];
+    // Entries with none reporting it is unknown. No entries at all is 0.
+    const total = (k: "kcal" | "protein" | "carbs" | "fat" | "fiber") => (g && g._count[k] === 0 ? null : round(Number(g?._sum[k] ?? 0), 2));
     return {
       date,
       entries: n,
       target: targetForDate(targets, date),
-      totals: {
-        kcal: round(Number(g?._sum.kcal ?? 0), 2), protein: round(Number(g?._sum.protein ?? 0), 2), carbs: round(Number(g?._sum.carbs ?? 0), 2),
-        fat: round(Number(g?._sum.fat ?? 0), 2), fiber: round(Number(g?._sum.fiber ?? 0), 2), incomplete: [...incomplete],
-      },
+      totals: { kcal: total("kcal"), protein: total("protein"), carbs: total("carbs"), fat: total("fat"), fiber: total("fiber"), incomplete: [...incomplete] },
     };
   });
   return { start, end, today: localToday(profile.timezone), days: list, summary: summarizePeriod(list) };
