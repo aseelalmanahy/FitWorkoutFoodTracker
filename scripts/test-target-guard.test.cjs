@@ -608,9 +608,10 @@ const NOT_GUARDED = {
   "stub-label-provider.cjs": "a local stand-in server, sends no requests",
   "server-lifecycle.test.cjs": "starts only stand-in processes it writes itself, on free loopback ports; no app, database or request (RC-02)",
   "food-benchmark-record.cjs": "reads search results from USDA FoodData Central and Open Food Facts only, to a file; never the app or a database (RC-01)",
+  "label-photo-fetch.cjs": "downloads label photos and their reference values from Open Food Facts only, to a Git-ignored folder; never the app or a database (RC-03)",
 };
-// food-benchmark-record.cjs is here only because it fetches from the two public food services; it reaches no app or database.
-const NOT_GUARDED_MAY_WRITE = new Set(["food-benchmark-record.cjs", "account-facts.test.cjs", "mark-test-database.cjs", "test-db-guard.test.cjs", "live-check.units.test.cjs", "test-target-guard.test.cjs", "test-target-guard.browser.test.cjs"]);
+// food-benchmark-record.cjs and label-photo-fetch.cjs are here only because they fetch from public food services; they reach no app or database.
+const NOT_GUARDED_MAY_WRITE = new Set(["food-benchmark-record.cjs", "label-photo-fetch.cjs", "account-facts.test.cjs", "mark-test-database.cjs", "test-db-guard.test.cjs", "live-check.units.test.cjs", "test-target-guard.test.cjs", "test-target-guard.browser.test.cjs"]);
 const WRITE_CAPABLE = /\bfetch\(|PrismaClient|newContext\(|require\(["']playwright["']\)|\/api\/auth\/register|http\.request\(/;
 
 /** Problems in a guarded script's source. Comments are ignored, so a mention can't satisfy this. */

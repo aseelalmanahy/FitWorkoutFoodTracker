@@ -32,3 +32,6 @@ demo-account.local.md
 # The local review environment's account passwords, from scripts/review-account.cjs
 review-account.local.md
 review-tester-*.local.md
+
+# Downloaded evaluation images and models, never committed (AI-01, AI-02)
+/.cache/

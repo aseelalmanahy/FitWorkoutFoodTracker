@@ -41,15 +41,18 @@ export function amounts(line: string): Token[] {
   return out;
 }
 
+// The nutrient's name at the start of a line, in English and in the languages most often beside it on European
+// labels (French, German, Dutch, Spanish, Italian). A multilingual line ("Fat / Matières grasses / Vet 22.5g") is
+// found by whichever name comes first; its amounts follow the names, which hold no digits.
 const NUTRIENT_LINES: Record<NutrientKey, RegExp> = {
-  kcal: /^(calories|energy|energie|cal\b)/i,
-  fat: /^(total\s+)?fat\b/i,
-  carbs: /^(total\s+)?carbohydrates?\b/i,
-  fiber: /^(dietary\s+)?fib(er|re)\b/i,
-  protein: /^proteins?\b/i,
+  kcal: /^(calories|energy|energie|énergie|valeur [ée]nerg[ée]tique|brennwert|energ[íi]a|valor energ[ée]tico|valore energetico|cal\b)/i,
+  fat: /^((total\s+)?fat\b|mati[èe]res grasses|lipides|fett\b|vet\b|grasas|grassi|gordura)/i,
+  carbs: /^((total\s+)?carbohydrates?\b|glucides|kohlenhydrate|koolhydraten|hidratos de carbono|carbohidratos|carboidrati)/i,
+  fiber: /^((dietary\s+)?fib(er|re)\b|fibres|ballaststoffe|vezels|voedingsvezel|fibra)/i,
+  protein: /^(proteins?\b|prot[ée]ines|eiwei(ß|ss)|eiwitten|prote[íi]nas|proteine)/i,
 };
 /** Lines about a part of another nutrient, which must never be taken for the nutrient itself. */
-const SUB_NUTRIENT = /^(saturated|trans|poly|mono|of which|sugars?|total sugars|added|incl)/i;
+const SUB_NUTRIENT = /^(saturated|saturates|trans|poly|mono|of which|sugars?|total sugars|added|incl|dont|davon|waarvan|de las cuales|di cui|acides gras|sucres|zucker|suikers|az[úu]cares|zuccheri|ges[äa]ttigte|verzadigde)/i;
 
 function findLine(lines: string[], k: NutrientKey): string | null {
   return lines.find((l) => NUTRIENT_LINES[k].test(l) && !SUB_NUTRIENT.test(l)) ?? null;
@@ -58,8 +61,8 @@ function findLine(lines: string[], k: NutrientKey): string | null {
 /** The columns a label prints, in order, from its heading line; or one per-serving column for a US-style label. */
 function columnsOf(lines: string[]): { basis: Basis; heading: string | null; serving: { amount: number; unit: string; printed: string } | null }[] {
   for (const line of lines) {
-    const hundred = /per\s*100\s*(g|ml)\b/i.exec(line);
-    const portion = /per\s*(?:(\d+(?:[.,]\d+)?)\s*(g|ml)\s*)?(portion|serving)/i.exec(line);
+    const hundred = /(?:per|pour|pro|je|por|para)\s*100\s*(g|ml)\b/i.exec(line);
+    const portion = /(?:per|pour|par|pro|je|por)\s*(?:(\d+(?:[.,]\d+)?)\s*(g|ml)\s*)?(portion|serving|porci[óo]n|porzione)/i.exec(line);
     if (!hundred && !portion) continue;
     const cols: { at: number; basis: Basis; heading: string; serving: { amount: number; unit: string; printed: string } | null }[] = [];
     if (hundred) cols.push({ at: hundred.index, basis: hundred[1].toLowerCase() === "ml" ? "per_100ml" : "per_100g", heading: hundred[0], serving: null });
@@ -137,6 +140,44 @@ function distrustDoubledG(c: Column): Column {
     for (const k of ["protein", "carbs", "fat", "fiber"] as const) if (suspect(k)) out[k] = unreadable(out[k].printed, reason);
   }
   return out;
+}
+
+const NUTRIENT_KEYS = ["kcal", "protein", "carbs", "fat", "fiber"] as const;
+const sameReading = (a: { value: number | null; unit: string | null }, b: { value: number | null; unit: string | null }) => a.value === b.value && a.unit === b.unit;
+
+/**
+ * Two readings of the same label, made differently (AI-01, RC-03): a value counts as read only when both agree on its
+ * number and unit. OCR's misreads depend on how the image is prepared ("55g" read as "559g" one way and "55g" the
+ * other), so a value seen differently, or clearly only once, is left for the person, with both texts in its reason.
+ * Nothing is chosen between the two, averaged or corrected. The first reading supplies the structure and the text.
+ */
+export function mergeReadings(a: LabelExtraction, b: LabelExtraction): LabelExtraction {
+  if (!a.isNutritionLabel) return a;
+  const quote = (f: { printed: string | null } | undefined) => (f?.printed ? `"${f.printed}"` : "nothing clear");
+  const columns = a.columns.map((col, i) => {
+    const other = b.columns[i]?.basis === col.basis ? b.columns[i] : b.columns.find((c) => c.basis === col.basis);
+    const out = { ...col };
+    for (const k of NUTRIENT_KEYS) {
+      const first = col[k];
+      if (first.status !== "read") continue; // absent or unreadable stays as it is
+      const second = other?.[k];
+      if (second?.status === "read" && sameReading(first, second)) continue;
+      out[k] = unreadable(first.printed, `Read two ways, as ${quote(first)} and as ${quote(second)}, so it isn't certain. Please check the label.`);
+    }
+    return out;
+  });
+  let servingSize = a.servingSize;
+  if (servingSize.status === "read") {
+    const s = b.servingSize;
+    if (!(s.status === "read" && s.amount === servingSize.amount && s.unit === servingSize.unit)) {
+      servingSize = { status: "unreadable", amount: null, unit: null, printed: servingSize.printed, reason: `Read two ways, as ${quote(servingSize)} and as ${quote(s)}, so the serving isn't certain. Please check the label.` };
+    }
+  }
+  let servingsPerContainer = a.servingsPerContainer;
+  if (servingsPerContainer.status === "read" && !(b.servingsPerContainer.status === "read" && b.servingsPerContainer.value === servingsPerContainer.value)) {
+    servingsPerContainer = { status: "unreadable", value: null, printed: servingsPerContainer.printed, reason: `Read two ways, as ${quote(servingsPerContainer)} and as ${quote(b.servingsPerContainer)}. Please check the label.` };
+  }
+  return { ...a, servingSize, servingsPerContainer, columns };
 }
 
 export function parseLabelText(raw: string): LabelExtraction {

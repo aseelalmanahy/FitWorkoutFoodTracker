@@ -2,7 +2,7 @@ import "server-only";
 import path from "node:path";
 import type { LabelExtraction } from "@/lib/label-extraction";
 import { LabelExtractionError, type LabelExtractor, type LabelImage } from "./extractor";
-import { parseLabelText } from "./text-parse";
+import { mergeReadings, parseLabelText } from "./text-parse";
 
 /**
  * Label reading on this server, with no paid service and no network request (AI-01): tesseract.js 6.0.1 with its
@@ -10,8 +10,9 @@ import { parseLabelText } from "./text-parse";
  *
  * It sees only the clean image copy from validation. Its text becomes a conservative draft (text-parse.ts), and the
  * person checks every value on the review screen. A photo may be sideways, so up to four orientations are tried
- * (then, for a small photo, the same four enlarged), stopping at the first that reads as a nutrition label. Nothing is
- * stored or cached on disk.
+ * (then, for a small photo, the same four enlarged), stopping at the first that reads as a nutrition label. That
+ * orientation is then read a second time, in black and white, and only values both readings agree on are kept
+ * (mergeReadings): OCR's misreads depend on how the image is prepared. Nothing is stored or cached on disk.
  */
 export const LOCAL_OCR_ID = "local:tesseract.js-6.0.1:eng-4.0.0_best_int";
 const LANG_PATH = path.join(process.cwd(), "node_modules", "@tesseract.js-data", "eng", "4.0.0_best_int");
@@ -56,21 +57,27 @@ export function createLocalLabelExtractor(): LabelExtractor {
       const native = Math.min(meta.width ?? 1600, 2400);
       const attempts = ORIENTATIONS.map((angle) => ({ angle, width: native }));
       if (native < 1200) attempts.push(...ORIENTATIONS.map((angle) => ({ angle, width: 2000 })));
-      let best: LabelExtraction | null = null;
-      for (const { angle, width } of attempts) {
+      // Light text on a dark panel is read inverted, as the recognizer expects dark text on a light ground.
+      const dark = (await sharp(image.bytes).grayscale().stats()).channels[0].mean < 110;
+      const tone = (img: import("sharp").Sharp) => (dark ? img.grayscale().negate({ alpha: false }) : img.grayscale());
+      const recognize = async (prepared: Buffer) => {
         if (signal.aborted) throw new LabelExtractionError("timeout");
-        const prepared = await sharp(image.bytes).rotate(angle).resize({ width }).grayscale().normalize().png().toBuffer();
-        let text: string;
         try {
-          ({ data: { text } } = await w.recognize(prepared));
+          return parseLabelText((await w.recognize(prepared)).data.text);
         } catch {
           throw new LabelExtractionError("unavailable");
         }
-        const reading = parseLabelText(text);
-        if (!best || yieldOf(reading) > yieldOf(best)) best = reading;
+      };
+      let best: { reading: LabelExtraction; angle: number; width: number } | null = null;
+      for (const { angle, width } of attempts) {
+        const reading = await recognize(await tone(sharp(image.bytes).rotate(angle).resize({ width })).normalize().png().toBuffer());
+        if (!best || yieldOf(reading) > yieldOf(best.reading)) best = { reading, angle, width };
         if (reading.isNutritionLabel) break;
       }
-      return best!;
+      if (!best!.reading.isNutritionLabel) return best!.reading;
+      // The second reading: the same orientation and size, in black and white.
+      const second = await recognize(await tone(sharp(image.bytes).rotate(best!.angle).resize({ width: best!.width })).normalize().threshold(140).png().toBuffer());
+      return mergeReadings(best!.reading, second);
     },
   };
 }

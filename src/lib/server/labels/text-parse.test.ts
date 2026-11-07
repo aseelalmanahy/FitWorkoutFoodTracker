@@ -1,7 +1,7 @@
 // AI-01: label text to a draft extraction. The OCR texts below are exactly what tesseract.js 6.0.1 read from rendered
 // labels on 2026-11-07, misreadings included. No OCR runs here.
 import { describe, expect, it } from "vitest";
-import { amounts, labelNumber, parseLabelText } from "./text-parse";
+import { amounts, labelNumber, mergeReadings, parseLabelText } from "./text-parse";
 import { checkLabelExtraction, parseLabelExtraction } from "@/lib/label-extraction";
 
 const US_OCR = `Nutrition Facts
@@ -160,4 +160,42 @@ describe("not a label", () => {
     expect(parseLabelExtraction(e).ok).toBe(true);
   });
   it("empty text too", () => expect(parseLabelText("").isNutritionLabel).toBe(false));
+});
+
+describe("two readings: only values both agree on are kept", () => {
+  const a = parseLabelText(US_OCR);
+  it("agreement keeps every value read", () => {
+    const m = mergeReadings(a, parseLabelText(US_OCR));
+    expect(m).toEqual(a);
+  });
+  it("'55g' read as '559g' once: the serving is unreadable, with both texts, never either number", () => {
+    const m = mergeReadings(parseLabelText(US_OCR.replace("(55g)", "(559g)")), a);
+    expect(m.servingSize).toMatchObject({ status: "unreadable", amount: null });
+    expect(m.servingSize.reason).toMatch(/"2\/3 cup \(559g\)".*"2\/3 cup \(55g\)"/);
+  });
+  it("a nutrient read differently is unreadable; the ones that agree stay read", () => {
+    const m = mergeReadings(a, parseLabelText(US_OCR.replace("Protein 3g", "Protein 8g")));
+    expect(m.columns[0].protein).toMatchObject({ status: "unreadable", value: null, printed: "3g" });
+    expect(m.columns[0].protein.reason).toMatch(/"3g".*"8g"/);
+    expect([m.columns[0].kcal.value, m.columns[0].fat.value, m.columns[0].carbs.value]).toEqual([230, 8, 37]);
+  });
+  it("a value seen clearly only once is unreadable too", () => {
+    const m = mergeReadings(a, parseLabelText(US_OCR.replace("Total Fat 8g", "Total Fat 89")));
+    expect(m.columns[0].fat).toMatchObject({ status: "unreadable", value: null });
+    expect(m.columns[0].fat.reason).toMatch(/"8g".*"89"/);
+  });
+  it("a column the second reading doesn't find is unconfirmed, so nothing in it is kept", () => {
+    const m = mergeReadings(parseLabelText(EU_CLEAN), parseLabelText(EU_CLEAN.replace("Per 100 g Per 30 g portion", "Per 100 g")));
+    expect(m.columns[1].basis).toBe("per_serving");
+    expect(["kcal", "fat", "carbs", "protein"].every((k) => m.columns[1][k as "kcal"].status !== "read")).toBe(true);
+  });
+  it("absent and unreadable values stay as they were; the same unit is required", () => {
+    const m = mergeReadings(parseLabelText("Per 100 g\nEnergy 1580 kJ\nFat 6 g\nProtein 12 g"), parseLabelText("Per 100 g\nEnergy 1580 kcal\nFat 6 g\nProtein 12 g"));
+    expect(m.columns[0].kcal).toMatchObject({ status: "unreadable" });
+    expect(m.columns[0].fiber.status).toBe("absent");
+  });
+  it("not a label: the first reading stands", () => {
+    const none = parseLabelText("thank you");
+    expect(mergeReadings(none, a)).toBe(none);
+  });
 });

@@ -1,0 +1,604 @@
+{
+ "fetchedAt": "2026-11-07T23:02:57.817Z",
+ "license": "Photos: Open Food Facts contributors, CC BY-SA 3.0 (https://world.openfoodfacts.org). Reference values: Open Food Facts, Open Database License; contents under the Database Contents License. The reference values were typed by contributors and can themselves be wrong.",
+ "photos": [
+  {
+   "code": "3017620425035",
+   "country": "united-states",
+   "product": "Nutella",
+   "brand": "Nutella, FERRERO FRANCE COMMERCIALE",
+   "photo": "https://images.openfoodfacts.org/images/products/301/762/042/5035/nutrition_en.588.full.jpg",
+   "file": "3017620425035.jpg",
+   "referencePer": "100g",
+   "servingSize": "33",
+   "reference": {
+    "per100g": {
+     "kcal": 539,
+     "protein": 6.3,
+     "carbs": 57.5,
+     "fat": 30.9,
+     "fiber": null
+    },
+    "perServing": {
+     "kcal": null,
+     "protein": null,
+     "carbs": null,
+     "fat": null,
+     "fiber": null
+    }
+   }
+  },
+  {
+   "code": "3017620422003",
+   "country": "united-states",
+   "product": "Nutella",
+   "brand": "Nutella, Ferrero",
+   "photo": "https://images.openfoodfacts.org/images/products/301/762/042/2003/nutrition_en.822.full.jpg",
+   "file": "3017620422003.jpg",
+   "referencePer": "100g",
+   "servingSize": null,
+   "reference": {
+    "per100g": {
+     "kcal": 539,
+     "protein": 6.3,
+     "carbs": 57.5,
+     "fat": 30.9,
+     "fiber": 0
+    },
+    "perServing": {
+     "kcal": null,
+     "protein": null,
+     "carbs": null,
+     "fat": null,
+     "fiber": null
+    }
+   }
+  },
+  {
+   "code": "5449000214799",
+   "country": "united-states",
+   "product": "Coca-Cola sans sucres",
+   "brand": "Coca-Cola",
+   "photo": "https://images.openfoodfacts.org/images/products/544/900/021/4799/nutrition_en.332.full.jpg",
+   "file": "5449000214799.jpg",
+   "referencePer": "100g",
+   "servingSize": "1 can (330 ml)",
+   "reference": {
+    "per100g": {
+     "kcal": 0.3,
+     "protein": 0,
+     "carbs": 0,
+     "fat": 0,
+     "fiber": 0
+    },
+    "perServing": {
+     "kcal": 0.99,
+     "protein": 0,
+     "carbs": 0,
+     "fat": 0,
+     "fiber": 0
+    }
+   }
+  },
+  {
+   "code": "3017620429484",
+   "country": "united-states",
+   "product": "Nutella",
+   "brand": "Nutella, Ferrero",
+   "photo": "https://images.openfoodfacts.org/images/products/301/762/042/9484/nutrition_en.319.full.jpg",
+   "file": "3017620429484.jpg",
+   "referencePer": "100g",
+   "servingSize": "15g",
+   "reference": {
+    "per100g": {
+     "kcal": 539,
+     "protein": 6.3,
+     "carbs": 57.5,
+     "fat": 30.9,
+     "fiber": 3.4
+    },
+    "perServing": {
+     "kcal": 80.8,
+     "protein": 0.945,
+     "carbs": 8.62,
+     "fat": 4.63,
+     "fiber": 0.51
+    }
+   }
+  },
+  {
+   "code": "80042556",
+   "country": "united-states",
+   "product": "",
+   "brand": "Mutti",
+   "photo": "https://images.openfoodfacts.org/images/products/000/008/004/2556/nutrition_en.451.full.jpg",
+   "file": "80042556.jpg",
+   "referencePer": "100g",
+   "servingSize": "1 serving (400 g)",
+   "reference": {
+    "per100g": {
+     "kcal": 26,
+     "protein": 1.2,
+     "carbs": 3.9,
+     "fat": 0.2,
+     "fiber": 1.9
+    },
+    "perServing": {
+     "kcal": 104,
+     "protein": 4.8,
+     "carbs": 15.6,
+     "fat": 0.8,
+     "fiber": 7.6
+    }
+   }
+  },
+  {
+   "code": "8715700407760",
+   "country": "united-states",
+   "product": "Tomato Ketchup BIO",
+   "brand": "H.J. Heinz B.V.",
+   "photo": "https://images.openfoodfacts.org/images/products/871/570/040/7760/nutrition_en.221.full.jpg",
+   "file": "8715700407760.jpg",
+   "referencePer": "100g",
+   "servingSize": null,
+   "reference": {
+    "per100g": {
+     "kcal": 112,
+     "protein": 1.4,
+     "carbs": 25.3,
+     "fat": 0.1,
+     "fiber": 0
+    },
+    "perServing": {
+     "kcal": null,
+     "protein": null,
+     "carbs": null,
+     "fat": null,
+     "fiber": null
+    }
+   }
+  },
+  {
+   "code": "5000159461122",
+   "country": "united-states",
+   "product": "Snickers",
+   "brand": "Mars Wrigley Confectionery UK Limited, Snickers",
+   "photo": "https://images.openfoodfacts.org/images/products/500/015/946/1122/nutrition_en.263.full.jpg",
+   "file": "5000159461122.jpg",
+   "referencePer": "100g",
+   "servingSize": "50 g",
+   "reference": {
+    "per100g": {
+     "kcal": 481,
+     "protein": 8.6,
+     "carbs": 60.5,
+     "fat": 22.5,
+     "fiber": 4.3
+    },
+    "perServing": {
+     "kcal": 240,
+     "protein": 4.3,
+     "carbs": 30.2,
+     "fat": 11.2,
+     "fiber": 2.15
+    }
+   }
+  },
+  {
+   "code": "20005832",
+   "country": "united-states",
+   "product": "Dark chocolate 50% Cocoa",
+   "brand": "Fin Carré",
+   "photo": "https://images.openfoodfacts.org/images/products/000/002/000/5832/nutrition_en.187.full.jpg",
+   "file": "20005832.jpg",
+   "referencePer": "100g",
+   "servingSize": "1 Bar (40 g)",
+   "reference": {
+    "per100g": {
+     "kcal": 532,
+     "protein": 4.7,
+     "carbs": 52.2,
+     "fat": 32.1,
+     "fiber": 7.6
+    },
+    "perServing": {
+     "kcal": 213,
+     "protein": 1.88,
+     "carbs": 20.9,
+     "fat": 12.8,
+     "fiber": 3.04
+    }
+   }
+  },
+  {
+   "code": "3245550078674",
+   "country": "united-states",
+   "product": "SNACK POPPÉ",
+   "brand": "TOO GOOD",
+   "photo": "https://images.openfoodfacts.org/images/products/324/555/007/8674/nutrition_en.95.full.jpg",
+   "file": "3245550078674.jpg",
+   "referencePer": "100g",
+   "servingSize": "100 g",
+   "reference": {
+    "per100g": {
+     "kcal": 413,
+     "protein": 18,
+     "carbs": 56,
+     "fat": 11,
+     "fiber": 8.3
+    },
+    "perServing": {
+     "kcal": 413,
+     "protein": 18,
+     "carbs": 56,
+     "fat": 11,
+     "fiber": 8.3
+    }
+   }
+  },
+  {
+   "code": "5000137487908",
+   "country": "united-states",
+   "product": "The Original Cracker",
+   "brand": "Ritz Bakery",
+   "photo": "https://images.openfoodfacts.org/images/products/500/013/748/7908/nutrition_en.36.full.jpg",
+   "file": "5000137487908.jpg",
+   "referencePer": "100g",
+   "servingSize": "100 g (100 g)",
+   "reference": {
+    "per100g": {
+     "kcal": 490,
+     "protein": 7.2,
+     "carbs": 62,
+     "fat": 23,
+     "fiber": 2.8
+    },
+    "perServing": {
+     "kcal": 490,
+     "protein": 7.2,
+     "carbs": 62,
+     "fat": 23,
+     "fiber": 2.8
+    }
+   }
+  },
+  {
+   "code": "7394376620157",
+   "country": "united-states",
+   "product": "Barista edition oat drink",
+   "brand": "Oatly",
+   "photo": "https://images.openfoodfacts.org/images/products/739/437/662/0157/nutrition_en.7.full.jpg",
+   "file": "7394376620157.jpg",
+   "referencePer": "100ml",
+   "servingSize": "1 serving (100 ml)",
+   "reference": {
+    "per100g": {
+     "kcal": 61,
+     "protein": 1.1,
+     "carbs": 7.1,
+     "fat": 3,
+     "fiber": 0.8
+    },
+    "perServing": {
+     "kcal": 61,
+     "protein": 1.1,
+     "carbs": 7.1,
+     "fat": 3,
+     "fiber": 0.8
+    }
+   }
+  },
+  {
+   "code": "20005573",
+   "country": "united-states",
+   "product": "Jaffa Cakes",
+   "brand": "Tower Gate",
+   "photo": "https://images.openfoodfacts.org/images/products/000/002/000/5573/nutrition_en.129.full.jpg",
+   "file": "20005573.jpg",
+   "referencePer": "100g",
+   "servingSize": "25 gram",
+   "reference": {
+    "per100g": {
+     "kcal": 381,
+     "protein": 3.6,
+     "carbs": 65.4,
+     "fat": 11.3,
+     "fiber": 1.7
+    },
+    "perServing": {
+     "kcal": 95.2,
+     "protein": 0.9,
+     "carbs": 16.4,
+     "fat": 2.83,
+     "fiber": 0.425
+    }
+   }
+  },
+  {
+   "code": "80177616",
+   "country": "united-states",
+   "product": "FILLED MILK CHOCOLATE WITH A MILKY FILLING",
+   "brand": "Kinder",
+   "photo": "https://images.openfoodfacts.org/images/products/000/008/017/7616/nutrition_en.227.full.jpg",
+   "file": "80177616.jpg",
+   "referencePer": "100g",
+   "servingSize": "12,5 g",
+   "reference": {
+    "per100g": {
+     "kcal": 566,
+     "protein": 8.7,
+     "carbs": 53.5,
+     "fat": 35,
+     "fiber": null
+    },
+    "perServing": {
+     "kcal": 70.8,
+     "protein": 1.09,
+     "carbs": 6.69,
+     "fat": 4.38,
+     "fiber": null
+    }
+   }
+  },
+  {
+   "code": "3274080005003",
+   "country": "united-kingdom",
+   "product": "isabelle",
+   "brand": "Cristaline",
+   "photo": "https://images.openfoodfacts.org/images/products/327/408/000/5003/nutrition_en.767.full.jpg",
+   "file": "3274080005003.jpg",
+   "referencePer": "100g",
+   "servingSize": "1,5L",
+   "reference": {
+    "per100g": {
+     "kcal": null,
+     "protein": null,
+     "carbs": null,
+     "fat": null,
+     "fiber": null
+    },
+    "perServing": {
+     "kcal": null,
+     "protein": null,
+     "carbs": null,
+     "fat": null,
+     "fiber": null
+    }
+   }
+  },
+  {
+   "code": "3017620425035",
+   "country": "united-kingdom",
+   "product": "Nutella",
+   "brand": "Nutella, FERRERO FRANCE COMMERCIALE",
+   "photo": "https://images.openfoodfacts.org/images/products/301/762/042/5035/nutrition_en.588.full.jpg",
+   "file": "3017620425035.jpg",
+   "referencePer": "100g",
+   "servingSize": "33",
+   "reference": {
+    "per100g": {
+     "kcal": 539,
+     "protein": 6.3,
+     "carbs": 57.5,
+     "fat": 30.9,
+     "fiber": null
+    },
+    "perServing": {
+     "kcal": null,
+     "protein": null,
+     "carbs": null,
+     "fat": null,
+     "fiber": null
+    }
+   }
+  },
+  {
+   "code": "3017620422003",
+   "country": "united-kingdom",
+   "product": "Nutella",
+   "brand": "Nutella, Ferrero",
+   "photo": "https://images.openfoodfacts.org/images/products/301/762/042/2003/nutrition_en.822.full.jpg",
+   "file": "3017620422003.jpg",
+   "referencePer": "100g",
+   "servingSize": null,
+   "reference": {
+    "per100g": {
+     "kcal": 539,
+     "protein": 6.3,
+     "carbs": 57.5,
+     "fat": 30.9,
+     "fiber": 0
+    },
+    "perServing": {
+     "kcal": null,
+     "protein": null,
+     "carbs": null,
+     "fat": null,
+     "fiber": null
+    }
+   }
+  },
+  {
+   "code": "50184453",
+   "country": "united-kingdom",
+   "product": "Yeast Extract",
+   "brand": "Marmite",
+   "photo": "https://images.openfoodfacts.org/images/products/000/005/018/4453/nutrition_en.41.full.jpg",
+   "file": "50184453.jpg",
+   "referencePer": "100g",
+   "servingSize": "8 gram",
+   "reference": {
+    "per100g": {
+     "kcal": 260,
+     "protein": 34,
+     "carbs": 30,
+     "fat": null,
+     "fiber": null
+    },
+    "perServing": {
+     "kcal": 20.8,
+     "protein": 2.72,
+     "carbs": 2.4,
+     "fat": null,
+     "fiber": null
+    }
+   }
+  },
+  {
+   "code": "5449000000996",
+   "country": "united-kingdom",
+   "product": "Coca-Cola Original",
+   "brand": "COCA-COLA SERVICES SA/NV",
+   "photo": "https://images.openfoodfacts.org/images/products/544/900/000/0996/nutrition_en.1173.full.jpg",
+   "file": "5449000000996.jpg",
+   "referencePer": "100g",
+   "servingSize": "1 portion (330 ml)",
+   "reference": {
+    "per100g": {
+     "kcal": 42.4,
+     "protein": 0,
+     "carbs": 10.6,
+     "fat": 0,
+     "fiber": null
+    },
+    "perServing": {
+     "kcal": 140,
+     "protein": 0,
+     "carbs": 35,
+     "fat": 0,
+     "fiber": null
+    }
+   }
+  },
+  {
+   "code": "3268840001008",
+   "country": "united-kingdom",
+   "product": "CRISTALINE Eau De Source 0.5L",
+   "brand": "Cristaline",
+   "photo": "https://images.openfoodfacts.org/images/products/326/884/000/1008/nutrition_en.355.full.jpg",
+   "file": "3268840001008.jpg",
+   "referencePer": "100ml",
+   "servingSize": "1 L",
+   "reference": {
+    "per100g": {
+     "kcal": 0,
+     "protein": 0,
+     "carbs": 0,
+     "fat": 0,
+     "fiber": 0
+    },
+    "perServing": {
+     "kcal": 0,
+     "protein": 0,
+     "carbs": 0,
+     "fat": 0,
+     "fiber": 0
+    }
+   }
+  },
+  {
+   "code": "54491472",
+   "country": "united-kingdom",
+   "product": "Cola",
+   "brand": "Coca-Cola",
+   "photo": "https://images.openfoodfacts.org/images/products/000/005/449/1472/nutrition_en.626.full.jpg",
+   "file": "54491472.jpg",
+   "referencePer": "100ml",
+   "servingSize": "1 Glass (250 ml)",
+   "reference": {
+    "per100g": {
+     "kcal": 44,
+     "protein": 0,
+     "carbs": 10.9,
+     "fat": 0,
+     "fiber": 0
+    },
+    "perServing": {
+     "kcal": 110,
+     "protein": 0,
+     "carbs": 27.2,
+     "fat": 0,
+     "fiber": 0
+    }
+   }
+  },
+  {
+   "code": "80135463",
+   "country": "united-kingdom",
+   "product": "",
+   "brand": "Ferrero",
+   "photo": "https://images.openfoodfacts.org/images/products/000/008/013/5463/nutrition_en.319.full.jpg",
+   "file": "80135463.jpg",
+   "referencePer": "100g",
+   "servingSize": "15 g",
+   "reference": {
+    "per100g": {
+     "kcal": 539,
+     "protein": 6.3,
+     "carbs": 57.5,
+     "fat": 30.9,
+     "fiber": null
+    },
+    "perServing": {
+     "kcal": 80.8,
+     "protein": 0.945,
+     "carbs": 8.62,
+     "fat": 4.63,
+     "fiber": null
+    }
+   }
+  },
+  {
+   "code": "3046920029759",
+   "country": "united-kingdom",
+   "product": "Excellence Noir Prodigieux 90% Cacao",
+   "brand": "Lindt, Lindt & Sprüngli",
+   "photo": "https://images.openfoodfacts.org/images/products/304/692/002/9759/nutrition_en.546.full.jpg",
+   "file": "3046920029759.jpg",
+   "referencePer": "100g",
+   "servingSize": "1 square (10 g)",
+   "reference": {
+    "per100g": {
+     "kcal": 592,
+     "protein": 10,
+     "carbs": 14,
+     "fat": 55,
+     "fiber": 0
+    },
+    "perServing": {
+     "kcal": 59.2,
+     "protein": 1,
+     "carbs": 1.4,
+     "fat": 5.5,
+     "fiber": 0
+    }
+   }
+  },
+  {
+   "code": "5411188112709",
+   "country": "united-kingdom",
+   "product": "Geröstete Mandel Ohne Zucker",
+   "brand": "alpro, Danone Belux nv",
+   "photo": "https://images.openfoodfacts.org/images/products/541/118/811/2709/nutrition_en.929.full.jpg",
+   "file": "5411188112709.jpg",
+   "referencePer": "100g",
+   "servingSize": "100.0g",
+   "reference": {
+    "per100g": {
+     "kcal": 15,
+     "protein": 0.5,
+     "carbs": 0,
+     "fat": 1.1,
+     "fiber": 0.3
+    },
+    "perServing": {
+     "kcal": 15,
+     "protein": 0.5,
+     "carbs": 0,
+     "fat": 1.1,
+     "fiber": 0.3
+    }
+   }
+  }
+ ]
+}
