@@ -110,7 +110,9 @@ const SHOTS = (process.env.SHOTS_DIR || require("os").tmpdir()) + "/";
   assert.equal(await filter("OPEN_FOOD_FACTS").getAttribute("aria-pressed"), "true");
   assert.equal(await filter("USDA").getAttribute("aria-pressed"), "false");
   await page.getByText('No packaged-food results for "chicken breast"').waitFor();
-  assert.match(await page.getByTestId("food-empty").innerText(), /Found in USDA foods \(1\)/);
+  // Only Open Food Facts and My foods were searched, so USDA's earlier match isn't counted here.
+  assert.match(await page.getByTestId("food-empty").innerText(), /USDA foods wasn.t searched/);
+  assert.equal((await filter("USDA").innerText()).trim(), "USDA foods", "no count on a source that wasn't searched");
   assert.equal(await page.getByTestId("food-result").count(), 0);
   await page.getByRole("button", { name: "Show all sources" }).click();
   assert.equal(await filter("ALL").getAttribute("aria-pressed"), "true");
@@ -175,7 +177,10 @@ const SHOTS = (process.env.SHOTS_DIR || require("os").tmpdir()) + "/";
   await page.getByLabel("Search foods").fill("serving protein");
   await filter("CUSTOM").click();
   await page.getByTestId("food-result").filter({ hasText: "Protein bar" }).waitFor(); // name "Protein bar", serving "1 serving"
+  // Under My foods, no provider is asked: the request names My foods only.
+  const customOnly = page.waitForRequest((r) => new URL(r.url()).pathname === "/api/foods/search" && new URL(r.url()).searchParams.get("q") === "large protein");
   await page.getByLabel("Search foods").fill("large protein");
+  assert.equal(new URL((await customOnly).url()).searchParams.get("sources"), "CUSTOM");
   await page.getByText('None of your foods match "large protein"').waitFor();
   await filter("ALL").click();
   step("custom food matched by its serving label, and only when every word matches");

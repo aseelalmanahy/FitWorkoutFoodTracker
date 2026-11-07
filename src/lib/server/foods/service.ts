@@ -204,6 +204,8 @@ export interface SearchResponse {
   errors: { source: ExternalSource; kind: string; message: string; retryAfterSec?: number }[];
   /** Providers answered by a local stand-in with a few test records, so the person isn't told it's the full catalog. */
   localTestSources: ExternalSource[];
+  /** The sources this search covered, so a client never treats an unsearched source as having no matches. */
+  sources: SearchSource[];
 }
 
 const fromNormalized = (n: NormalizedFood, foodId: string | null = null): SearchItem => ({
@@ -250,7 +252,8 @@ export function localTestSources(): ExternalSource[] {
 export async function searchFoods(userId: string, query: string, sources: SearchSource[]): Promise<SearchResponse> {
   const q = query.trim();
   const barcode = isBarcode(q);
-  const res: SearchResponse = { query: q, barcode, results: { CUSTOM: [], USDA: [], OPEN_FOOD_FACTS: [] }, errors: [], localTestSources: localTestSources() };
+  const res: SearchResponse = { query: q, barcode, results: { CUSTOM: [], USDA: [], OPEN_FOOD_FACTS: [] }, errors: [], localTestSources: localTestSources(),
+    sources: (["CUSTOM", "USDA", "OPEN_FOOD_FACTS"] as SearchSource[]).filter((s) => sources.includes(s)) };
 
   const tasks: Promise<void>[] = [];
   if (sources.includes("CUSTOM")) {

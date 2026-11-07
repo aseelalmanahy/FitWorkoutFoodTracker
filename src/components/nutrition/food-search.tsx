@@ -9,7 +9,7 @@ import { Button, Card, ErrorText, Field, Input, Select, cx } from "@/components/
 import { Sheet } from "./sheet";
 import { PortionEditor } from "./portion-editor";
 import type { FoodDto, SearchItem, SearchResponse } from "@/lib/server/foods/service";
-import { FILTERS, MIN_QUERY_LENGTH, SOURCE_LABEL, SOURCE_NOTE, localTestNotice, searchView, type Filter } from "@/lib/food-search-view";
+import { FILTERS, MIN_QUERY_LENGTH, SOURCE_LABEL, SOURCE_NOTE, covers, localTestNotice, requestKey, searchPath, searchView, type Filter } from "@/lib/food-search-view";
 
 function Per100({ item }: { item: Pick<SearchItem, "per100" | "basisUnit"> }) {
   const n = item.per100;
@@ -43,8 +43,8 @@ export function FoodSearch({ date, today, initialMeal, embedded }: {
   const [filter, setFilter] = useState<Filter>("ALL");
   const [data, setData] = useState<SearchResponse | null>(null);
   const [recent, setRecent] = useState<FoodDto[] | null>(null);
-  // The last failed request, kept with its query so it's never shown against a different one.
-  const [failure, setFailure] = useState<{ query: string; message: string } | null>(null);
+  // The last failed request, kept with its query and sources so it's never shown against a different one.
+  const [failure, setFailure] = useState<{ key: string; message: string } | null>(null);
   // Errors from choosing a food, separate from the search's own state.
   const [error, setError] = useState<string | null>(null);
   const [selected, setSelected] = useState<FoodDto | null>(null);
@@ -61,17 +61,17 @@ export function FoodSearch({ date, today, initialMeal, embedded }: {
     api<{ foods: FoodDto[] }>("GET", "/api/foods/recent").then((r) => setRecent(r.foods)).catch(() => setRecent([]));
   }, []);
 
-  // Every source is searched once per query, and the filter only chooses what's shown. So changing the
-  // filter is immediate, and an empty filtered view can say where matches were found.
-  const search = useCallback(async (term: string) => {
+  // Only the chosen filter's sources are searched (see sourcesFor). An answer that already covers the filter,
+  // such as All sources narrowed to one source, is reused without asking again.
+  const search = useCallback(async (term: string, f: Filter) => {
     const id = ++reqId.current; // a later request always wins, whatever order the answers arrive in
     const t = term.trim();
     if (t.length < MIN_QUERY_LENGTH) return;
     try {
-      const r = await api<SearchResponse>("GET", `/api/foods/search?q=${encodeURIComponent(t)}`);
+      const r = await api<SearchResponse>("GET", searchPath(t, f));
       if (id === reqId.current) { setData(r); setFailure(null); }
     } catch (e) {
-      if (id === reqId.current) setFailure({ query: t, message: (e as Error).message });
+      if (id === reqId.current) setFailure({ key: requestKey(t, f), message: (e as Error).message });
     }
   }, []);
 
@@ -81,9 +81,10 @@ export function FoodSearch({ date, today, initialMeal, embedded }: {
       setFailure(null);
       return;
     }
-    const t = setTimeout(() => search(q), 350);
+    if (covers(data, q, filter)) return;
+    const t = setTimeout(() => search(q, filter), 350);
     return () => clearTimeout(t);
-  }, [q, search]);
+  }, [q, filter, data, search]);
 
   // A new query makes an earlier choice's error irrelevant.
   useEffect(() => { setError(null); }, [q]);
@@ -139,7 +140,7 @@ export function FoodSearch({ date, today, initialMeal, embedded }: {
                 filter === f.v ? "border-accent bg-accent text-accent-fg" : "border-transparent bg-surface-2 text-muted hover:text-fg")}>
               {filter === f.v && <span aria-hidden>✓</span>}
               {f.label}
-              {counts && f.v !== "ALL" && <span className="num opacity-80"><span className="sr-only">, found:</span> {counts[f.v]}</span>}
+              {counts && f.v !== "ALL" && counts[f.v] !== undefined && <span className="num opacity-80"><span className="sr-only">, found:</span> {counts[f.v]}</span>}
             </button>
           ))}
           <button type="button" onClick={() => setCreating(true)} className="h-8 shrink-0 rounded-full bg-surface-2 px-3 text-xs font-medium text-accent-ink">+ Custom food</button>
@@ -187,7 +188,7 @@ export function FoodSearch({ date, today, initialMeal, embedded }: {
             <Card className="p-6 text-center" data-testid="food-search-failed">
               <p className="font-semibold">Search failed</p>
               <p className="mt-1 text-sm text-down">{view.message}</p>
-              <Button variant="secondary" className="mt-3" onClick={() => { setFailure(null); void search(q); }}>Try again</Button>
+              <Button variant="secondary" className="mt-3" onClick={() => { setFailure(null); void search(q, filter); }}>Try again</Button>
             </Card>
           )}
           {(view.state === "results" || view.state === "empty") && view.unavailable.map((e) => (
@@ -199,11 +200,14 @@ export function FoodSearch({ date, today, initialMeal, embedded }: {
               <p className="mt-1 text-sm text-muted">
                 {view.kind === "unavailable" ? "This doesn't mean there are no matches. Try again shortly, or log a recent or custom food."
                   : view.kind === "partly" ? "The sources that answered have no matches, and the others couldn't be searched. Try again shortly."
-                  : view.elsewhere.length ? `Found in ${view.elsewhere.map((x) => `${SOURCE_LABEL[x.source]} (${x.count})`).join(" and ")}.`
-                  : "Try a simpler or different word, check the spelling, or create a custom food."}
+                  : [
+                    view.elsewhere.length ? `Found in ${view.elsewhere.map((x) => `${SOURCE_LABEL[x.source]} (${x.count})`).join(" and ")}.` : "",
+                    view.unsearched.length ? `${view.unsearched.map((s) => SOURCE_LABEL[s]).join(" and ")} ${view.unsearched.length > 1 ? "weren't" : "wasn't"} searched.` : "",
+                    !view.elsewhere.length && !view.unsearched.length ? "Try a simpler or different word, check the spelling, or create a custom food." : "",
+                  ].filter(Boolean).join(" ")}
               </p>
               <div className="mt-3 flex flex-wrap justify-center gap-2">
-                {view.elsewhere.length > 0 && <Button onClick={() => setFilter("ALL")}>Show all sources</Button>}
+                {filter !== "ALL" && <Button onClick={() => setFilter("ALL")}>Show all sources</Button>}
                 <Button variant="secondary" onClick={() => setCreating(true)}>Create custom food</Button>
               </div>
             </Card>

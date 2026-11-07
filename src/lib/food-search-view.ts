@@ -29,49 +29,75 @@ const NO_MATCH: Record<Filter, (q: string) => string> = {
 export type SearchView =
   /** Fewer than two characters: nothing is searched, and recent foods are offered. */
   | { state: "idle" }
-  /** The shown query has no answer yet. Any earlier answer belongs to a different query, so it isn't shown. */
+  /** No answer yet covers this query and filter. Any earlier answer belongs to something else, so it isn't shown. */
   | { state: "loading" }
-  /** The whole request failed for this query. */
+  /** The whole request failed for this query and filter. */
   | { state: "failed"; message: string }
   | {
       state: "results";
       sections: SearchSource[];
       total: number;
       /** Sources in view that couldn't be searched, so an absence there means nothing. */
-      unavailable: SearchView_Error[];
-      counts: Record<SearchSource, number>;
+      unavailable: SourceError[];
+      /** Counts for the sources actually searched. A source that wasn't searched has none, rather than a guessed 0. */
+      counts: Partial<Record<SearchSource, number>>;
     }
   | {
       state: "empty";
       /** "no_match": every source in view answered, with nothing. "unavailable": every source in view failed. "partly": some failed, and the rest had nothing. */
       kind: "no_match" | "unavailable" | "partly";
       title: string;
-      unavailable: SearchView_Error[];
-      /** Matches in sources the filter hides, so the person can switch to all sources. */
+      unavailable: SourceError[];
+      /** Matches in sources that were searched but are hidden by the filter. */
       elsewhere: { source: SearchSource; count: number }[];
-      counts: Record<SearchSource, number>;
+      /** Sources not searched for this filter, so nothing is said about them. */
+      unsearched: SearchSource[];
+      counts: Partial<Record<SearchSource, number>>;
     };
 
-type SearchView_Error = SearchResponse["errors"][number];
+type SourceError = SearchResponse["errors"][number];
+
+/**
+ * The sources asked for under each filter. A filter on one external source never calls the other one.
+ * My foods is a query on this app's own database, with no provider call, so it comes along: that's what lets an
+ * empty filtered view say "Found in My foods" without guessing.
+ */
+export function sourcesFor(filter: Filter): SearchSource[] {
+  return filter === "ALL" ? [...SOURCE_ORDER] : filter === "CUSTOM" ? ["CUSTOM"] : ["CUSTOM", filter];
+}
+
+/** The search request for a query and filter. Only the filter's sources are named, so only they are searched. */
+export function searchPath(query: string, filter: Filter): string {
+  return `/api/foods/search?q=${encodeURIComponent(query.trim())}&sources=${sourcesFor(filter).join(",")}`;
+}
+
+/** Identifies one request, so a failure is shown only against the same query and sources. */
+export const requestKey = (query: string, filter: Filter) => `${query.trim()}|${sourcesFor(filter).join(",")}`;
 
 /** The answer is for exactly this query. The server trims the query as the client does, so they compare directly. */
 export const isCurrent = (data: SearchResponse | null, query: string): data is SearchResponse =>
   data !== null && data.query === query.trim();
 
-export function searchView(args: { query: string; filter: Filter; data: SearchResponse | null; failure: { query: string; message: string } | null }): SearchView {
+/** The answer is for this query and searched every source this filter needs, so it can be shown without asking again. */
+export const covers = (data: SearchResponse | null, query: string, filter: Filter): data is SearchResponse =>
+  isCurrent(data, query) && sourcesFor(filter).every((s) => data.sources.includes(s));
+
+export function searchView(args: { query: string; filter: Filter; data: SearchResponse | null; failure: { key: string; message: string } | null }): SearchView {
   const q = args.query.trim();
   if (q.length < MIN_QUERY_LENGTH) return { state: "idle" };
-  if (args.failure && args.failure.query === q) return { state: "failed", message: args.failure.message };
-  if (!isCurrent(args.data, q)) return { state: "loading" };
+  if (args.failure && args.failure.key === requestKey(q, args.filter)) return { state: "failed", message: args.failure.message };
+  if (!covers(args.data, q, args.filter)) return { state: "loading" };
   const data = args.data;
 
-  const counts = Object.fromEntries(SOURCE_ORDER.map((s) => [s, data.results[s].length])) as Record<SearchSource, number>;
+  const searched = SOURCE_ORDER.filter((s) => data.sources.includes(s));
+  const counts: Partial<Record<SearchSource, number>> = Object.fromEntries(searched.map((s) => [s, data.results[s].length]));
   const sections = SOURCE_ORDER.filter((s) => args.filter === "ALL" || args.filter === s);
-  const total = sections.reduce((n, s) => n + counts[s], 0);
+  const total = sections.reduce((n, s) => n + (counts[s] ?? 0), 0);
   const unavailable = data.errors.filter((e) => sections.includes(e.source));
   if (total > 0) return { state: "results", sections, total, unavailable, counts };
 
-  const elsewhere = SOURCE_ORDER.filter((s) => !sections.includes(s) && counts[s] > 0).map((source) => ({ source, count: counts[source] }));
+  const elsewhere = searched.filter((s) => !sections.includes(s) && (counts[s] ?? 0) > 0).map((source) => ({ source, count: counts[source]! }));
+  const unsearched = SOURCE_ORDER.filter((s) => !searched.includes(s));
   // My foods never fails on its own, so it counts as answered whenever it's in view.
   const answered = sections.filter((s) => !unavailable.some((e) => e.source === s));
   const kind = unavailable.length === 0 ? "no_match" : answered.length === 0 ? "unavailable" : "partly";
@@ -80,7 +106,7 @@ export function searchView(args: { query: string; filter: Filter; data: SearchRe
     : kind === "partly" ? "Search is partly unavailable"
     : data.barcode ? `No product matches barcode ${q}${args.filter === "ALL" ? "" : ` in ${SOURCE_LABEL[args.filter]}`}`
     : NO_MATCH[args.filter](q);
-  return { state: "empty", kind, title, unavailable, elsewhere, counts };
+  return { state: "empty", kind, title, unavailable, elsewhere, unsearched, counts };
 }
 
 /** Wording for the local stand-in, so the demo never suggests it holds the real catalogs. */
