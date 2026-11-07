@@ -47,12 +47,14 @@ async function earlierSet(id: string, sessionExerciseId: string, input: NewSet) 
 }
 
 /** With a key, a retry after a lost response returns the set that was saved, and doesn't log it twice. */
-export async function logSet(userId: string, sessionExerciseId: string, input: NewSet, idempotencyKey: string | null = null) {
+export async function logSet(userId: string, sessionExerciseId: string, status: string, input: NewSet, idempotencyKey: string | null = null) {
   const id = idempotencyKey ? idempotentId("set", userId, idempotencyKey) : undefined;
   if (id) {
     const earlier = await earlierSet(id, sessionExerciseId, input);
     if (earlier) return earlier;
   }
+  // After the check above, so an honest retry still gets the set it saved. A new one would change a finished workout's records.
+  if (status !== "IN_PROGRESS") throw new HttpError(409, "This workout has been finished, so nothing was logged.");
   const agg = await prisma.setEntry.aggregate({ where: { sessionExerciseId }, _max: { setNumber: true } });
   try {
     return await prisma.setEntry.create({

@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   addDays, carbsFromRemainder, entryNutrients, isIsoDate, macroKcal, mondayOf, progress, remaining,
-  fmtMacroTarget, macroAgainstTarget, scaleNutrients, sumNutrients, summarizePeriod, targetForDate, type DaySummary, type Nutrients,
+  fmtMacroTarget, macroAgainstTarget, proteinAgainstTarget, scaleNutrients, sumNutrients, summarizePeriod, targetForDate, type DaySummary, type Nutrients,
 } from "./nutrition";
 
 const per100: Nutrients = { kcal: 200, protein: 10, carbs: 25, fat: 7.5, fiber: null };
@@ -53,9 +53,9 @@ describe("totals", () => {
     expect([t.kcal, t.protein, t.incomplete]).toEqual([0, 0, []]);
   });
   it("nothing can be worked out from an unknown amount", () => {
-    expect(remaining(2000, null)).toEqual({ remaining: null, over: 0 });
-    expect(progress(null, 2000)).toEqual({ fraction: 0, ratio: 0 });
-    expect(macroAgainstTarget(150, null)).toEqual({ target: 150, remaining: null, over: 0, fraction: 0, ratio: 0 });
+    expect(remaining(2000, null)).toEqual({ remaining: null, over: null });
+    expect(progress(null, 2000)).toEqual({ fraction: null, ratio: null });
+    expect(macroAgainstTarget(150, null)).toEqual({ target: 150, remaining: null, over: null, fraction: null, ratio: null });
   });
   it("a period's averages leave out days that report nothing, rather than counting them as 0", () => {
     const target = { effectiveFrom: "2026-01-01", kcal: 2000, proteinG: 100, carbsG: null, fatG: null, source: "MANUAL" as const };
@@ -68,6 +68,20 @@ describe("totals", () => {
     expect(s.avg).toEqual({ kcal: 1000, protein: 100, carbs: 100, fat: 50 });
     expect(s.daysLogged).toBe(2);
     expect([s.proteinOnTargetDays, s.proteinDaysWithTarget]).toEqual([1, 1]);
+    expect(s.avgTargetKcal, "the target average covers the same days as the calories average").toBe(2000);
+    const dearer = summarizePeriod([{ date: "2026-01-01", entries: 1, totals: known, target }, { date: "2026-01-02", entries: 1, totals: unknown, target: { ...target, kcal: 3000 } }]);
+    expect(dearer.avgTargetKcal).toBe(2000);
+    const partial = (protein: number) => ({ ...known, protein, incomplete: ["protein"] as NutrientKeyForTest[] });
+    const day = (protein: number, incomplete: boolean, proteinG: number | null = 100) => ({ date: "2026-01-01", entries: 1, totals: incomplete ? partial(protein) : { ...known, protein }, target: { ...target, proteinG } });
+    expect(proteinAgainstTarget(day(30, false)), "complete, and short").toBe("below");
+    expect(proteinAgainstTarget(day(30, true)), "partial, and short, could be anything").toBe("unknown");
+    expect(proteinAgainstTarget(day(95, true)), "partial, and reached, is reached").toBe("on");
+    expect(proteinAgainstTarget(day(95, false))).toBe("on");
+    expect(proteinAgainstTarget(day(30, false, null)), "no target").toBeNull();
+    expect(proteinAgainstTarget(day(30, false, 0)), "a target of 0").toBeNull();
+    expect(proteinAgainstTarget({ ...day(0, false), entries: 0 }), "nothing logged").toBeNull();
+    const counted = summarizePeriod([day(30, true), day(95, true), day(30, false)]);
+    expect([counted.proteinOnTargetDays, counted.proteinDaysWithTarget], "a day that can't be judged isn't counted").toEqual([1, 2]);
     const none = summarizePeriod([{ date: "2026-01-02", entries: 1, totals: unknown, target }]);
     expect(none.avg).toEqual({ kcal: null, protein: null, carbs: null, fat: null });
     expect(none.proteinDaysWithTarget).toBe(0);

@@ -28,7 +28,9 @@ export default async function NutritionPage({ searchParams }: { searchParams: Pr
   const date = raw && isIsoDate(raw) && raw <= addDays(today, 1) ? raw : today;
   const day = await daySummary(user.id, profile, date);
   const t = day.target;
-  const over = !!day.calories && day.calories.over > 0;
+  const over = !!day.calories && (day.calories.over ?? 0) > 0;
+  // What's left, worked out from a total that's missing some foods, can only be an upper limit.
+  const partialKcal = day.totals.kcal !== null && day.totals.incomplete.includes("kcal");
 
   return (
     <>
@@ -44,18 +46,18 @@ export default async function NutritionPage({ searchParams }: { searchParams: Pr
         {t && day.calories ? (
           <div className="flex items-center gap-5">
             <div className="relative shrink-0">
-              <CalorieRing fraction={day.calories.fraction} over={over} />
+              <CalorieRing fraction={day.calories.fraction ?? 0} over={over} />
               <div className="absolute inset-0 grid place-items-center text-center">
                 <div>
                   <p className="num text-2xl font-bold leading-none">{fmtKcal(over ? day.calories.over : day.calories.remaining)}</p>
-                  <p className="mt-1 text-[11px] text-muted">{over ? "kcal over" : "kcal left"}</p>
+                  <p className="mt-1 text-[11px] text-muted">{over ? "kcal over" : partialKcal ? "kcal left *" : "kcal left"}</p>
                 </div>
               </div>
             </div>
             <div className="num min-w-0 space-y-2 text-sm">
               <div><p className="text-xs text-muted">Target</p><p className="font-semibold">{fmtKcal(t.kcal)} kcal</p>{t.source === "SUGGESTED" && <p className="text-[11px] text-muted">Set automatically earlier</p>}</div>
               <div><p className="text-xs text-muted">Consumed</p><p className="font-semibold">{fmtKcal(day.totals.kcal)} kcal{day.totals.incomplete.includes("kcal") && " *"}</p></div>
-              <div><p className="text-xs text-muted">Remaining</p><p className="font-semibold">{over ? `0 (${fmtKcal(day.calories.over)} over)` : `${fmtKcal(day.calories.remaining)} kcal`}</p></div>
+              <div><p className="text-xs text-muted">Remaining</p><p className="font-semibold">{over ? `0 (${fmtKcal(day.calories.over)} over)` : `${fmtKcal(day.calories.remaining)} kcal${partialKcal ? " *" : ""}`}</p></div>
             </div>
           </div>
         ) : (
@@ -72,7 +74,7 @@ export default async function NutritionPage({ searchParams }: { searchParams: Pr
         </div>
         {day.totals.fiber != null && day.totals.fiber > 0 && <p className="num mt-3 text-xs text-muted">Fiber {fmtG(day.totals.fiber)} g{day.totals.incomplete.includes("fiber") && " (not reported by all foods)"}</p>}
         {day.totals.incomplete.some((k) => k !== "fiber") && (
-          <p className="mt-2 text-xs text-muted">* Some logged foods don&apos;t report this value, so the total includes only reported values. A dash means none of them do.</p>
+          <p className="mt-2 text-xs text-muted">* Some logged foods don&apos;t report this value, so the total includes only reported values, and what&apos;s left may be less. A dash means none of them do.</p>
         )}
       </Card>
 

@@ -54,6 +54,35 @@ test("a retry with the same key returns the saved set, with one row", async () =
   assert.equal((await u.rows()).length, 1);
 });
 
+test("a fractional weight and an effort survive the round trip, so an honest retry isn't a conflict", async () => {
+  const u = await newUser("float");
+  for (const body of [{ weightKg: 62.3456, reps: 8, isWarmup: false, rpe: 7.5 }, { weightKg: 45.3592, reps: 5 }, { weightKg: 0.1, reps: 5, rpe: null }, { weightKg: 28.1227, reps: 3, isWarmup: true }]) {
+    const k = key();
+    const first = await call(u, "POST", u.path, body, k);
+    const second = await call(u, "POST", u.path, body, k);
+    assert.deepEqual([first.status, second.status], [200, 200], JSON.stringify(body));
+    assert.equal(second.body.set.id, first.body.set.id);
+    assert.equal(first.body.set.weightKg, body.weightKg);
+  }
+  const k = key();
+  await call(u, "POST", u.path, { weightKg: 20, reps: 1 }, k);
+  assert.equal((await call(u, "POST", u.path, { weightKg: 20, reps: 1, rpe: null, isWarmup: false }, k)).status, 200, "absent and explicit defaults are the same set");
+  assert.equal((await u.rows()).length, 5);
+});
+
+test("a finished workout takes no new set, and an honest retry still gets the one it saved", async () => {
+  const u = await newUser("finished");
+  const k = key();
+  const saved = await call(u, "POST", u.path, SET, k);
+  await prisma.workoutSession.update({ where: { id: u.session.id }, data: { status: "COMPLETED", endedAt: new Date() } });
+  const retry = await call(u, "POST", u.path, SET, k);
+  assert.equal(retry.status, 200);
+  assert.equal(retry.body.set.id, saved.body.set.id);
+  assert.equal((await call(u, "POST", u.path, SET, key())).status, 409);
+  assert.equal((await call(u, "POST", u.path, SET)).status, 409);
+  assert.equal((await u.rows()).length, 1);
+});
+
 test("attempts racing with one key leave one row, and each gets it", async () => {
   const u = await newUser("race");
   const k = key();
@@ -89,6 +118,7 @@ test("one person's key is separate from another's, and their session can't be re
   assert.deepEqual([mine.status, theirs.status], [200, 200]);
   assert.notEqual(mine.body.set.id, theirs.body.set.id);
   assert.equal((await call(b, "POST", a.path, SET, k)).status, 404);
+  assert.equal((await call(b, "POST", a.path, SET, "short")).status, 404, "ownership is checked before the key");
   assert.equal((await a.rows()).length, 1);
 });
 

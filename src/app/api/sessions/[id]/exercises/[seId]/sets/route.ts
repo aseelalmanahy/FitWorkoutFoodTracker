@@ -7,5 +7,5 @@ export const POST = route<{ id: string; seId: string }>(async (req, { user, para
   const se = await getOwnedSessionExercise(user.id, params.id, params.seId);
   const key = readIdempotencyKey(req);
   const input = await parseBody(req, setSchema);
-  return { set: await logSet(user.id, se.id, input, key) };
+  return { set: await logSet(user.id, se.id, se.session.status, input, key) };
 });

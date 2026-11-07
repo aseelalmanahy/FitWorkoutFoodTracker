@@ -43,13 +43,15 @@ before(async () => {
 });
 
 after(async () => {
-  await prisma.foodEntry.deleteMany({ where: { userId } });
-  await prisma.nutritionTarget.deleteMany({ where: { userId } });
-  await prisma.workoutSession.deleteMany({ where: { userId } });
-  await prisma.exercise.deleteMany({ where: { userId } });
-  await prisma.session.deleteMany({ where: { userId } });
-  await prisma.profile.deleteMany({ where: { userId } });
-  await prisma.user.deleteMany({ where: { id: userId } });
+  // By this run's own address. An undefined id in a filter means no filter to Prisma, so setup failing mustn't reach one.
+  const ids = (await prisma.user.findMany({ where: { email: EMAIL }, select: { id: true } })).map((u) => u.id);
+  await prisma.foodEntry.deleteMany({ where: { userId: { in: ids } } });
+  await prisma.nutritionTarget.deleteMany({ where: { userId: { in: ids } } });
+  await prisma.workoutSession.deleteMany({ where: { userId: { in: ids } } });
+  await prisma.exercise.deleteMany({ where: { userId: { in: ids } } });
+  await prisma.session.deleteMany({ where: { userId: { in: ids } } });
+  await prisma.profile.deleteMany({ where: { userId: { in: ids } } });
+  await prisma.user.deleteMany({ where: { id: { in: ids } } });
   await prisma.$disconnect();
 });
 

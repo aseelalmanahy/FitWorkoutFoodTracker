@@ -9,6 +9,7 @@ const f = vi.hoisted(() => ({
   rows: [] as Row[],
   user: "me",
   visible: true,
+  status: "IN_PROGRESS",
   exerciseWhere: null as unknown,
   /** Stands in for a second attempt getting there between this one's lookup and its write. */
   raceWith: null as null | Row,
@@ -20,7 +21,7 @@ vi.mock("@/lib/server/db", () => ({
     profile: { findUnique: async () => ({ birthDate: new Date("1990-01-01") }) },
     exercise: { findFirst: async ({ where }: { where: unknown }) => { f.exerciseWhere = where; return f.visible ? { id: "ex" } : null; } },
     sessionExercise: {
-      findFirst: async ({ where }: { where: { id: string; session: { userId: string } } }) => (where.session.userId === "me" && where.id === "se" ? { id: "se", session: {} } : null),
+      findFirst: async ({ where }: { where: { id: string; session: { userId: string } } }) => (where.session.userId === "me" && where.id === "se" ? { id: "se", session: { status: f.status } } : null),
       findMany: async () => [],
     },
     workoutSession: { findMany: async () => [] },
@@ -51,7 +52,7 @@ const SET = { weightKg: 60, reps: 8, isWarmup: false };
 const params = { id: "s", seId: "se" };
 const sets = () => import("@/app/api/sessions/[id]/exercises/[seId]/sets/route");
 
-beforeEach(() => { f.rows = []; f.user = "me"; f.visible = true; f.raceWith = null; f.next = 0; });
+beforeEach(() => { f.rows = []; f.user = "me"; f.visible = true; f.status = "IN_PROGRESS"; f.raceWith = null; f.next = 0; });
 
 describe("logging a set", () => {
   it("a retry with the same key returns the set that was saved, and adds nothing", async () => {
@@ -112,7 +113,24 @@ describe("logging a set", () => {
     const { POST } = await sets();
     f.user = "them";
     expect((await POST(post(SET, KEY), ctx(params))).status).toBe(404);
+    expect((await POST(post(SET, "short"), ctx(params))).status, "a malformed key gets the same answer, so ownership comes first").toBe(404);
     expect(f.rows).toEqual([]);
+  });
+  it("a finished workout takes no new set, with or without a key", async () => {
+    const { POST } = await sets();
+    f.status = "COMPLETED";
+    expect((await POST(post(SET, KEY), ctx(params))).status).toBe(409);
+    expect((await POST(post(SET), ctx(params))).status).toBe(409);
+    expect(f.rows).toEqual([]);
+  });
+  it("an honest retry after the workout was finished still gets the set it saved", async () => {
+    const { POST } = await sets();
+    const first = await (await POST(post(SET, KEY), ctx(params))).json();
+    f.status = "COMPLETED";
+    const retry = await POST(post(SET, KEY), ctx(params));
+    expect(retry.status).toBe(200);
+    expect((await retry.json()).set.id).toBe(first.set.id);
+    expect(f.rows).toHaveLength(1);
   });
 });
 

@@ -58,15 +58,16 @@ export function sumNutrients(items: Nutrients[]): NutrientTotals {
 }
 
 /** Remaining vs target. Over-target intake is reported as `over`, never as negative remaining. */
-export function remaining(target: number, consumed: number | null): { remaining: number | null; over: number } {
-  if (consumed === null) return { remaining: null, over: 0 };
+export function remaining(target: number, consumed: number | null): { remaining: number | null; over: number | null } {
+  if (consumed === null) return { remaining: null, over: null };
   const diff = target - consumed;
   return diff >= 0 ? { remaining: round(diff, 2), over: 0 } : { remaining: 0, over: round(-diff, 2) };
 }
 
 /** Progress fraction for bars. The bar is capped at 1; `ratio` keeps the true value. */
-export function progress(consumed: number | null, target: number): { fraction: number; ratio: number } {
-  if (consumed === null || target <= 0) return { fraction: 0, ratio: 0 };
+export function progress(consumed: number | null, target: number): { fraction: number | null; ratio: number | null } {
+  if (consumed === null) return { fraction: null, ratio: null };
+  if (target <= 0) return { fraction: 0, ratio: 0 };
   const ratio = consumed / target;
   return { fraction: Math.min(1, Math.max(0, ratio)), ratio };
 }
@@ -173,22 +174,36 @@ export interface PeriodSummary {
 
 export const PROTEIN_ON_TARGET_THRESHOLD = 0.9;
 
+/**
+ * How a day's protein compares with its target. Null with no entries or no target above 0. A total missing some foods is
+ * a lower bound, so it can show the target was reached, and can't show it was missed.
+ */
+export function proteinAgainstTarget(day: DaySummary): "on" | "below" | "unknown" | null {
+  const target = day.target?.proteinG ?? null;
+  if (day.entries === 0 || target === null || target <= 0) return null;
+  const protein = day.totals.protein;
+  if (protein === null) return "unknown";
+  if (protein >= PROTEIN_ON_TARGET_THRESHOLD * target) return "on";
+  return day.totals.incomplete.includes("protein") ? "unknown" : "below";
+}
+
 export function summarizePeriod(days: DaySummary[]): PeriodSummary {
   const logged = days.filter((d) => d.entries > 0);
   const avgOf = (k: "kcal" | "protein" | "carbs" | "fat") => {
     const known = logged.map((d) => d.totals[k]).filter((v): v is number => v !== null);
     return known.length ? round(known.reduce((s, v) => s + v, 0) / known.length, 1) : null;
   };
-  // A day whose foods report no protein can't be said to have reached the target, or missed it.
-  const withTarget = logged.filter((d) => d.target && d.target.proteinG !== null && d.target.proteinG > 0 && d.totals.protein !== null);
-  const targeted = logged.filter((d) => d.target);
+  const verdicts = logged.map(proteinAgainstTarget);
+  // The target average covers the same days as the calories average.
+  const targeted = logged.filter((d) => d.target && d.totals.kcal !== null);
   return {
     days: days.length,
     daysLogged: logged.length,
     avg: logged.length ? { kcal: avgOf("kcal"), protein: avgOf("protein"), carbs: avgOf("carbs"), fat: avgOf("fat") } : null,
     avgTargetKcal: targeted.length ? Math.round(targeted.reduce((s, d) => s + d.target!.kcal, 0) / targeted.length) : null,
-    proteinOnTargetDays: withTarget.filter((d) => d.totals.protein! >= PROTEIN_ON_TARGET_THRESHOLD * d.target!.proteinG!).length,
-    proteinDaysWithTarget: withTarget.length,
+    proteinOnTargetDays: verdicts.filter((v) => v === "on").length,
+    // A day that can't be judged isn't counted either way.
+    proteinDaysWithTarget: verdicts.filter((v) => v === "on" || v === "below").length,
   };
 }
 
