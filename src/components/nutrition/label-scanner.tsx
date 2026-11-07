@@ -383,7 +383,7 @@ export function LabelScanner() {
         <>
           <p className="font-medium">Can you read the numbers clearly?</p>
           <p className="text-sm text-muted" data-testid="prepared-description">{prepared.description} Shown at full resolution, so scroll to check it.</p>
-          {prepared.suggestCrop && <p className="text-sm text-amber-700 dark:text-amber-400" data-testid="crop-advice">This photo was reduced a lot. If any text looks soft, crop closer to the label to keep more detail.</p>}
+          {prepared.suggestCrop && <p className="text-sm text-warn" data-testid="crop-advice">This photo was reduced a lot. If any text looks soft, crop closer to the label to keep more detail.</p>}
           <div className="max-h-[60vh] overflow-auto rounded-lg border border-line">
             {/* eslint-disable-next-line @next/next/no-img-element -- a local preview, deliberately at full size */}
             <img data-testid="prepared-image" src={prepared.url} alt="Prepared label" className="block max-w-none" />

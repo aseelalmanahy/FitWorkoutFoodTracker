@@ -197,8 +197,8 @@ export function MealPhoto({ today }: { today: string }) {
         <div className="grid gap-4 md:relative md:left-1/2 md:w-[min(calc(100vw-2rem),64rem)] md:-translate-x-1/2 md:grid-cols-2 md:items-start">
           <LabelImage preparedUrl={prepared.url} originalUrl={null} />
           <div className="min-w-0 space-y-4" data-testid="meal-review">
-            <Card className="border-amber-500/60 p-4">
-              <p className="font-medium text-amber-700 dark:text-amber-400" role="status">{notice}</p>
+            <Card className="border-warn/60 p-4">
+              <p className="font-medium text-warn" role="status">{notice}</p>
               <p className="mt-1 text-sm text-muted">Nothing has been saved or logged. Accept or correct each name, then choose the actual food and type how much you had.</p>
             </Card>
             {items.length === 0 && <Card className="p-4 text-sm" data-testid="meal-none">No foods could be identified. Add them yourself below.</Card>}

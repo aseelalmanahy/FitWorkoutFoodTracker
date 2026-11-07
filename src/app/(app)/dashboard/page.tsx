@@ -24,7 +24,7 @@ function Ring({ value, max }: { value: number; max: number }) {
   return (
     <svg width="84" height="84" viewBox="0 0 84 84" aria-hidden>
       <circle cx="42" cy="42" r={r} fill="none" stroke="var(--surface-2)" strokeWidth="9" />
-      <circle cx="42" cy="42" r={r} fill="none" stroke="var(--accent)" strokeWidth="9" strokeLinecap="round"
+      <circle cx="42" cy="42" r={r} fill="none" stroke="var(--chart-1)" strokeWidth="9" strokeLinecap="round"
         strokeDasharray={c} strokeDashoffset={c * (1 - pct)} transform="rotate(-90 42 42)" />
     </svg>
   );

@@ -303,7 +303,7 @@ export function ProfileForm({ initial, submitLabel, redirectTo, hideGoals }: { i
           <div className="grid grid-cols-2 gap-2">
             {GOALS.map((g) => (
               <button key={g.v} type="button" onClick={() => setGoal(goal === g.v ? null : g.v)} aria-pressed={goal === g.v}
-                className={cx("h-11 rounded-xl border text-sm font-medium transition", goal === g.v ? "border-fg bg-fg text-bg" : "border-line bg-surface-2 text-fg")}>
+                className={cx("h-11 rounded-xl border text-sm font-medium transition", goal === g.v ? "border-accent bg-accent text-accent-fg" : "border-line bg-surface-2 text-fg")}>
                 {g.label}
               </button>
             ))}

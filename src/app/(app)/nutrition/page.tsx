@@ -16,7 +16,7 @@ function CalorieRing({ fraction, over }: { fraction: number; over: boolean }) {
   return (
     <svg width="128" height="128" viewBox="0 0 128 128" aria-hidden>
       <circle cx="64" cy="64" r={r} fill="none" stroke="var(--surface-2)" strokeWidth="12" />
-      <circle cx="64" cy="64" r={r} fill="none" stroke={over ? "var(--muted)" : "var(--accent)"} strokeWidth="12" strokeLinecap="round"
+      <circle cx="64" cy="64" r={r} fill="none" stroke={over ? "var(--muted)" : "var(--chart-1)"} strokeWidth="12" strokeLinecap="round"
         strokeDasharray={c} strokeDashoffset={c * (1 - fraction)} transform="rotate(-90 64 64)" />
     </svg>
   );
@@ -72,8 +72,8 @@ export default async function NutritionPage({ searchParams }: { searchParams: Pr
         )}
         <div className="mt-5 space-y-3.5 border-t border-line pt-4">
           <MacroBar label="Protein" consumed={day.totals.protein} target={t?.proteinG ?? null} incomplete={day.totals.incomplete.includes("protein")} />
-          <MacroBar label="Carbs" consumed={day.totals.carbs} target={t?.carbsG ?? null} incomplete={day.totals.incomplete.includes("carbs")} color="bg-info" />
-          <MacroBar label="Fat" consumed={day.totals.fat} target={t?.fatG ?? null} incomplete={day.totals.incomplete.includes("fat")} color="bg-up" />
+          <MacroBar label="Carbs" consumed={day.totals.carbs} target={t?.carbsG ?? null} incomplete={day.totals.incomplete.includes("carbs")} color="bg-chart-3" />
+          <MacroBar label="Fat" consumed={day.totals.fat} target={t?.fatG ?? null} incomplete={day.totals.incomplete.includes("fat")} color="bg-chart-2" />
         </div>
         {day.totals.fiber != null && day.totals.fiber > 0 && <p className="num mt-3 text-xs text-muted">Fiber {fmtG(day.totals.fiber)} g{day.totals.incomplete.includes("fiber") && " (not reported by all foods)"}</p>}
         {day.totals.incomplete.some((k) => k !== "fiber") && (

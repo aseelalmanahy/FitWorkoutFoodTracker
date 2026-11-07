@@ -16,10 +16,10 @@ const ORIGIN_STYLES: Record<FieldOrigin, string> = {
   ai: "bg-surface-2 text-muted",
   corrected: "bg-up/15 text-up",
   entered: "bg-up/15 text-up",
-  cleared: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
+  cleared: "bg-warn/12 text-warn",
   missing: "bg-surface-2 text-muted",
-  unreadable: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
-  needs_value: "bg-amber-500/15 text-amber-700 dark:text-amber-400",
+  unreadable: "bg-warn/12 text-warn",
+  needs_value: "bg-warn/12 text-warn",
 };
 
 function OriginBadge({ field, testId }: { field: ReviewField | FieldOrigin; testId?: string }) {
@@ -31,7 +31,7 @@ function Evidence({ field }: { field: ReviewField }) {
   return (
     <>
       {field.printed && <span className="mt-1 block text-xs text-muted">Label says: {field.printed}</span>}
-      {field.note && <span className="mt-1 block text-xs text-amber-700 dark:text-amber-400">{field.note}</span>}
+      {field.note && <span className="mt-1 block text-xs text-warn">{field.note}</span>}
     </>
   );
 }
@@ -170,8 +170,8 @@ export function LabelReview({ extraction, notice, preparedUrl, originalUrl, resc
       <LabelImage preparedUrl={preparedUrl} originalUrl={originalUrl} />
 
       <div className="min-w-0 space-y-4" data-testid="scan-result">
-        <Card className="border-amber-500/60 p-4">
-          <p className="font-medium text-amber-700 dark:text-amber-400" role="status">{notice}</p>
+        <Card className="border-warn/60 p-4">
+          <p className="font-medium text-warn" role="status">{notice}</p>
           <p className="mt-1 text-sm text-muted">Nothing has been saved. Compare each value with the label, and correct anything that&apos;s wrong.</p>
         </Card>
 
@@ -256,10 +256,10 @@ export function LabelReview({ extraction, notice, preparedUrl, originalUrl, resc
               const flagged = flags.filter((f) => flagTargets(f, draft.active, key));
               return (
                 <Field key={key} label={`${NUTRIENT_LABELS[key]} (${NUTRIENT_UNITS[key]})${key === "fiber" ? ", optional" : ""}`} error={problemFor(key)}>
-                  <Input data-testid={`input-${key}`} inputMode="decimal" value={field.value} placeholder={fieldOrigin(field) === "missing" || fieldOrigin(field) === "unreadable" ? "Empty" : undefined} aria-invalid={flagged.length > 0} className={flagged.length > 0 ? "border-amber-500" : undefined} onChange={(e) => setNutrient(key, e.target.value)} />
+                  <Input data-testid={`input-${key}`} inputMode="decimal" value={field.value} placeholder={fieldOrigin(field) === "missing" || fieldOrigin(field) === "unreadable" ? "Empty" : undefined} aria-invalid={flagged.length > 0} className={flagged.length > 0 ? "border-warn" : undefined} onChange={(e) => setNutrient(key, e.target.value)} />
                   <span className="mt-1 flex flex-wrap items-center gap-2"><OriginBadge field={field} testId={`origin-${key}`} /></span>
                   <Evidence field={field} />
-                  {flagged.map((f, i) => <span key={i} data-testid={`flag-${key}`} className="mt-1 block text-xs text-amber-700 dark:text-amber-400">{f.message}</span>)}
+                  {flagged.map((f, i) => <span key={i} data-testid={`flag-${key}`} className="mt-1 block text-xs text-warn">{f.message}</span>)}
                 </Field>
               );
             })}
@@ -275,7 +275,7 @@ export function LabelReview({ extraction, notice, preparedUrl, originalUrl, resc
                 {NUTRIENT_KEYS.map((key) => (
                   <dd key={key} className="flex justify-between gap-4 py-0.5 text-sm">
                     <span className="text-muted">{NUTRIENT_LABELS[key]}</span>
-                    <span>{c[key].status === "read" ? c[key].printed : c[key].status === "absent" ? <span className="text-muted">Not on label</span> : <span className="text-amber-700 dark:text-amber-400">Couldn&apos;t read</span>}</span>
+                    <span>{c[key].status === "read" ? c[key].printed : c[key].status === "absent" ? <span className="text-muted">Not on label</span> : <span className="text-warn">Couldn&apos;t read</span>}</span>
                   </dd>
                 ))}
               </dl>
@@ -284,7 +284,7 @@ export function LabelReview({ extraction, notice, preparedUrl, originalUrl, resc
         )}
 
         {flags.length > 0 && (
-          <Card className="border-amber-500/60 p-4" data-testid="scan-flags">
+          <Card className="border-warn/60 p-4" data-testid="scan-flags">
             <h3 className="mb-2 font-medium">Check these</h3>
             <ul className="list-disc space-y-1 pl-5 text-sm">
               {flags.map((flag, i) => <li key={i}>{flag.message}</li>)}

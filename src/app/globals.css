@@ -1,64 +1,93 @@
 @import "tailwindcss";
 
-/* Design tokens. Light by default; dark follows the OS, or [data-theme]. */
+/*
+ * Design tokens: "Slate & Mist", the owner's chosen direction (UX-01 C). Light by default; dark follows the OS,
+ * or [data-theme]. Every text pair below is at least 4.5:1 and every chart mark and control edge at least 3:1,
+ * measured with the WCAG formula. The values and their ratios are recorded in docs/MANUAL_UI_TESTING_GUIDE.md.
+ * Status never relies on colour alone: badges keep their icon and word.
+ */
 :root {
-  --bg: #f4f5f7;
-  --surface: #ffffff;
-  --surface-2: #eceef2;
-  --fg: #0c0e12;
-  --muted: #5f6673;
-  --line: #e1e4ea;
-  --accent: #c8f031;
-  --accent-fg: #0c0e12;
-  --accent-ink: #3d6b00;
-  --accent-soft: #e9f6c2;
-  --accent-2: #c2410c;
-  --accent-2-soft: #c2410c;
-  --up: #12823b;
-  --down: #c2410c;
-  --info: #2563eb;
-  --ring: #0c0e12;
+  --bg: #f2f4f7;          /* primary background */
+  --surface: #ffffff;     /* cards */
+  --surface-2: #e6eaf0;   /* secondary background, fills */
+  --fg: #1a1f27;          /* primary text, 15.0:1 on bg */
+  --muted: #5a6474;       /* secondary text, 5.4:1 on bg, 5.0:1 on surface-2 */
+  --line: #dce1e8;        /* dividers (decorative) */
+  --line-strong: #8892a1; /* control edges, 3.2:1 on cards */
+  --accent: #4a6a90;      /* primary accent */
+  --accent-fg: #ffffff;   /* text on accent, 5.6:1 */
+  --accent-ink: #3f5f86;  /* accent as text, 6.6:1 on cards */
+  --accent-soft: #e3eaf3; /* selected and highlighted fills */
+  --accent-2: #a2714f;    /* secondary accent */
+  --accent-2-soft: #e8c9b0;
+  --up: #356e55;          /* success and Improved, 5.1:1 on its tint */
+  --down: #8a531f;        /* warning and Down, 5.3:1 on its tint */
+  --warn: #8a531f;
+  --info: #4a6a90;        /* Matched */
+  --ring: #4a6a90;        /* focus, 5.1:1 on bg */
+  --chart-1: #4a6a90;     /* main series: slate blue */
+  --chart-2: #4c7f70;     /* second series: sage teal, e.g. protein */
+  --chart-3: #a2714f;     /* third: clay */
+  --chart-4: #7e6ea6;     /* fourth: muted violet */
+  --chart-grid: #e3e7ed;
+  --shadow: 0 1px 2px rgb(26 31 39 / 0.04), 0 4px 16px rgb(26 31 39 / 0.04);
   color-scheme: light;
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --bg: #0a0b0d;
-    --surface: #131519;
-    --surface-2: #1c1f25;
-    --fg: #f2f4f7;
-    --muted: #9198a5;
-    --line: #262a31;
-    --accent: #c8f031;
-    --accent-fg: #0a0b0d;
-    --accent-ink: #c8f031;
-    --accent-soft: #2a3312;
-    --accent-2: #fb923c;
-    --accent-2-soft: #fb923c;
-    --up: #4ade80;
-    --down: #fb923c;
-    --info: #60a5fa;
-    --ring: #c8f031;
+    --bg: #0f1217;
+    --surface: #161b22;
+    --surface-2: #1c222b;
+    --fg: #e9edf2;
+    --muted: #98a2b1;
+    --line: #28303b;
+    --line-strong: #647081;
+    --accent: #8daad0;
+    --accent-fg: #0f1217;
+    --accent-ink: #9db6d8;
+    --accent-soft: #1f2a3a;
+    --accent-2: #d3a285;
+    --accent-2-soft: #5e3b24;
+    --up: #7dc0a2;
+    --down: #dda56c;
+    --warn: #dda56c;
+    --info: #8daad0;
+    --ring: #8daad0;
+    --chart-1: #8daad0;
+    --chart-2: #8fc2b2;
+    --chart-3: #d3a285;
+    --chart-4: #b8aada;
+    --chart-grid: #232a34;
+    --shadow: none;
     color-scheme: dark;
   }
 }
 :root[data-theme="dark"] {
-  --bg: #0a0b0d;
-  --surface: #131519;
-  --surface-2: #1c1f25;
-  --fg: #f2f4f7;
-  --muted: #9198a5;
-  --line: #262a31;
-  --accent: #c8f031;
-  --accent-fg: #0a0b0d;
-  --accent-ink: #c8f031;
-  --accent-soft: #2a3312;
-  --accent-2: #fb923c;
-  --accent-2-soft: #fb923c;
-  --up: #4ade80;
-  --down: #fb923c;
-  --info: #60a5fa;
-  --ring: #c8f031;
+  --bg: #0f1217;
+  --surface: #161b22;
+  --surface-2: #1c222b;
+  --fg: #e9edf2;
+  --muted: #98a2b1;
+  --line: #28303b;
+  --line-strong: #647081;
+  --accent: #8daad0;
+  --accent-fg: #0f1217;
+  --accent-ink: #9db6d8;
+  --accent-soft: #1f2a3a;
+  --accent-2: #d3a285;
+  --accent-2-soft: #5e3b24;
+  --up: #7dc0a2;
+  --down: #dda56c;
+  --warn: #dda56c;
+  --info: #8daad0;
+  --ring: #8daad0;
+  --chart-1: #8daad0;
+  --chart-2: #8fc2b2;
+  --chart-3: #d3a285;
+  --chart-4: #b8aada;
+  --chart-grid: #232a34;
+  --shadow: none;
   color-scheme: dark;
 }
 
@@ -69,6 +98,7 @@
   --color-fg: var(--fg);
   --color-muted: var(--muted);
   --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
   --color-accent: var(--accent);
   --color-accent-fg: var(--accent-fg);
   --color-accent-ink: var(--accent-ink);
@@ -76,8 +106,14 @@
   --color-accent-2: var(--accent-2);
   --color-up: var(--up);
   --color-down: var(--down);
+  --color-warn: var(--warn);
   --color-info: var(--info);
-  --font-sans: ui-sans-serif, system-ui, -apple-system, "SF Pro Text", "Segoe UI", Inter, Roboto, sans-serif;
+  --color-chart-1: var(--chart-1);
+  --color-chart-2: var(--chart-2);
+  --color-chart-3: var(--chart-3);
+  --color-chart-4: var(--chart-4);
+  --font-sans: ui-sans-serif, system-ui, -apple-system, "SF Pro Text", "Segoe UI Variable Text", "Segoe UI", Inter, Roboto, sans-serif;
+  --font-display: ui-sans-serif, system-ui, -apple-system, "SF Pro Display", "Segoe UI Variable Display", "Segoe UI", Inter, Roboto, sans-serif;
 }
 
 html,
@@ -89,6 +125,11 @@ body {
   font-family: var(--font-sans);
   -webkit-font-smoothing: antialiased;
   -webkit-tap-highlight-color: transparent;
+  text-rendering: optimizeLegibility;
+}
+h1,
+h2 {
+  font-family: var(--font-display);
 }
 .num {
   font-variant-numeric: tabular-nums;
@@ -104,4 +145,12 @@ input[type="number"]::-webkit-outer-spin-button {
 }
 input[type="number"] {
   -moz-appearance: textfield;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+  }
 }

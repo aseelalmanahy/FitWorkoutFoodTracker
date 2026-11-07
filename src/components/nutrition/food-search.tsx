@@ -128,7 +128,7 @@ export function FoodSearch({ date, today, initialMeal, embedded }: {
               <h1 className="text-xl font-bold">Add food</h1>
               <p className="text-xs text-muted">{relativeDayLabel(date, today)} · {MEAL_LABELS[meal]}</p>
             </div>
-            <Link href={date === today ? "/nutrition" : `/nutrition?date=${date}`} className="rounded-xl bg-fg px-4 py-2 text-sm font-semibold text-bg">Done</Link>
+            <Link href={date === today ? "/nutrition" : `/nutrition?date=${date}`} className="rounded-xl bg-accent px-4 py-2 text-sm font-semibold text-accent-fg shadow-sm">Done</Link>
           </div>
         )}
         <Input type="search" placeholder="Search foods or enter a barcode" value={q} onChange={(e) => setQ(e.target.value)} autoFocus={!embedded} aria-label="Search foods" />

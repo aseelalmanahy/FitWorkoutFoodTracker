@@ -66,7 +66,7 @@ export function ExercisePicker({ open, onClose, onPick }: { open: boolean; onClo
           <div className="-mx-4 flex gap-1.5 overflow-x-auto px-4 pb-1">
             {["ALL", ...MUSCLE_GROUPS].map((m) => (
               <button key={m} type="button" onClick={() => setMuscle(m)}
-                className={cx("h-8 shrink-0 rounded-full px-3 text-xs font-medium", muscle === m ? "bg-fg text-bg" : "bg-surface-2 text-muted")}>
+                className={cx("h-8 shrink-0 rounded-full px-3 text-xs font-medium", muscle === m ? "bg-accent text-accent-fg" : "bg-surface-2 text-muted hover:text-fg")}>
                 {m === "ALL" ? "All" : MUSCLE_LABELS[m]}
               </button>
             ))}

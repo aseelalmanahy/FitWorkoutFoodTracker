@@ -7,7 +7,7 @@ type Variant = "primary" | "secondary" | "ghost" | "danger";
 type Size = "sm" | "md" | "lg";
 
 const variants: Record<Variant, string> = {
-  primary: "bg-accent text-accent-fg hover:brightness-95 active:brightness-90 font-semibold",
+  primary: "bg-accent text-accent-fg hover:brightness-110 active:brightness-95 font-semibold shadow-sm",
   secondary: "bg-surface-2 text-fg hover:bg-line font-medium",
   ghost: "text-fg hover:bg-surface-2 font-medium",
   danger: "bg-down/10 text-down hover:bg-down/20 font-medium",
@@ -46,19 +46,19 @@ export function ButtonLink({
 }
 
 export function Card({ className, ...props }: ComponentProps<"div">) {
-  return <div className={cx("rounded-2xl bg-surface border border-line", className)} {...props} />;
+  return <div className={cx("rounded-2xl bg-surface border border-line shadow-[var(--shadow)]", className)} {...props} />;
 }
 
 export function PageHeader({ title, subtitle, action, back }: { title: string; subtitle?: ReactNode; action?: ReactNode; back?: string }) {
   return (
-    <header className="flex items-end justify-between gap-3 pt-6 pb-4">
+    <header className="flex items-end justify-between gap-3 pt-6 pb-4 lg:pt-10 lg:pb-6">
       <div className="min-w-0">
         {back && (
           <Link href={back} className="mb-1 inline-flex items-center gap-1 text-sm text-muted hover:text-fg">
             <span aria-hidden>‹</span> Back
           </Link>
         )}
-        <h1 className="truncate text-[28px] font-bold tracking-tight">{title}</h1>
+        <h1 className="truncate text-[28px] font-bold tracking-tight lg:text-[32px]">{title}</h1>
         {subtitle && <p className="mt-0.5 text-sm text-muted">{subtitle}</p>}
       </div>
       {action}
@@ -76,7 +76,7 @@ export function SectionTitle({ children, action }: { children: ReactNode; action
 }
 
 const inputBase =
-  "w-full rounded-xl border border-line bg-surface-2 px-3.5 text-[15px] text-fg placeholder:text-muted/70 focus:border-fg/40 focus:outline-none";
+  "w-full rounded-xl border border-line-strong bg-surface-2 px-3.5 text-[15px] text-fg placeholder:text-muted focus:border-accent focus:outline-none focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-ring";
 
 export function Input({ className, ...props }: ComponentProps<"input">) {
   return <input className={cx(inputBase, "h-11", className)} {...props} />;

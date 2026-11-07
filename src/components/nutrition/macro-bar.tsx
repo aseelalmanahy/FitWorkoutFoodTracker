@@ -2,7 +2,7 @@ import { cx } from "@/components/ui";
 import { fmtG, fmtKcal } from "@/lib/nutrition";
 
 /** Consumed vs target. The bar is capped at 100 %; exceeding it is stated in neutral colour. With no target, or nothing reported: text only, never a 0. */
-export function MacroBar({ label, consumed, target, unit = "g", incomplete, color = "bg-accent" }: {
+export function MacroBar({ label, consumed, target, unit = "g", incomplete, color = "bg-chart-1" }: {
   label: string; consumed: number | null; target: number | null; unit?: "g" | "kcal"; incomplete?: boolean; color?: string;
 }) {
   const fmt = unit === "kcal" ? fmtKcal : fmtG;
