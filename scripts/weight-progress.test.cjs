@@ -64,6 +64,7 @@ test("one person can't read, delete or overwrite another's entries", async () =>
   const a = await newUser("a"), b = await newUser("b");
   await put(a, today(), 80);
   const row = await prisma.bodyMetric.findFirst({ where: { userId: a.user.id } });
+  assert.ok(row, "a save lands on the person's own row, not on anyone else's with that date");
   const listed = await call("GET", "/api/weight", undefined, b.cookie);
   assert.deepEqual(listed.body.entries, []);
   assert.equal((await call("DELETE", `/api/weight/${row.id}`, undefined, b.cookie)).status, 404);
@@ -107,6 +108,7 @@ test("the export holds the person's entries, and only theirs", async () => {
   await put(b, today(), 61.5);
   const res = await call("POST", "/api/account/export", { password: PASSWORD }, a.cookie);
   assert.equal(res.status, 200);
+  assert.ok(Array.isArray(res.body.weightLog), "the export has a weight log");
   assert.deepEqual(res.body.weightLog.map((e) => [e.kind, e.date, e.value]), [["WEIGHT", today(), 80.5]]);
   assert.ok(!res.text.includes("61.5"));
 });
