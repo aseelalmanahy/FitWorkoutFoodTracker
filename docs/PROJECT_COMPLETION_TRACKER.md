@@ -322,25 +322,25 @@
 
 | ID | Status | Implemented | Functionally verified | Blocked by | Not completed |
 |---|---|---|---|---|---|
-| SEC-01 | VERIFIED — FUNCTIONAL | Every server the scripts start binds 127.0.0.1, enforced by a guard test | 3002 and 3003 listen on 127.0.0.1 only (`netstat`) | Replacing 3000 and 3001: group A4 | **3000 and 3001 still listen on all interfaces**, running older code started before SEC-01 |
-| SEC-02 | BLOCKED — OWNER AUTHORIZATION | Prepared: group A1 | No | Owner | The firewall rule is unchanged |
-| SEC-03 | BLOCKED — OWNER AUTHORIZATION | Prepared: group A2 | Not reachable from other machines today (`pg_hba.conf` loopback only, no firewall rule for 5432) | Owner | `listen_addresses='*'` unchanged |
-| SEC-04 | BLOCKED — OWNER AUTHORIZATION | `.env.example` has no usable password; plan: group A3 | No | Owner, with the `postgres` superuser | One role with the published example password serves every local database |
+| SEC-01 | VERIFIED — FUNCTIONAL | Every server the scripts start binds 127.0.0.1, enforced by a guard test | 3002 and 3003 listen on 127.0.0.1 only (`netstat`) | Replacing 3000 and 3001: group A1 | **3000 and 3001 still listen on all interfaces**, running older code started before SEC-01 |
+| SEC-02 | BLOCKED — OWNER AUTHORIZATION | Prepared: group A2 | No | Owner | The firewall rule is unchanged |
+| SEC-03 | BLOCKED — OWNER AUTHORIZATION | Prepared: group A3 | Not reachable from other machines today (`pg_hba.conf` loopback only, no firewall rule for 5432) | Owner | `listen_addresses='*'` unchanged |
+| SEC-04 | BLOCKED — OWNER AUTHORIZATION | `.env.example` has no usable password; plan: group A4 | No | Owner, with the `postgres` superuser | One role with the published example password serves every local database |
 | FOOD-01 | VERIFIED — FUNCTIONAL | Caching, one request per identical search, typing pause, 3-character minimum | Call-count tests; live: 12 searches, about 1 s each, no errors; a cache hit costs no allowance | None | None |
 | FOOD-02 | VERIFIED — FUNCTIONAL | Ranking, revised for RC-01 | Benchmark of 12 recorded searches: the ideal result first in 23 of 24 cases (providers' order 8, v1 17), wrong results in the top fives 12 (37, 29), look-alikes 0; a regression gate | Owner's judgment of relevance | USDA "bread" (RC-01) |
 | FOOD-03 | BLOCKED — OWNER AUTHORIZATION | Evaluated, not built | Not applicable | Owner's decision: group F | Recommendation: don't build; the benchmark's remaining gap isn't one a catalog fixes |
 | FOOD-04 | VERIFIED — FUNCTIONAL | Barcodes and servings (earlier phases) | Live: two real barcodes found with their values, a made-up one found nothing; a household serving logged correctly | None | None |
-| EMAIL-01 | BLOCKED — EXTERNAL DEPENDENCY | Resend transport, refused at startup unless fully configured | Unit tests with a fake network only | A Resend account, key and verified domain: group C | **No email has ever been sent** |
+| EMAIL-01 | BLOCKED — EXTERNAL DEPENDENCY | Resend transport, refused at startup unless fully configured | Unit tests with a fake network only | A Resend account, key and verified domain: group C1, then C2 | **No email has ever been sent** |
 | EMAIL-02 | VERIFIED — FUNCTIONAL | Reset by emailed, single-use, expiring, hashed token | `account-tokens` 32 of 32: expiry, single use, sessions ended, same answer for known and unknown addresses (also when the provider fails, as sending happens after the answer), 60 s resend limit, hashes only. Mail written to a local folder | Real delivery: EMAIL-01 | A real inbox and link (journey G) |
 | AI-01 | IN PROGRESS | On-device reading, read twice, kept only where both agree; light-on-dark inverted; six languages. The screens say truly where it's read (RC-07) | Clean, flat, printed labels: journey D passed; 13 generated variations, 11 fully read, none wrong. **Baseline on real packets: 21 Open Food Facts photos, 9 recognized as labels, 5 values read, none wrong.** Not accurate for arbitrary labels | The owner's own photos; group D | **Useful real-photo reading isn't achieved on-device** (RC-03); acceptance tests below |
 | AI-02 | IN PROGRESS | On-device main-dish suggestions (CLIP ViT-B/32, pinned, hash-checked), in the existing review flow; the screens say truly where it's read (RC-07) | **Baseline: 35 labelled Commons photos of single foods, right food first 23 (66%), among three 30 (86%). One main dish only.** Journey E passed (real photo to logged entry). Not accurate for arbitrary meals: multi-food plates and mixed meals are unmeasured and unsupported | Several foods per photo: group D | Multi-food plates, mixed meals, low light; acceptance tests below |
 | MOBILE-01 | BLOCKED — EXTERNAL DEPENDENCY | App side: the review mode serves a private tailnet https name (`--origin`), exactly matched | WebKit at phone size through a local HTTPS stand-in: sign-in, Secure HttpOnly session kept, saving through the origin check, HSTS, camera-or-library photo inputs | The owner's iPhone; Tailscale: group E | Physical Safari, camera, HEIC conversion |
 | MOBILE-02 | BLOCKED — EXTERNAL DEPENDENCY | As MOBILE-01 | Layouts at 390 px in three engines | The owner's Android phone; group E | Physical Chrome, camera |
-| DEPLOY-01 | BLOCKED — OWNER AUTHORIZATION | Templates from 4.0.3, plus this branch's settings (`PHASE_4_0_3_DEPLOYMENT.md`) | No image built (no Docker daemon) | Decisions 4, 5, 14: group G | Everything operational |
+| DEPLOY-01 | BLOCKED — OWNER AUTHORIZATION | Templates from 4.0.3, plus this branch's settings (`PHASE_4_0_3_DEPLOYMENT.md`) | No image built: Docker Desktop is installed but stopped (group G1) | G1, then decisions 4, 5, 14: group G2 | Everything operational |
 | DEPLOY-02 | BLOCKED — OWNER AUTHORIZATION | Startup refuses weak or partial settings, including mail, `LABEL_OCR`, `MEAL_RECOGNITION` and missing model files | Unit tests | A domain and host: group G | Certificates, real HTTPS |
 | DEPLOY-03 | IMPLEMENTED — UNVERIFIED | A verified backup of `fitdb_review`; `restore-check.cjs` ready | Backup read back by `pg_restore --list`; the check's refusals tested | A scratch database: group B2 | **No restore has been performed** |
 | DEPLOY-04 | BLOCKED — OWNER AUTHORIZATION | Health check, rollback runbook (4.0.3) | Health route exists | A deployed server: group G | Monitoring |
-| QA-01 | IN PROGRESS | 44 suites, plus `server-lifecycle` and `label-local` (46) | **Latest complete run, at `b77a7db` (the RC-07 fix), 2026-11-08: 46 of 46 run suites passed**, one run, no retries; type check clean. Its unit run had 2 failures of 2,195: two route tests that list the exact response keys, which RC-07 added to (`processing`); updated to expect and check it, then **2,195 of 2,195** with the type check clean. Changed after that run: those two tests, the Dockerfile, `.dockerignore`, `deploy/production.env.example` and documents, none of which the guarded suites run. Previous complete run: 45 of 45 at `905c47c`. Excluded, not failed: `safety-no-marker`, `db-guard-scoped` (QA-04). Open: RC-08 | QA-04 | `safety-no-marker`, `db-guard-scoped` |
+| QA-01 | IN PROGRESS | 44 suites, plus `server-lifecycle` and `label-local` (46) | **Latest complete run: the code of `8152c8f` (RC-08), 2026-11-07 21:18 to 21:32, on `fitdb_test_isolated`: 46 of 46 run suites passed**, one run, no retries. The log names its tree as `ca082e2` plus the RC-08 working changes; those three scripts were last edited at 21:16 and committed unchanged in `8152c8f`, whose only other change is this document. It includes `guard` 53 of 53 (the script audit, with the new proxy test; its standalone run with the fix removed, failing as expected, wasn't saved) and `label-pdf`. The browser suites ran on the production build of 20:04, built after the last application-source edit; no application source has changed since `b77a7db`. **`label-pdf`, at `8152c8f`'s code, same database: 20 of 20, about 64 s each, 21:33 to 21:54. Before the fix, at `ca082e2` plus `label-pdf`'s trace recording: 19 of 20.** **Unit tests and type check, not rerun since:** 2,195 of 2,195, type check clean, on `b77a7db` plus the two route-test updates committed in `ca082e2` (the run at `b77a7db` itself had those 2 failures: the tests listed the exact response keys, which RC-07 added to). `ca082e2` and `8152c8f` changed no code those cover. Previous complete runs: 46 of 46 at `b77a7db`; 45 of 45 at `905c47c`. **Excluded, not failed, in every run: `safety-no-marker`, `db-guard-scoped` (QA-04).** Evidence: `Desktop\FitWorkoutFoodTracker-backups\diagnostics\rc08` | QA-04 | `safety-no-marker`, `db-guard-scoped`; none of this is on Linux or the production image (G1) |
 | QA-02 | IN PROGRESS | Journeys A to I | See the journeys below: A, B, C, D, E, F and I pass on the final candidate; G and H blocked | E multi-item: D; G: C; H: E | G and H |
 | QA-03 | VERIFIED — FUNCTIONAL | Firefox teardown and navigation races handled, only those exact errors | Firefox `guard-browser` 8 of 8, and every full run since | None | None |
 | QA-04 | BLOCKED — OWNER AUTHORIZATION | Approach prepared: group B1 | No | Owner, a new test database | Neither suite has run on recent code (T-14) |
@@ -361,7 +361,7 @@
 | RC-05 | The meal model names one main dish; other foods on a plate must be added by hand, and a small item on a large plate can be taken for no food | P3 |
 | RC-06 | The production image has never been built. The model step is now in the Dockerfile (opt-in) and the settings in the template, but nothing is verified on Linux. Measured on this Windows PC only, below | P2 |
 | RC-07 | **Fixed** at `b77a7db`: the label and meal screens now say where the image is actually read (this server, the provider, or a PDF's own text), and tag values accordingly. Unit tests, `label-scan` (provider wording) and the new `label-local` suite (on-device wording, three browsers) | Closed |
-| RC-08 | `label-pdf` stalled intermittently. **Traced (run 2 of 20 at `ca082e2`):** loading the scan page, one of the app's own script chunks failed with `net::ERR_PROXY_CONNECTION_FAILED`, so the page never hydrated and never reacted to the chosen file; the app and PDF processing were never reached. **Confirmed defect, fixed:** the test's guard proxy forwarded hop-by-hop headers, including the app's `Connection: close`, so the browser opened a new proxy connection for every request (639 connections for 639 requests; after the fix 106 for 547). Ruled out by measurement: port exhaustion (peak 5,921 of 16,384 in TIME_WAIT), a busy test process (no failure with its event loop blocked 0.3 s and 1 s), connection reuse races (no reuse before the fix). Why that one connection failed isn't established. After the fix: `label-pdf` 20 of 20, full regression 46 of 46; a proxy test fails without the fix. Evidence in `DesktopFitWorkoutFoodTracker-backupsdiagnosticsc08` | P3, mitigated |
+| RC-08 | `label-pdf` failed intermittently. **Traced (run 2 of 20, at `ca082e2` plus trace recording):** in the step "HTML named .pdf", loading the scan page, one of the app's own JavaScript chunks failed through the test's guard proxy with `net::ERR_PROXY_CONNECTION_FAILED`. The page never became interactive, so it couldn't react to the chosen file, and the step waited out its 30 s; the app's server log was clean, and PDF processing was never reached. **Confirmed defect, fixed in `8152c8f`:** the proxy forwarded hop-by-hop headers, including the app's `Connection: close`, so the browser opened a new proxy connection for every request (639 connections for 639 requests; after the fix 106 for 547). Ruled out by measurement: port exhaustion (peak 5,921 of 16,384 in TIME_WAIT), a busy test process (no failure with its event loop blocked for 0.3 s and 1 s), races on reused connections (none were reused before the fix). **The cause of that one connection failure is undetermined.** After the fix: `label-pdf` 20 of 20 and the full regression 46 of 46 (QA-01); a proxy test fails without the fix. 1 failure in 20 is too rare for 20 passes to prove it gone. Separate from RC-04, whose traced stall was CPU starvation with no proxy error. Evidence (outside Git): `Desktop\FitWorkoutFoodTracker-backups\diagnostics\rc08` (logs before and after, the failure trace, TIME_WAIT samples, probe scripts) | P3, mitigated |
 
 **AI baselines, recorded 2026-11-07, for comparing any stronger approach on the same inputs.** Neither on-device feature is accurate for arbitrary labels or meals.
 
@@ -402,105 +402,133 @@
 
 With both loaded the server held about 0.8 GB. The image's 1.5 GB limit also has to hold an export, which peaked at about 700 MB earlier (S-13): **1.5 GB is likely too little with on-device meal recognition on; measure on Linux before choosing the limit.**
 
-**Production image readiness:** OCR language data is an npm dependency, installed by the runner's `npm ci`. Native modules (sharp, onnxruntime-node, argon2) come from npm's per-platform packages, never installed on Linux here. The meal model is now an opt-in Dockerfile step (`--build-arg WITH_MEAL_MODEL=1`), checked against its hashes. The new settings are in `deploy/production.env.example`. `.dockerignore` now keeps `*.local.md` (local passwords) and `.cache` (models, evaluation photos) out of every layer; before, the build stage's `COPY . .` would have taken them in. **No image has been built or run: no Docker daemon was available.**
+**Production image readiness:** OCR language data is an npm dependency, installed by the runner's `npm ci`. Native modules (sharp, onnxruntime-node, argon2) come from npm's per-platform packages, never installed on Linux here. The meal model is now an opt-in Dockerfile step (`--build-arg WITH_MEAL_MODEL=1`), checked against its hashes. The new settings are in `deploy/production.env.example`. `.dockerignore` now keeps `*.local.md` (local passwords) and `.cache` (models, evaluation photos) out of every layer; before, the build stage's `COPY . .` would have taken them in. **No image has been built or run.** Docker Desktop is installed on this PC but stopped, and starting it needs your approval (G1).
 
-**Owner approvals needed, consolidated.** Each item is separate: approving one approves nothing else, and nothing here has been done. "You" is the owner; every command is for you to run, or to authorize by name.
+**Owner approvals needed, consolidated (revised 2026-11-08).** Approve by ID: approving one item approves nothing else, and nothing here has been done. "You" is the owner; every command is for you to run, or to authorize by name. **Ready** means the scope is fixed and the item can be approved as written. **Needs evidence** or **needs your choice** means it can't be approved as one action yet.
 
-### A. System security
+**In dependency order:**
 
-| | A1. Narrow the Node.js firewall rule (SEC-02) | A2. PostgreSQL on loopback only (SEC-03) | A3. Separate, strong database credentials (SEC-04) | A4. Replace the servers on 3000 and 3001 |
+| # | ID | Decision | State | Depends on |
 |---|---|---|---|---|
-| 1. Action | Disable the inbound rule "Node.js JavaScript Runtime" (TCP and UDP, Public profile, any port, any address) | Set `listen_addresses = 'localhost'` in `C:\Program Files\PostgreSQL\18\data\postgresql.conf`, then restart `postgresql-x64-18` | One role per environment with a generated 32-character password: `fit_review` owns `fitdb_review`; `fit_test` owns `fitdb_test`, `fitdb_test_other`, `fitdb_test_isolated`; `fit` keeps `fitdb` with a new password | Stop the demo on 3000 (started from `FitWorkoutFoodTracker`, on `fitdb_test`) and the UX-01 server on 3001 (from `FitWorkoutFoodTracker-ux`), and start them from code that binds 127.0.0.1 |
-| 2. Why | It lets any Node program on this PC accept connections from any network; 3000 and 3001 are reachable from the LAN and the VPN now | Defence in depth: today only `pg_hba.conf` refuses remote connections | The `fit` password is the published example, and one role reaches every database | They predate SEC-01 and listen on all interfaces |
-| 3. Affected | Windows Firewall only | The PostgreSQL service and every app using it (3000 to 3003) | PostgreSQL roles; `.env` (fitdb), `.env.test` (main and UX folders use it), `.env.review` and `.env.isolated` in the review and release folders | Those two processes only |
-| 4. Cost | None | None | None | None |
-| 5. Security | Removes LAN and VPN exposure of every Node server; Tailscale (E) is unaffected, as it forwards locally | Removes the listener on the LAN, VPN and WSL addresses | Least privilege: a leaked test password can't reach review data | Closes the remaining exposure |
-| 6. Privacy | Reduces exposure of review data | Same | Same | Same |
-| 7. Downtime | None | About 5 to 10 s: in-flight requests on 3000 to 3003 fail, and Prisma reconnects on the next | Each server must be restarted after its file is updated: under a minute each | Under a minute each |
-| 8. Procedure | Elevated PowerShell: `netsh advfirewall export "$HOME\Desktop\FitWorkoutFoodTracker-backups\firewall-before-SEC-02.wfw"`, then `Get-NetFirewallRule -DisplayName "Node.js JavaScript Runtime" \| Where-Object Direction -eq Inbound \| Disable-NetFirewallRule`. If Windows later asks to allow Node, choose **Cancel** | Copy `postgresql.conf` to the backups folder; edit the one line; elevated `Restart-Service postgresql-x64-18` | As `postgres`: `CREATE ROLE … LOGIN PASSWORD …`; `ALTER DATABASE … OWNER TO …`; in each database `REASSIGN OWNED BY fit TO …`. The passwords are generated on this PC straight into the Git-ignored files and never printed; then restart each server | For 3001, its background task is stopped and restarted from the release folder with `--port=3001` (the same `fitdb_test`, no schema change); for 3000, Ctrl+C in its window, then the same from the release folder with `--port=3000` |
-| 9. Verify | `Get-NetFirewallRule -DisplayName "Node.js JavaScript Runtime"` shows Enabled False; from a phone on Wi-Fi, `http://192.168.1.207:3000` doesn't load | `SHOW listen_addresses;` is `localhost`; `netstat -ano \| findstr :5432` shows only 127.0.0.1 and ::1 | Each server's startup check passes; the old password is refused; `review-account.cjs --status` and the QA account status are unchanged | `netstat` shows 127.0.0.1:3000 and :3001 only; the demo account status unchanged |
-| 10. Rollback | `Enable-NetFirewallRule` on the same rule, or `netsh advfirewall import` the backup | Restore the copied file and restart | `REASSIGN OWNED BY` back to `fit`, restore the env files from their copies | Restart the previous servers from their folders |
+| 1 | A1 | Replace the old servers on 3000 and 3001 | Ready | None |
+| 2 | A2 | Disable the broad Node.js inbound firewall rule | Ready | None (after A1 nothing needs it) |
+| 3 | A3 | PostgreSQL listens on loopback only | Ready | None; do it in the same window as A1 to restart once |
+| 4 | A4 | One database role per environment, new passwords | Ready | A1 to A3 (shares the restarts); before B1 and B2, so new databases get the right owner |
+| 5 | B2 | Scratch database for the restore check | Ready | A4 changes its owner (from `fit` to `fit_review`) |
+| 6 | B1 | Companion database for the excluded suites (QA-04) | Needs approval of a reviewed code change first (B1a), then the database (B1b) | A4 |
+| 7 | E1 | Tailscale and private HTTPS for the two phones | Ready, once you have a Tailscale account | None; A2 doesn't affect it |
+| 8 | C1, C2 | Real email: provider and domain (C1), then one account with your real address (C2) | C1 needs your choice of domain; C2 needs a small prepared code change | C1 before C2; E1 first if the link is to be opened on a phone |
+| 9 | D0 | Collect the missing evaluation sets (L2 to L5, M2 to M5) | Needs evidence: the photos don't exist yet | None |
+| 10 | D1 or D2 | Evaluate a stronger reader: local (D1) or hosted (D2a public sets, D2b your photos) | Needs your choice | D0 for the full set; D2 needs a spending limit and image transfer approval |
+| 11 | F1 | Accept the USDA "bread" ranking gap as known (or F2: a catalog review) | Needs your choice | None |
+| 12 | G1 | Build the Linux image and measure its memory, locally | Ready | None; independent of A to F |
+| 13 | G2 to G7 | Decisions 4, 5, 14; rehearsal; HTTPS; restore; monitoring; rollout | Need your choices (G2), then each in turn | G1, then each step on the one before; G7 also on UX-01 owner acceptance |
 
-### B. Isolated database testing
+### A. Security and database isolation
 
-| | B1. A companion database for the excluded suites (QA-04) | B2. A scratch database for the restore test (DEPLOY-03) |
+Measured 2026-11-08, read only: every local database (`fitdb`, `fitdb_review`, `fitdb_test`, `fitdb_test_other`, `fitdb_test_isolated`) is owned by the one role `fit`; `fit` isn't a superuser but can create databases; no database has its own access list, so PostgreSQL's default applies and **any role may connect to any of them**. Every env file in the main, review and release folders signs in as `fit`. No guard or script checks the role's name, so a rename is safe for them.
+
+| | A1. Replace the servers on 3000 and 3001 (SEC-01) | A2. Narrow the Node.js firewall rule (SEC-02) | A3. PostgreSQL on loopback only (SEC-03) | A4. Separate, strong database credentials (SEC-04) |
+|---|---|---|---|---|
+| Scope | Stop the demo on 3000 (from `FitWorkoutFoodTracker`, on `fitdb_test`) and the UX-01 server on 3001 (from `FitWorkoutFoodTracker-ux`, on `fitdb_test`; it is this session's background task), and start the same code paths from the release folder with `--port=3000` and `--port=3001`, which bind 127.0.0.1. Same database, no schema change | Elevated PowerShell: `netsh advfirewall export "$HOME\Desktop\FitWorkoutFoodTracker-backups\firewall-before-SEC-02.wfw"`, then `Get-NetFirewallRule -DisplayName "Node.js JavaScript Runtime" \| Where-Object Direction -eq Inbound \| Disable-NetFirewallRule`. If Windows later asks to allow Node, choose **Cancel** | Copy `C:\Program Files\PostgreSQL\18\data\postgresql.conf` to the backups folder; set `listen_addresses = 'localhost'`; elevated `Restart-Service postgresql-x64-18` | Three roles, each with a generated 32-character password written straight into the Git-ignored env files and never printed. **Connect and write, after A4:** `fit` connects to and writes `fitdb` only; `fit_review` connects to and writes `fitdb_review` (and the B2 scratch database) only; `fit_test` connects to and writes `fitdb_test`, `fitdb_test_other`, `fitdb_test_isolated` (and B1's database) only, and keeps the right to create databases, which `local-db.cjs --init` uses; `fit` loses it. As `postgres`: `CREATE ROLE … LOGIN PASSWORD …`; per database `REVOKE CONNECT, TEMPORARY ON DATABASE … FROM PUBLIC`, `GRANT CONNECT ON DATABASE … TO <its role>`, `ALTER DATABASE … OWNER TO <its role>`, and in it `REASSIGN OWNED BY fit TO <its role>` (writing comes from owning its tables). Env files: `.env` (fitdb) stays `fit`; `.env.test` (main folder, also used by the UX folder) becomes `fit_test`; `.env.review` becomes `fit_review` and `.env.isolated` becomes `fit_test`, in the review and release folders |
+| Prerequisites | None | None | None | The `postgres` superuser password (yours); copies of every env file in the backups folder; A1 to A3 done or scheduled together |
+| Cost and resources | None | None | None | None |
+| Security | Closes the last two servers listening on all interfaces | Removes LAN and VPN exposure of every Node server; Tailscale (E1) is unaffected, as it forwards locally | Removes the listener on the LAN, VPN and WSL addresses (today only `pg_hba.conf` refuses them) | A leaked test password can't connect to review or development data |
+| Privacy | Less exposure of test data | Less exposure of review data | Same | Same |
+| Downtime | Under a minute each | None | About 5 to 10 s: in-flight requests on 3000 to 3003 fail, and Prisma reconnects on the next | Each server restarts once after its file changes: under a minute each |
+| Verify | `netstat -ano \| findstr LISTENING` shows 127.0.0.1:3000 and :3001 only; the demo account status is unchanged | The rule shows Enabled False; from a phone on Wi-Fi, `http://192.168.1.207:3000` doesn't load | `SHOW listen_addresses;` is `localhost`; `netstat` shows 5432 only on 127.0.0.1 and ::1 | (1) As `postgres`, read only: `SELECT r, d, has_database_privilege(r, d, 'CONNECT') FROM unnest(ARRAY['fit','fit_review','fit_test']) r, unnest(ARRAY['fitdb','fitdb_review','fitdb_test','fitdb_test_other','fitdb_test_isolated']) d` is true only on the pairs above. (2) Each role signing in to a database outside its list is refused ("permission denied for database"). (3) In each database, `SELECT tableowner, count(*) FROM pg_tables WHERE schemaname = 'public' GROUP BY 1` shows its role only. (4) The old password is refused. (5) Each server's startup check passes; `review-account.cjs --status`, the QA and demo account status and the database markers are unchanged; the guarded runner's identity check passes on `fitdb_test_isolated` |
+| Rollback | Restart the previous servers from their folders | `Enable-NetFirewallRule` on the same rule, or `netsh advfirewall import` the backup | Restore the copied file and restart | Per database `ALTER DATABASE … OWNER TO fit`, `REASSIGN OWNED BY <role> TO fit`, `GRANT CONNECT, TEMPORARY ON DATABASE … TO PUBLIC`; restore the env files from their copies; restart; then drop the new roles |
+
+**Database isolation for tests and restore:**
+
+| | B1. A companion database for the excluded suites (QA-04) | B2. A scratch database for the restore check (DEPLOY-03) |
 |---|---|---|
-| 1. Action | Create `fitdb_test_isolated_other`, marked as a designated test database; add it to the guard's designated list and pair it with `fitdb_test_isolated` in the runner; run `safety-no-marker` and `db-guard-scoped` | Create an empty `fitdb_restore_check`, run `scripts/restore-check.cjs` with the existing backup, then drop it |
-| 2. Why | Both suites compare two test databases and write their own rows; today they run only against `fitdb_test`, which holds the protected QA and demo accounts. This keeps them away from both | A backup isn't proven until restored |
-| 3. Affected | One new local database; `scripts/lib/test-target-guard.cjs` and `run-guarded-suites.cjs` (a reviewed code change, with tests) | One temporary local database; `fitdb_review` is only read |
-| 4. Cost | None | None |
-| 5. Security | The guard's designated list grows by one exact name; no guard is weakened | None: local, loopback only |
-| 6. Privacy | Test data only | The restored copy holds review data until dropped |
-| 7. Downtime | None | None |
-| 8. Procedure | `node --env-file=.env.isolated scripts/local-db.cjs --init` extended for the new name (after the code change), then the runner with the two suites | `CREATE DATABASE fitdb_restore_check OWNER fit;` then `node --env-file=.env.review scripts/restore-check.cjs --backup=<the .dump> --confirm=fitdb_restore_check`, then `DROP DATABASE fitdb_restore_check;` |
-| 9. Verify | Both suites pass; `fitdb_test` and `fitdb_test_other` untouched (row counts and markers before and after) | "RESTORE VERIFIED", and `fitdb_review` unchanged, both printed by the check |
-| 10. Rollback | Drop the new database and revert the commit | Drop the scratch database |
+| Scope | **B1a:** a reviewed code change adding exactly `fitdb_test_isolated_other` to the guard's designated list and pairing it with `fitdb_test_isolated` in the runner, with tests. **B1b:** create that database (`local-db.cjs --init`, extended for the name, which writes its marker) and run `safety-no-marker` and `db-guard-scoped` against the pair | `CREATE DATABASE fitdb_restore_check OWNER fit_review;` (or `OWNER fit` if before A4); then `node --env-file=.env.review scripts/restore-check.cjs --backup=<the .dump in the backups folder> --confirm=fitdb_restore_check`; then `DROP DATABASE fitdb_restore_check;` |
+| Prerequisites | A4 (owned by `fit_test`); B1a approved and merged into this branch before B1b | A4, or the owner noted above; the existing backup of `fitdb_review` |
+| How it proves its target before writing | The guard refuses any database not on the designated list or without its marker; the runner prints the database identity before any suite runs | The check writes nothing until all of these hold. The scratch name is fixed in the script and must also be given as `--confirm`. The scratch address is the review file's own address with only the name changed, so it is the same machine (local only) and the same role. `fitdb_review` must carry its review marker, and is only read. The scratch database must carry no marker and contain no tables. The backup must list. Only then does it run `pg_restore --exit-on-error` into the scratch database. Its refusal tests already pass |
+| Cost and resources | None; a few hundred MB of disk | None; disk for one copy, briefly |
+| Privacy | Test data only | The copy holds review data, including your account, until it's dropped; it never leaves this PC |
+| Downtime | None | None |
+| Verify | Both suites pass; `fitdb_test` and `fitdb_test_other` row counts and markers the same before and after | "RESTORE VERIFIED", and `fitdb_review`'s fingerprint and row counts the same before and after, both printed by the check |
+| Rollback | Drop the new database and revert the commit | Drop the scratch database |
 
-### C. Email account and domain (EMAIL-01)
+### C. Real email and one password-reset delivery (EMAIL-01, journey G)
 
-| | |
-|---|---|
-| 1. Action | Create a Resend account; verify a sending domain you control; create an API key restricted to sending; set `MAIL_PROVIDER=resend`, `RESEND_API_KEY`, `MAIL_FROM` in this PC's Git-ignored settings for a review run; send one reset to an approved mailbox |
-| 2. Why | No email can be sent, so sign-up and password reset can't be completed by a real person (journey G) |
-| 3. Affected | Resend; your domain's DNS (SPF, DKIM and the records Resend gives); one env file |
-| 4. Cost | Resend has a free allowance; check its current limits before choosing a plan. A domain costs money if you don't own one |
-| 5. Security | The key can send mail as your domain: kept out of Git, restricted to sending, rotated if exposed |
-| 6. Privacy | Recipients' addresses and the reset link pass through Resend (already listed in the data inventory as the email provider) |
-| 7. Downtime | None |
-| 8. Procedure | In Resend: add the domain, add its DNS records at your registrar, wait for "verified", create the key. Then set the three values and start the review server; the startup check refuses anything partial |
-| 9. Verify | The message arrives at the approved mailbox; its link sets a new password once; a second use is refused; sign-in works |
-| 10. Rollback | Remove the three settings (mail stops, nothing else changes); revoke the key; remove the DNS records |
+Registration is closed on the review server, and its accounts have `.local` addresses that no mail can reach, so a real delivery needs an account with a real address.
 
-### D. A stronger vision model: evaluate first, adopt only if it passes the acceptance tests above
-
-On-device reading now covers clean labels and the main dish of a meal, at no cost and with nothing leaving this PC. It doesn't read most real packets, or several foods on a plate. Two ways to close that, or neither:
-
-| | D1. A local vision model through Ollama | D2. The existing Anthropic integration |
+| | C1. Email provider and domain | C2. One account with your real address, and one reset |
 |---|---|---|
-| 1. Action | Install Ollama, pull a vision model (for example a 7-billion-parameter one, about 5 to 8 GB), and add an adapter in place of the current local ones | Set `ANTHROPIC_API_KEY`, `LABEL_EXTRACTION_MODEL`, `MEAL_IDENTIFICATION_MODEL` (already built and tested against a stand-in) |
-| 2. Why | Multi-item meals and real packets, still free and private | The same, with no install, typically more accurate |
-| 3. Affected | A system service on this PC listening on 127.0.0.1:11434; the GPU (RTX 4070 Ti SUPER, 16 GB, enough) | Anthropic's API |
-| 4. Cost | None in money; disk and GPU use | Paid per request; a spending limit must be set first. Current prices to be checked when deciding, not quoted from memory |
-| 5. Security | A local listener (loopback only) | An API key, kept out of Git |
-| 6. Privacy | Photos never leave this PC | **Photos are sent to Anthropic.** The notice and data inventory say so |
-| 7. Downtime | None | None |
-| 8. Procedure | After approval: install, pull the model, run the acceptance tests above beside the baselines, then integrate only if they pass | After approval: set the values with a spending limit; run the same acceptance tests |
-| 9. Verify | The same benchmarks, beside today's numbers | The same benchmarks |
-| 10. Rollback | Uninstall; the on-device features stay | Remove the settings; on-device features take over |
+| Scope | A Resend account; a sending domain you control, verified there; an API key restricted to sending; `MAIL_PROVIDER=resend`, `RESEND_API_KEY`, `MAIL_FROM` in the review folder's Git-ignored `.env.review` | A small prepared change to `review-account.cjs` to create one review account with an address you give (one User row in `fitdb_review`, nothing else, never changing an existing account); then one "forgot password" for it on the review server |
+| What you provide | The domain (and access to its DNS), the Resend account, the key typed into the env file yourself (never into chat), the `MAIL_FROM` address on that domain | One inbox you control, used only for this test |
+| Prerequisites | None | C1; E1 first if you want to open the link on a phone, because the link points to the review server's own address (`http://localhost:3003`, or the tailnet name with `--origin`) |
+| Cost and resources | Resend's free allowance (check its current limits); a domain costs money if you don't own one | None |
+| Privacy | The recipient's address and the link pass through Resend (already in the data inventory) | Your address is stored in `fitdb_review` until the account is deleted |
+| Downtime | The review server restarts once | None |
+| Passing on the real inbox | The domain shows "verified" | The message arrives in the inbox within a few minutes (spam folder recorded as a finding); it's from `MAIL_FROM`; "show original" reports SPF and DKIM pass; the link opens the review server's reset page; it sets a new password once, and a second use is refused; other sessions are signed out; the "password changed" message arrives; sign-in works with the new password only; a reset for an unknown address shows the same answer and sends nothing |
+| Rollback | Remove the three settings (mail stops, nothing else changes); revoke the key; remove the DNS records | Delete the account through the app's own account deletion |
 
-### E. Private HTTPS for testing on your phones (MOBILE-01 and 02)
+### D. Label and meal photos (AI-01, AI-02, RC-03, RC-05)
 
-| | |
+**Two different jobs.** Label reading (OCR) transcribes the values printed on a label; anything unreadable stays empty, never 0, and the person confirms each value. Meal recognition only suggests which foods are in a photo, for the person to confirm and match to a food record; it never gives an amount, weight, calorie or nutrient. **Open:** reading real packets (5 values from 21 photos), several foods on a plate, and mixed meals. Every option is judged against the same baselines and acceptance tests above.
+
+| | D0. The missing evaluation sets | D1. Local evaluation (a vision model through Ollama) | D2. Hosted evaluation (the existing Anthropic adapter) |
+|---|---|---|---|
+| Scope | Gather L2 to L5 and M2 to M5 (about 115 photos), each checked by a person; record each in a set file like `off-photos.json` | Install Ollama, pull one vision model (about 5 to 8 GB), add an evaluation-only adapter, run every test above beside the baselines | **D2a:** run the tests on the public sets only (the 21 Open Food Facts and 35 Commons photos, and any public D0 photos). **D2b, separate:** your own photos. A short harness to send a set through the existing adapter must be written first (writing it sends nothing) |
+| Prerequisites | Your choice: your own photos, public licensed photos, or both | Approval to install software and download a model | A spending limit set in the provider console first; explicit approval to transfer each set's images; current prices checked when deciding |
+| Cost and resources | Your time | Disk and the GPU (RTX 4070 Ti SUPER, 16 GB); no money | Per request: about 170 images for one run of every set, within the limit you set |
+| Privacy | Your photos stay on this PC unless D2b is approved | Nothing leaves this PC | **Images are sent to Anthropic.** D2a sends only public photos; D2b sends yours, cleaned as the notice says |
+| Downtime | None | None | None |
+| Verify | Each set has a recorded file and a person's answer for every photo | The acceptance tests pass, beside today's baselines | The same |
+| Rollback | Not applicable | Uninstall; the on-device features stay | Remove the settings; the on-device features take over |
+
+Adopting anything after a passing evaluation is a further decision, with a product review.
+
+### E. Private HTTPS on your phones (MOBILE-01 and 02, journey H)
+
+| | E1 |
 |---|---|
-| 1. Action | Install Tailscale on this PC, your iPhone and your Android phone, signed in to one personal tailnet; run `tailscale serve --bg 3003` (or 3002); start the review server with `--origin=https://<pc>.<tailnet>.ts.net` |
-| 2. Why | Phones need HTTPS to keep the Secure session cookie and to use the camera; this gives it without exposing the app to the internet or the LAN |
-| 3. Affected | Tailscale on three devices; no firewall change (it works with A1 done) |
-| 4. Cost | A personal plan; check the current free tier |
-| 5. Security | Only devices signed in to your tailnet can reach the name; the app still listens on loopback; HTTPS has a valid certificate from Tailscale |
-| 6. Privacy | Traffic goes device to device, encrypted; Tailscale's coordination service learns device names |
-| 7. Downtime | The review server restarts once with `--origin` |
-| 8. Procedure | Install and sign in on each device; enable HTTPS certificates and MagicDNS in the Tailscale admin page; `tailscale serve --bg 3003`; restart the review server with `--origin`; on each phone open the address |
-| 9. Verify | Journey H on each phone: sign in, take a label and a meal photo, log food and a workout, view history, stay signed in after closing the browser |
-| 10. Rollback | `tailscale serve reset`, uninstall, restart the review server without `--origin` |
+| Scope | Install Tailscale on this PC, your iPhone and your Android phone, in one personal tailnet; enable MagicDNS and HTTPS certificates; `tailscale serve --bg 3003`; restart the review server with `--origin=https://<pc>.<tailnet>.ts.net` |
+| What you provide | Both phones in hand, a Tailscale account, and the review tester account to use on them (not your own) |
+| Prerequisites | None |
+| Cost and resources | A personal plan (check the current free tier); one background service on each device |
+| Privacy | Traffic goes device to device, encrypted; Tailscale's coordination service learns device names; **the HTTPS certificate puts the machine and tailnet name in public certificate logs** |
+| Downtime | The review server restarts once |
+| Passing on iPhone Safari | The address opens with a valid certificate and no warning; sign-in works; the session survives closing and reopening Safari; the label scan and meal photo open the camera; a HEIC photo from the library is accepted; a food entry and a workout set are saved and appear in history; nothing is wider than the screen; sign-out works |
+| Passing on Android Chrome | The same, with a camera JPEG instead of HEIC |
+| Also | A phone outside the tailnet can't open the address |
+| Rollback | `tailscale serve reset`, uninstall, restart the review server without `--origin` |
 
-### F. Local food catalog (FOOD-03)
+### F. Food search (FOOD-02, FOOD-03, RC-01)
 
-**Not recommended now.** The measured problem was ranking, and the benchmark puts the ideal food first in 23 of 24 cases from the providers' own results. The one remaining case, "bread", is about which variety is everyday, which a local copy of the same USDA records wouldn't settle. A catalog would add a migration, a download and an update process. If you want it anyway: a product review by `product-strategy-agent` first, then approval to download USDA's Foundation, SR Legacy and FNDDS files (public domain; sizes to be confirmed at download), a new table with a text index (a migration), and an update procedure. No cost in money.
+The ranking benchmark (12 recorded searches) puts the ideal result first in 23 of 24 cases (providers' order 8, previous version 17), with a regression gate. The one gap: USDA "bread" lists flavoured breads (fruit, naan, zucchini) before white or whole-wheat, and nothing in the records marks the everyday one.
 
-### G. Production hosting and deployment (DEPLOY-01, 02, 04)
+- **F1 (needs your choice):** accept RC-01 as a known P3 limit for the beta. No cost, no change.
+- **F2 (a separate product decision):** a local food catalog. **Not recommended now**: a local copy of the same USDA records wouldn't settle which bread is everyday, and it adds a migration, a download and an update process. If wanted: a review by `product-strategy-agent` first, then separate approvals for the download (public domain; sizes confirmed at download), the migration and the update procedure.
 
-| | |
+### G. Production
+
+**G1. The next step to verify, ready:** build the production image and measure its memory, on this PC. Docker Desktop is installed here (version 29.8.2) but stopped: "no Docker daemon was available" meant that.
+
+| | G1 |
 |---|---|
-| 1. Action | Decide decisions 4 (name and domain), 5 (host, database, monthly ceiling) and 14 (who may read production data); then a rehearsal deployment to a disposable server |
-| 2. Why | Nothing exists outside this PC; real users need the pre-beta safeguards in `PRODUCT_STRATEGY.md` first |
-| 3. Affected | A VPS, managed PostgreSQL, a domain and DNS, Caddy, the image (`Dockerfile`, `deploy/`) |
-| 4. Cost | Monthly hosting and database, and a domain: within the ceiling you set |
-| 5. Security | Least-privilege roles (`deploy/database-roles.sql`), secrets only on the host, HTTPS by Caddy, one instance |
-| 6. Privacy | Real personal data, under the notice, retention and access decisions still open (4.0.5, decision 14) |
-| 7. Downtime | Not applicable before launch |
-| 8. Procedure | `PHASE_4_0_3_DEPLOYMENT.md`, with its release-completion section: build the image with the model files, measure memory, migrate with `fit_migrator`, start, verify |
-| 9. Verify | `/api/health`, the startup check, a backup and a restore with `restore-check.cjs`'s method, the journeys on the deployed address |
-| 10. Rollback | The previous image tag; no migration was added on this branch |
+| Scope | Start Docker Desktop; `docker build --build-arg WITH_MEAL_MODEL=1` from the release folder; run the image against a throwaway PostgreSQL container with test data only (`fitdb_review` isn't used); `measure-recognition.cjs` (it reads Linux `/proc`), adapted to a container, beside `docker stats`; record peak memory with both readers loaded and during an export; stop and remove the containers |
+| Prerequisites | Your approval to start Docker Desktop (a system service and its WSL machine) and to download base images and packages |
+| Cost and resources | No money (check Docker Desktop's licence terms apply to you); several GB of disk; CPU for the build |
+| Privacy | Test data only; `.dockerignore` keeps local passwords and evaluation photos out of the image |
+| Downtime | None; the servers on 3000 to 3003 are untouched |
+| Verify | The image builds; the startup check passes and refuses weak settings; `/api/health` answers; one label and one meal photo are read in the container; memory recorded, and the 1.5 GB limit confirmed or changed |
+| Rollback | Stop Docker Desktop; remove the image and containers |
+
+**After G1, in order, each a separate approval:**
+
+| ID | Gate | Needs | Verify | Rollback |
+|---|---|---|---|---|
+| G2 | Decisions 4 (name and domain), 5 (host, database, monthly ceiling) and 14 (who may read production data) | Your choices | Recorded in `FEATURE_DECISIONS.md` | Not applicable |
+| G3 | A rehearsal deployment to a disposable server | G1, G2; a monthly cost within the ceiling | The startup check; `/api/health`; journeys on the rehearsal address | Destroy the server |
+| G4 | HTTPS | The domain's DNS; Caddy on the host | A valid certificate; HSTS; `production-https` checks against the real address | Remove the DNS record |
+| G5 | Backup and restore on the target | G3; a scratch database there | A backup and a restore with `restore-check.cjs`'s method | Drop the scratch database |
+| G6 | Monitoring (DEPLOY-04) | A monitoring service and where alerts go (your choice) | An alert on a deliberate health failure | Remove the monitor |
+| G7 | Rollout to invited users | G3 to G6; the pre-beta safeguards in `PRODUCT_STRATEGY.md`; **your UX-01 acceptance**; your approval to merge into `integration/phase-4` and `main` | The journeys on the production address | The previous image tag; no migration was added on this branch |
 
 **A known limit, not a defect:** the session cookie is `Secure`, and this Windows WebKit build won't send one over plain `http://localhost`. Sign-in succeeds there, and the browser check carries on with a non-Secure copy, as other WebKit suites do. Chrome, Edge and Firefox stay signed in. Real Safari and real phones are unverified (T-15, R-13).
 
