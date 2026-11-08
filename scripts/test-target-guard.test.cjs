@@ -578,7 +578,7 @@ test("the guard has no import-time side effects", () => {
 
 const GUARDED = [
   "e2e-demo-account.cjs",
-  "workout-sets.test.cjs", "feedback-api.test.cjs", "e2e-readiness.cjs", "readiness-performance.test.cjs",
+  "workout-sets.test.cjs", "feedback-api.test.cjs", "e2e-pwa.cjs", "e2e-readiness.cjs", "readiness-performance.test.cjs",
   "account-data.test.cjs", "account-tokens.test.cjs", "privacy-consent.test.cjs", "e2e-privacy.cjs", "e2e-privacy-cleanup.test.cjs", "e2e-account-data.cjs", "e2e-eligibility.cjs", "e2e-production-security.cjs", "e2e-hardening.cjs", "e2e-label-pdf.cjs", "e2e-label-scan.cjs", "e2e-meal.cjs", "e2e-nutrition-targets.cjs", "e2e-nutrition.cjs", "e2e-profile-minimization.cjs", "e2e-smoke.cjs",
   "nutrition-api.test.cjs", "nutrition-target-migration-check.cjs", "nutrition-targets.test.cjs", "production-security.test.cjs", "profile-migration-check.cjs", "profile-minimization.test.cjs", "profile-nulls.test.cjs", "provider-config.test.cjs", "provider-malformed.test.cjs", "provider-protection.test.cjs", "release-workflow.test.cjs",
   "weight-progress.test.cjs", "e2e-weight.cjs", "e2e-responsive.cjs",
@@ -613,6 +613,7 @@ const NOT_GUARDED = {
   "live-check.units.test.cjs": "unit tests, and spawns suites that must refuse",
   "test-target-guard.test.cjs": "this file: no app or database, only a local mock",
   "test-target-guard.browser.test.cjs": "real browsers against local mocks only, with no app or database",
+  "pwa-icons.cjs": "draws the temporary install icons into public/icons with sharp; no app, database or request (phase 1)",
   "stub-food-apis.cjs": "a local stand-in server, sends no requests",
   "stub-label-provider.cjs": "a local stand-in server, sends no requests",
   "server-lifecycle.test.cjs": "starts only stand-in processes it writes itself, on free loopback ports; no app, database or request (RC-02)",

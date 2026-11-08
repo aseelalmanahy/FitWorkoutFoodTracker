@@ -1,10 +1,15 @@
 import { headers } from "next/headers";
 import type { Metadata, Viewport } from "next";
 import "./globals.css";
+import { PwaClient } from "@/components/pwa/pwa-client";
 
 export const metadata: Metadata = {
-  title: { default: "Forge — Training & Nutrition", template: "%s · Forge" },
+  // Phase 1: the working product name in what browsers and home screens show. The in-app wordmark awaits branding.
+  title: { default: "FitWorkoutFoodTracker", template: "%s · FitWorkoutFoodTracker" },
+  applicationName: "FitWorkoutFoodTracker",
   description: "Plan, log and progress your training.",
+  appleWebApp: { capable: true, title: "FitTracker", statusBarStyle: "default" },
+  icons: { icon: [{ url: "/icons/icon-192.png", sizes: "192x192", type: "image/png" }], apple: [{ url: "/icons/apple-touch-icon.png", sizes: "180x180" }] },
 };
 
 export const viewport: Viewport = {
@@ -28,7 +33,10 @@ export default async function RootLayout({ children }: { children: React.ReactNo
       <head>
         <script nonce={nonce} suppressHydrationWarning dangerouslySetInnerHTML={{ __html: themeScript }} />
       </head>
-      <body className="min-h-dvh">{children}</body>
+      <body className="min-h-dvh">
+        <PwaClient register={process.env.NODE_ENV === "production"} />
+        {children}
+      </body>
     </html>
   );
 }

@@ -1,0 +1,27 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Offline · FitWorkoutFoodTracker</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { margin: 0; min-height: 100dvh; display: grid; place-items: center; font-family: system-ui, -apple-system, "Segoe UI", sans-serif; background: #f2f4f7; color: #1a1f27; padding: 24px; }
+    @media (prefers-color-scheme: dark) { body { background: #0f1217; color: #e9edf2; } }
+    main { max-width: 26rem; text-align: center; }
+    img { width: 64px; height: 64px; border-radius: 14px; }
+    h1 { font-size: 1.35rem; margin: 16px 0 8px; }
+    p { line-height: 1.5; opacity: 0.85; }
+    a { display: inline-block; margin-top: 12px; padding: 10px 18px; border-radius: 12px; background: #4a6a90; color: #fff; text-decoration: none; font-weight: 600; }
+  </style>
+</head>
+<body>
+  <main data-testid="offline-page">
+    <img src="/icons/icon-192.png" alt="">
+    <h1>You're offline</h1>
+    <p>This page needs a connection. Nothing can be saved while you're offline, so anything you hadn't saved yet will need entering again.</p>
+    <p>When you're back online, try again.</p>
+    <a href="/dashboard">Try again</a>
+  </main>
+</body>
+</html>

@@ -4,6 +4,7 @@ import { LegalLinks } from "@/components/legal-links";
 import { ProfileForm } from "@/components/profile/profile-form";
 import { ButtonLink, PageHeader } from "@/components/ui";
 import { isAdmin } from "@/lib/server/admins";
+import { InstallHelp } from "@/components/pwa/install-help";
 import { AccountActions } from "./account-actions";
 import { Page } from "@/components/page";
 
@@ -19,6 +20,7 @@ export default async function ProfilePage() {
         <ButtonLink href="/feedback?from=/profile" variant="secondary" data-testid="feedback-link">Send feedback</ButtonLink>
         {isAdmin(user.id) && <ButtonLink href="/admin/feedback" variant="ghost" data-testid="admin-feedback-link">Feedback review</ButtonLink>}
       </div>
+      <InstallHelp />
       <AccountActions />
       <LegalLinks />
     </Page>

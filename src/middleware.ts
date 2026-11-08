@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { HSTS_VALUE, contentSecurityPolicy, isHttpsProduction } from "@/lib/security-headers";
 
-const SIGNED_IN_ONLY = ["/dashboard", "/workouts", "/nutrition", "/progress", "/profile", "/onboarding", "/account-restricted", "/account"];
+const SIGNED_IN_ONLY = ["/dashboard", "/workouts", "/nutrition", "/progress", "/profile", "/onboarding", "/account-restricted", "/account", "/feedback", "/admin"];
 const signedInOnly = (path: string) => SIGNED_IN_ONLY.some((p) => path === p || path.startsWith(`${p}/`));
 
 /**

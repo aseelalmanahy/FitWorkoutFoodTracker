@@ -11,6 +11,8 @@ const nextConfig: NextConfig = {
     return [
       { source: "/(.*)", headers: BASE_SECURITY_HEADERS },
       { source: "/api/(.*)", headers: API_HEADERS },
+      // Phase 1: the service worker is checked for a new version on every visit, never served from a cache.
+      { source: "/sw.js", headers: [{ key: "Cache-Control", value: "no-cache, no-store, must-revalidate" }] },
     ];
   },
 };
