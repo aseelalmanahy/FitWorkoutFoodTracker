@@ -318,55 +318,147 @@
 
 ## 2j. Release completion: the master register
 
-**On `feature/release-completion`, from `feature/ux-reliability-redesign` at `7daf826`. Not merged anywhere, nothing deployed, no paid service, no schema change.** The candidate build runs on 127.0.0.1:3003 from the folder `FitWorkoutFoodTracker-release`, beside the unchanged stable build on 3002, both on `fitdb_review`. This register uses the statuses the owner set for it on 2026-11-07: NOT STARTED, IN PROGRESS, IMPLEMENTED — UNVERIFIED, VERIFIED — FUNCTIONAL, BLOCKED — OWNER AUTHORIZATION, BLOCKED — EXTERNAL DEPENDENCY, OWNER ACCEPTED. **Nothing here is OWNER ACCEPTED.**
+**On `feature/release-completion`, from `feature/ux-reliability-redesign` at `7daf826`. Not merged anywhere, nothing deployed, no paid service, no schema change, no migration.** The candidate runs on 127.0.0.1:3003 from the folder `FitWorkoutFoodTracker-release`, beside the unchanged stable build on 3002, both on `fitdb_review`. Statuses are the owner's for this register: NOT STARTED, IN PROGRESS, IMPLEMENTED — UNVERIFIED, VERIFIED — FUNCTIONAL, BLOCKED — OWNER AUTHORIZATION, BLOCKED — EXTERNAL DEPENDENCY, OWNER ACCEPTED. **Nothing here is OWNER ACCEPTED, and the release isn't production-ready: nothing has been deployed.**
 
-| ID | Requirement | Status | Evidence, and its limits |
-|---|---|---|---|
-| SEC-01 | Local application network binding | VERIFIED — FUNCTIONAL | `c093a8f`: every script that starts the app or a stub binds 127.0.0.1, enforced by a guard test that scans `scripts/` (52 of 52, with negative controls caught). `netstat`: 3002 and 3003 listen on 127.0.0.1 only. **3000 and 3001 still listen on all interfaces:** they run the older UX-01 code and weren't restarted, as instructed. They pick this up the next time they're started from this branch |
-| SEC-02 | Windows Firewall restrictions | BLOCKED — OWNER AUTHORIZATION | The inbound rule "Node.js JavaScript Runtime" allows any port, from any address, on the Public profile. Exact change, backup and rollback in "Approvals needed" below. Not changed |
-| SEC-03 | PostgreSQL listener security | BLOCKED — OWNER AUTHORIZATION | `listen_addresses='*'`. Not reachable from other machines today (`pg_hba.conf` is loopback only, and no firewall rule admits 5432; a self-test from the LAN and VPN addresses was refused). The change needs a PostgreSQL restart. Below |
-| SEC-04 | Strong isolated database credentials | BLOCKED — OWNER AUTHORIZATION | `.env.example` no longer carries a usable password (`62ea569`). One role, `fit`, with the published example password, serves `fitdb`, `fitdb_test`, `fitdb_test_isolated` and `fitdb_review`. Rotation and separate roles need the `postgres` superuser. Below |
-| FOOD-01 | Efficient reliable food search | VERIFIED — FUNCTIONAL | `0bdce20`: a 6 h USDA and 1 h Open Food Facts search cache, one request for identical searches in flight, 500 ms typing pause, providers only from 3 characters. A cache hit charges no budget. 5 call-count tests with negative controls. Live on 3003: 12 searches, about 1 s each, no errors |
-| FOOD-02 | Improved search relevance | VERIFIED — FUNCTIONAL | `0bdce20`: the top 50 USDA and 40 Open Food Facts candidates are ranked, 25 shown; 20 ranking tests on real provider names. Live: "Egg, whole, raw", "Banana, raw", "Beef, ground, raw", Greek yogurts first. **Weaker for broad words:** "milk" shows "Milk, malted" before "Milk, whole"; "white rice" shows rice flour first; "bread" and "chicken breast" stay close to the provider's order. Defect RC-01 below. Owner's judgment of relevance pending |
-| FOOD-03 | Local catalog feasibility and decision | BLOCKED — OWNER AUTHORIZATION | Evaluated, not built. USDA's Foundation, SR Legacy and FNDDS downloads are public domain and would answer broad words like "milk" and "bread" with plain foods, with no rate limit. That needs a download, a new table (a migration) and a product review, as it changes where food data comes from. The Open Food Facts dump is very large and under the ODbL, which carries share-alike duties: not recommended now. Below |
-| FOOD-04 | Accurate barcode and serving behaviour | VERIFIED — FUNCTIONAL | Live on 3003: 3017620422003 finds Nutella (539 kcal/100 g), 5449000000996 Coca-Cola (42.4 kcal/100 ml), a made-up code finds nothing and says so. A USDA household serving (1 cup, mashed, 225 g) logged correctly in the browser. `nutrition-api` and `usda-missing-nutrients` cover servings and missing values (null, never 0) |
-| EMAIL-01 | Real transactional email delivery | BLOCKED — EXTERNAL DEPENDENCY | `fab281e`, `67fe669`: a Resend transport, chosen only by `MAIL_PROVIDER=resend` with a well-formed key and sender; refusals and outages are told apart without echoing the provider's reply. 20+ unit tests with a fake network. **No email has been sent:** it needs a Resend account, an API key and a verified sending domain, which the owner must create |
-| EMAIL-02 | Secure password recovery | VERIFIED — FUNCTIONAL | `account-tokens` 32 of 32 on `fitdb_test_isolated`: single-use, expiring, hashed tokens; sessions ended on reset; rate limits; the same answer for known and unknown addresses. Verified with mail written to a local folder. Delivery to a real inbox depends on EMAIL-01 |
-| AI-01 | Nutrition-label scanning | VERIFIED — FUNCTIONAL | `47e4f25`: on-device text recognition, `LABEL_OCR=local`, no paid service and no network. Real OCR on generated labels in unit tests, and in the browser on 3003 (journey D): read in 842 ms, every value exact, saved, logged. A value is read only with its unit; a "g" misread as "9" that contradicts the energy is left empty, never corrected. **Not verified on real photographs** of real packets: that needs the owner's photos, guide R.5 to R.7. Anthropic extraction stays available if configured, and isn't |
-| AI-02 | Meal-photo recognition | BLOCKED — OWNER AUTHORIZATION | Built in Phase 3 against a stand-in; the real service is a paid vision model. No account, key or spending has been set up. Below |
-| MOBILE-01 | Physical iPhone Safari | BLOCKED — EXTERNAL DEPENDENCY | Needs the owner's iPhone, and HTTPS: the session cookie is `Secure`, so plain `http://` to this computer can't keep a phone signed in. Below |
-| MOBILE-02 | Physical Android Chrome | BLOCKED — EXTERNAL DEPENDENCY | As MOBILE-01, with an Android phone. Layouts at 390 px pass in Chromium, Firefox and WebKit (`responsive`), which isn't a real device |
-| DEPLOY-01 | Production infrastructure | BLOCKED — OWNER AUTHORIZATION | Templates and checks exist from Phase 4.0.3 (`PHASE_4_0_3_DEPLOYMENT.md`, `deploy/`). Hosting, a domain and DNS need purchases and decisions 4, 5 and 14 |
-| DEPLOY-02 | HTTPS and production security | BLOCKED — OWNER AUTHORIZATION | The production startup check refuses weak or missing settings, including the new mail and `LABEL_OCR` settings. Certificates need a domain |
-| DEPLOY-03 | Backup and restore | IN PROGRESS | A verified backup of `fitdb_review`, 2026-11-07: `pg_dump -Fc` to `Desktop\FitWorkoutFoodTracker-backups`, 48,631 bytes, SHA-256 `94a63d8b…c5427587`, read back by `pg_restore --list` (17 tables of data, including the migration history). **No restore has been tested:** that needs a database to restore into. Below |
-| DEPLOY-04 | Monitoring and rollback | BLOCKED — OWNER AUTHORIZATION | The rollback runbook exists (`PHASE_4_0_3_BACKUP_RECOVERY.md`, `MIG_04_RUNBOOK.md`). Monitoring needs a deployed server |
-| QA-01 | Complete regression suite | IN PROGRESS | Full guarded run on `fitdb_test_isolated` at `9c99843` plus the test fix in this change, 2026-11-07: **42 of 44 suites passed** (466 node test cases in them, plus the browser suites' own checks in Chromium, Firefox and WebKit). The 2 failures: `nutrition-api`, 1 of 78, a test that assumed provider order, which ranking (FOOD-02) changes by design; made order-independent with every value still checked, then 78 of 78. `label-scan`, intermittent, RC-04; then 4 of 4 runs passed. Vitest 2,016 of 2,016, type check and build clean. **Not run: `safety-no-marker` and `db-guard-scoped` (QA-04).** Not COMPLETE while RC-04 is open and QA-04 blocked |
-| QA-02 | End-to-end user journeys | IN PROGRESS | On 3003, in Chromium, as review tester 1 (test data only), 2026-11-07. **A PASS:** sign-in to dashboard, session kept; profile creation passed on 3002 earlier, on onboarding code this branch didn't change. **B PASS:** plan, exercises, sets and reps, schedule, start, log and edit sets, exercise and workout notes, a failed note save refused at Finish, history, progress. **C PASS:** live USDA and Open Food Facts searches, serving, quantity, logging, totals (7 entries summing to the total), edit, delete, earlier date, history. **D PASS** on a generated label, journey above. **E BLOCKED:** paid AI (AI-02). **F PASS:** weight today and yesterday, history, trend, chart, goal weight, goal card. **G BLOCKED:** no email (EMAIL-01). **H BLOCKED:** no phone or HTTPS (MOBILE). **I PASS:** the candidate restarted, tester 1 signed in again, and every record read back identical. Isolation: another account gets 404 |
-| QA-03 | Intermittent browser failures | VERIFIED — FUNCTIONAL | `9c99843`. Firefox's session store intermittently throws `_maybeDontRestoreTabs` while a test context closes, after its assertions; only that error is tolerated, at close. Firefox's `NS_BINDING_ABORTED` when a navigation replaces the app's own refresh after saving; retried once, and the page must still load. Firefox `guard-browser` 8 of 8 runs, then 21 of 21 in the full run |
-| QA-04 | Previously excluded security suites | BLOCKED — OWNER AUTHORIZATION | `safety-no-marker` and `db-guard-scoped` compare the database under test with `fitdb_test_other`, which already exists. The runner allows them only on `fitdb_test`, which holds the 10 protected QA accounts and the demo account, and `safety-no-marker` writes and removes its own rows there. Below |
-| UX-01 | Redesigned application acceptance | VERIFIED — FUNCTIONAL | UX-01A to E, Q, R, I above, and `responsive` (13 views, 4 widths, 2 themes). **OWNER ACCEPTANCE PENDING:** only the owner can mark it accepted |
+| ID | Status | Implemented | Functionally verified | Blocked by | Not completed |
+|---|---|---|---|---|---|
+| SEC-01 | VERIFIED — FUNCTIONAL | Every server the scripts start binds 127.0.0.1, enforced by a guard test | 3002 and 3003 listen on 127.0.0.1 only (`netstat`) | Replacing 3000 and 3001: group A4 | **3000 and 3001 still listen on all interfaces**, running older code started before SEC-01 |
+| SEC-02 | BLOCKED — OWNER AUTHORIZATION | Prepared: group A1 | No | Owner | The firewall rule is unchanged |
+| SEC-03 | BLOCKED — OWNER AUTHORIZATION | Prepared: group A2 | Not reachable from other machines today (`pg_hba.conf` loopback only, no firewall rule for 5432) | Owner | `listen_addresses='*'` unchanged |
+| SEC-04 | BLOCKED — OWNER AUTHORIZATION | `.env.example` has no usable password; plan: group A3 | No | Owner, with the `postgres` superuser | One role with the published example password serves every local database |
+| FOOD-01 | VERIFIED — FUNCTIONAL | Caching, one request per identical search, typing pause, 3-character minimum | Call-count tests; live: 12 searches, about 1 s each, no errors; a cache hit costs no allowance | None | None |
+| FOOD-02 | VERIFIED — FUNCTIONAL | Ranking, revised for RC-01 | Benchmark of 12 recorded searches: the ideal result first in 23 of 24 cases (providers' order 8, v1 17), wrong results in the top fives 12 (37, 29), look-alikes 0; a regression gate | Owner's judgment of relevance | USDA "bread" (RC-01) |
+| FOOD-03 | BLOCKED — OWNER AUTHORIZATION | Evaluated, not built | Not applicable | Owner's decision: group F | Recommendation: don't build; the benchmark's remaining gap isn't one a catalog fixes |
+| FOOD-04 | VERIFIED — FUNCTIONAL | Barcodes and servings (earlier phases) | Live: two real barcodes found with their values, a made-up one found nothing; a household serving logged correctly | None | None |
+| EMAIL-01 | BLOCKED — EXTERNAL DEPENDENCY | Resend transport, refused at startup unless fully configured | Unit tests with a fake network only | A Resend account, key and verified domain: group C | **No email has ever been sent** |
+| EMAIL-02 | VERIFIED — FUNCTIONAL | Reset by emailed, single-use, expiring, hashed token | `account-tokens` 32 of 32: expiry, single use, sessions ended, same answer for known and unknown addresses (also when the provider fails, as sending happens after the answer), 60 s resend limit, hashes only. Mail written to a local folder | Real delivery: EMAIL-01 | A real inbox and link (journey G) |
+| AI-01 | IN PROGRESS | On-device reading, read twice, kept only where both agree; light-on-dark inverted; six languages | Clean labels: journey D passed; 13 generated variations, 11 fully read, none wrong. **Real packets: 21 Open Food Facts photos, 9 recognized, 5 values read, none wrong** | The owner's own photos; group D for a vision model | **Useful real-photo reading isn't achieved on-device** (RC-03) |
+| AI-02 | VERIFIED — FUNCTIONAL | On-device main-dish suggestions (CLIP ViT-B/32, pinned, hash-checked), in the existing review flow | 35 labelled Commons photos: right food first 23 (66%), among three 30 (86%); journey E passed (real photo to logged entry) | Several foods per photo: group D | Multi-item meals; the owner's own photos |
+| MOBILE-01 | BLOCKED — EXTERNAL DEPENDENCY | App side: the review mode serves a private tailnet https name (`--origin`), exactly matched | WebKit at phone size through a local HTTPS stand-in: sign-in, Secure HttpOnly session kept, saving through the origin check, HSTS, camera-or-library photo inputs | The owner's iPhone; Tailscale: group E | Physical Safari, camera, HEIC conversion |
+| MOBILE-02 | BLOCKED — EXTERNAL DEPENDENCY | As MOBILE-01 | Layouts at 390 px in three engines | The owner's Android phone; group E | Physical Chrome, camera |
+| DEPLOY-01 | BLOCKED — OWNER AUTHORIZATION | Templates from 4.0.3, plus this branch's settings (`PHASE_4_0_3_DEPLOYMENT.md`) | No image built (no Docker daemon) | Decisions 4, 5, 14: group G | Everything operational |
+| DEPLOY-02 | BLOCKED — OWNER AUTHORIZATION | Startup refuses weak or partial settings, including mail, `LABEL_OCR`, `MEAL_RECOGNITION` and missing model files | Unit tests | A domain and host: group G | Certificates, real HTTPS |
+| DEPLOY-03 | IMPLEMENTED — UNVERIFIED | A verified backup of `fitdb_review`; `restore-check.cjs` ready | Backup read back by `pg_restore --list`; the check's refusals tested | A scratch database: group B2 | **No restore has been performed** |
+| DEPLOY-04 | BLOCKED — OWNER AUTHORIZATION | Health check, rollback runbook (4.0.3) | Health route exists | A deployed server: group G | Monitoring |
+| QA-01 | IN PROGRESS | 44 suites, plus `server-lifecycle` (45) | At `905c47c`, 2026-11-07, one run, no retries: **45 of 45 run suites passed** (552 node test cases, plus the browser suites' own checks in Chromium, Firefox and WebKit); Vitest 2,185 of 2,185; type check and production build clean. Excluded, not failed: `safety-no-marker`, `db-guard-scoped` (QA-04). The earlier 42 of 44 was `nutrition-api` (a test assuming provider order, fixed) and `label-scan` (RC-04); both pass here | QA-04 | `safety-no-marker`, `db-guard-scoped` |
+| QA-02 | IN PROGRESS | Journeys A to I | See the journeys below: A, B, C, D, E, F and I pass on the final candidate; G and H blocked | E multi-item: D; G: C; H: E | G and H |
+| QA-03 | VERIFIED — FUNCTIONAL | Firefox teardown and navigation races handled, only those exact errors | Firefox `guard-browser` 8 of 8, and every full run since | None | None |
+| QA-04 | BLOCKED — OWNER AUTHORIZATION | Approach prepared: group B1 | No | Owner, a new test database | Neither suite has run on recent code (T-14) |
+| RC-01 | VERIFIED — FUNCTIONAL | See FOOD-02 | Benchmark gate | None | USDA "bread" lists flavoured breads first: no record marks the everyday one |
+| RC-02 | VERIFIED — FUNCTIONAL | Busy ports explained; `--stop` only for this folder's own server; apps end with their script | `server-lifecycle` 8 of 8, with a control; the real leftover stopped, 3002 correctly not touched | None | None |
+| RC-03 | IN PROGRESS | Real-photo measurement (see AI-01) | No wrong value in 21 photos | The owner's photos; group D | Usefulness on real packets |
+| RC-04 | VERIFIED — FUNCTIONAL | Run lock; trace and description on failure | Cause shown by a trace: the browser starved of CPU (no click delivered, 2 frames in 34 s) while the app answered in milliseconds; ruled out: hydration, the scan budget, a leave-page dialog, the server. Since the lock and diagnostics: 28 consecutive runs passed (18, then 10 at `905c47c`), plus the full regression's; under deliberate full load on all 32 threads, 5 of 6 | None | A browser can still stall under extreme CPU load; the lock prevents only overlapping guarded runs, so other heavy work must not run beside a regression |
+| UX-01 | VERIFIED — FUNCTIONAL | UX-01A to E, Q, R, I | `responsive` 13 views, 4 widths, 2 themes; visual QA; journeys | **The owner** | **OWNER ACCEPTANCE PENDING** |
 
-**Defects found in this work and still open:**
+**Journeys, on the candidate, as review tester 1 (test data only):** **A PASS:** sign-in, dashboard, session kept (profile creation passed earlier on unchanged onboarding code). **B PASS:** plan, exercises, sets and reps, schedule, start, log and edit sets, both kinds of notes, a failed note save refused at Finish, history, progress. **C PASS:** live USDA and Open Food Facts search, household serving, grams, custom food, Recent, earlier date, edit and delete with totals adding up, history. **D PASS:** a generated label read on the server; the serving the two readings disagreed on was completed by the person; saved and logged. **E PASS:** a real Commons pizza photo suggested as pizza on the server in 0.9 s, accepted, matched to a USDA record, 150 g logged with that record's values; several foods per photo aren't supported (group D). **F PASS:** weight on two days, history, trend, chart, goal weight and goal card (the older workflow script's two weight steps fail only because they assume an empty account). **G BLOCKED:** no email (group C). **H BLOCKED:** physical phones (group E); the application side passed in WebKit through an HTTPS stand-in. **I PASS:** the candidate restarted, tester 1 signed in again, every record read back identical. Isolation: another account gets 404
+
+**Open defects:**
 
 | ID | Defect | Severity |
 |---|---|---|
-| RC-01 | Broad food words rank specific variants first: "milk" → "Milk, malted", "white rice" → rice flour. The ranker can only order what the provider returns; a local USDA catalog (FOOD-03) is the lasting fix | P2 |
-| RC-02 | Stopping `review-server.cjs` by ending its process on Windows leaves its Next.js child on the port, as the stop signal isn't delivered. Closing with Ctrl+C is unaffected. The guide's `Stop-Process` line clears it | P3 |
-| RC-03 | Label reading on photos: tesseract reads "g" as "9" and drops decimal commas. Handled conservatively (unreadable, or caught by the review checks), never silently. Accuracy on real photos is unmeasured | P2 |
-| RC-04 | `label-scan` failed once in 5 runs on this branch: in Chromium, at step 22, `/nutrition/scan` didn't show its file input within 30 s, after 21 steps had passed. The 4 runs after it passed in full. The server log shows no error. Cause not established; it passed on `7daf826` in its one run there. Not tolerated or retried in the test | P2 |
+| RC-01 | USDA "bread" ranks flavoured breads (fruit, naan, zucchini) before white or whole-wheat bread; nothing in the records marks the everyday variety | P3 |
+| RC-03 | On-device label reading fills in few values on real packet photos (5 values from 21 photos; none wrong) | P2 |
+| RC-05 | The meal model names one main dish; other foods on a plate must be added by hand, and a small item on a large plate can be taken for no food | P3 |
+| RC-06 | The production image hasn't been built with the on-device models, and peak memory with them loaded is unmeasured on Linux | P2 |
+| RC-07 | With on-device label reading, the review screen still tags values "Read by AI" and its footer says scanning "sends the image to the AI provider". Neither is true for `LABEL_OCR=local`: nothing leaves the PC. The screen needs the reader's id to word both correctly | P2 |
 
-**Approvals needed, consolidated.** Each is separate; approving one approves nothing else. Every command below is for the owner to run, or to authorize by name.
+**Owner approvals needed, consolidated.** Each item is separate: approving one approves nothing else, and nothing here has been done. "You" is the owner; every command is for you to run, or to authorize by name.
 
-1. **SEC-02, firewall.** In an elevated PowerShell: back up with `netsh advfirewall export "$HOME\Desktop\FitWorkoutFoodTracker-backups\firewall-before-SEC-02.wfw"`, then `Get-NetFirewallRule -DisplayName "Node.js JavaScript Runtime" | Where-Object Direction -eq Inbound | Disable-NetFirewallRule`. Rollback: the same with `Enable-NetFirewallRule`, or `netsh advfirewall import` of the backup. Effect: no Node program on this computer accepts connections from the network. Windows may ask again the next time Node listens on all interfaces: answer **Cancel**. Phones would then need the HTTPS route in item 7, not the LAN.
-2. **SEC-03, PostgreSQL listener.** Back up `C:\Program Files\PostgreSQL\18\data\postgresql.conf`, set `listen_addresses = 'localhost'`, then `Restart-Service postgresql-x64-18` (elevated). The servers on 3000 to 3003 lose their database connections for a few seconds and reconnect. Verify with `SHOW listen_addresses;` and `netstat -ano | findstr :5432` (127.0.0.1 and ::1 only). Rollback: restore the backup and restart. Also recommended: make the PostgreSQL data folder's configuration files writable by administrators only.
-3. **SEC-04, credentials.** As `postgres`: a new role per environment (`fit_review` owning `fitdb_review`; `fit_test` owning `fitdb_test`, `fitdb_test_other` and `fitdb_test_isolated`; `fit` keeping `fitdb`), each with a generated 32-character password; `ALTER DATABASE … OWNER TO …` and `REASSIGN OWNED BY fit TO …` inside each database; then the four `.env` files updated, and each server restarted. Rollback: the old owner is reassigned the same way. The passwords are generated on this computer and written only to Git-ignored files, never printed. Production keeps `deploy/database-roles.sql` (`fit_migrator`, `fit_app`).
-4. **QA-04.** Either (a) run `safety-no-marker` and `db-guard-scoped` once against `fitdb_test`, which creates and removes the suite's own rows and leaves its marker unchanged (the runner checks this), with a read-only status of the QA and demo accounts before and after; or (b) approve a change to the runner and these two suites so they run on `fitdb_test_isolated` beside `fitdb_test_other`. Recommended: (b), as it never touches the protected accounts.
-5. **EMAIL-01.** Create a Resend account (check its current free allowance before choosing a plan), verify a sending domain you control (DNS records), create an API key, and give it to this computer's environment only. Then a real reset email can be tested (journey G).
-6. **AI-02.** An Anthropic account with a spending limit, and a choice of model. Meal photos would then be sent to Anthropic for identification; the data inventory already lists that. Current prices are to be checked when this is decided, not quoted from memory.
-7. **MOBILE-01 and 02.** Recommended: Tailscale on this computer and the phones (a personal account; check its current free plan), with `tailscale serve` giving the app an HTTPS address that only your own devices can reach. No public exposure, no firewall opening. Alternatives: a certificate made with mkcert and trusted on each phone, which needs a LAN firewall rule (undoing part of SEC-02); or a Cloudflare Tunnel, which needs a domain and is public unless an access policy is added.
-8. **FOOD-03.** A product review by `product-strategy-agent`, then approval to download USDA's Foundation, SR Legacy and FNDDS files and to add a local catalog table (a migration).
-9. **DEPLOY-03.** Approval to create a scratch database, for example `fitdb_restore_check`, restore the backup into it, compare row counts with `fitdb_review`, and drop it.
-10. **DEPLOY-01, 02 and 04.** Hosting, a domain and its DNS: decisions 4, 5 and 14 in section 5.
+### A. System security
+
+| | A1. Narrow the Node.js firewall rule (SEC-02) | A2. PostgreSQL on loopback only (SEC-03) | A3. Separate, strong database credentials (SEC-04) | A4. Replace the servers on 3000 and 3001 |
+|---|---|---|---|---|
+| 1. Action | Disable the inbound rule "Node.js JavaScript Runtime" (TCP and UDP, Public profile, any port, any address) | Set `listen_addresses = 'localhost'` in `C:\Program Files\PostgreSQL\18\data\postgresql.conf`, then restart `postgresql-x64-18` | One role per environment with a generated 32-character password: `fit_review` owns `fitdb_review`; `fit_test` owns `fitdb_test`, `fitdb_test_other`, `fitdb_test_isolated`; `fit` keeps `fitdb` with a new password | Stop the demo on 3000 (started from `FitWorkoutFoodTracker`, on `fitdb_test`) and the UX-01 server on 3001 (from `FitWorkoutFoodTracker-ux`), and start them from code that binds 127.0.0.1 |
+| 2. Why | It lets any Node program on this PC accept connections from any network; 3000 and 3001 are reachable from the LAN and the VPN now | Defence in depth: today only `pg_hba.conf` refuses remote connections | The `fit` password is the published example, and one role reaches every database | They predate SEC-01 and listen on all interfaces |
+| 3. Affected | Windows Firewall only | The PostgreSQL service and every app using it (3000 to 3003) | PostgreSQL roles; `.env` (fitdb), `.env.test` (main and UX folders use it), `.env.review` and `.env.isolated` in the review and release folders | Those two processes only |
+| 4. Cost | None | None | None | None |
+| 5. Security | Removes LAN and VPN exposure of every Node server; Tailscale (E) is unaffected, as it forwards locally | Removes the listener on the LAN, VPN and WSL addresses | Least privilege: a leaked test password can't reach review data | Closes the remaining exposure |
+| 6. Privacy | Reduces exposure of review data | Same | Same | Same |
+| 7. Downtime | None | About 5 to 10 s: in-flight requests on 3000 to 3003 fail, and Prisma reconnects on the next | Each server must be restarted after its file is updated: under a minute each | Under a minute each |
+| 8. Procedure | Elevated PowerShell: `netsh advfirewall export "$HOME\Desktop\FitWorkoutFoodTracker-backups\firewall-before-SEC-02.wfw"`, then `Get-NetFirewallRule -DisplayName "Node.js JavaScript Runtime" \| Where-Object Direction -eq Inbound \| Disable-NetFirewallRule`. If Windows later asks to allow Node, choose **Cancel** | Copy `postgresql.conf` to the backups folder; edit the one line; elevated `Restart-Service postgresql-x64-18` | As `postgres`: `CREATE ROLE … LOGIN PASSWORD …`; `ALTER DATABASE … OWNER TO …`; in each database `REASSIGN OWNED BY fit TO …`. The passwords are generated on this PC straight into the Git-ignored files and never printed; then restart each server | For 3001, its background task is stopped and restarted from the release folder with `--port=3001` (the same `fitdb_test`, no schema change); for 3000, Ctrl+C in its window, then the same from the release folder with `--port=3000` |
+| 9. Verify | `Get-NetFirewallRule -DisplayName "Node.js JavaScript Runtime"` shows Enabled False; from a phone on Wi-Fi, `http://192.168.1.207:3000` doesn't load | `SHOW listen_addresses;` is `localhost`; `netstat -ano \| findstr :5432` shows only 127.0.0.1 and ::1 | Each server's startup check passes; the old password is refused; `review-account.cjs --status` and the QA account status are unchanged | `netstat` shows 127.0.0.1:3000 and :3001 only; the demo account status unchanged |
+| 10. Rollback | `Enable-NetFirewallRule` on the same rule, or `netsh advfirewall import` the backup | Restore the copied file and restart | `REASSIGN OWNED BY` back to `fit`, restore the env files from their copies | Restart the previous servers from their folders |
+
+### B. Isolated database testing
+
+| | B1. A companion database for the excluded suites (QA-04) | B2. A scratch database for the restore test (DEPLOY-03) |
+|---|---|---|
+| 1. Action | Create `fitdb_test_isolated_other`, marked as a designated test database; add it to the guard's designated list and pair it with `fitdb_test_isolated` in the runner; run `safety-no-marker` and `db-guard-scoped` | Create an empty `fitdb_restore_check`, run `scripts/restore-check.cjs` with the existing backup, then drop it |
+| 2. Why | Both suites compare two test databases and write their own rows; today they run only against `fitdb_test`, which holds the protected QA and demo accounts. This keeps them away from both | A backup isn't proven until restored |
+| 3. Affected | One new local database; `scripts/lib/test-target-guard.cjs` and `run-guarded-suites.cjs` (a reviewed code change, with tests) | One temporary local database; `fitdb_review` is only read |
+| 4. Cost | None | None |
+| 5. Security | The guard's designated list grows by one exact name; no guard is weakened | None: local, loopback only |
+| 6. Privacy | Test data only | The restored copy holds review data until dropped |
+| 7. Downtime | None | None |
+| 8. Procedure | `node --env-file=.env.isolated scripts/local-db.cjs --init` extended for the new name (after the code change), then the runner with the two suites | `CREATE DATABASE fitdb_restore_check OWNER fit;` then `node --env-file=.env.review scripts/restore-check.cjs --backup=<the .dump> --confirm=fitdb_restore_check`, then `DROP DATABASE fitdb_restore_check;` |
+| 9. Verify | Both suites pass; `fitdb_test` and `fitdb_test_other` untouched (row counts and markers before and after) | "RESTORE VERIFIED", and `fitdb_review` unchanged, both printed by the check |
+| 10. Rollback | Drop the new database and revert the commit | Drop the scratch database |
+
+### C. Email account and domain (EMAIL-01)
+
+| | |
+|---|---|
+| 1. Action | Create a Resend account; verify a sending domain you control; create an API key restricted to sending; set `MAIL_PROVIDER=resend`, `RESEND_API_KEY`, `MAIL_FROM` in this PC's Git-ignored settings for a review run; send one reset to an approved mailbox |
+| 2. Why | No email can be sent, so sign-up and password reset can't be completed by a real person (journey G) |
+| 3. Affected | Resend; your domain's DNS (SPF, DKIM and the records Resend gives); one env file |
+| 4. Cost | Resend has a free allowance; check its current limits before choosing a plan. A domain costs money if you don't own one |
+| 5. Security | The key can send mail as your domain: kept out of Git, restricted to sending, rotated if exposed |
+| 6. Privacy | Recipients' addresses and the reset link pass through Resend (already listed in the data inventory as the email provider) |
+| 7. Downtime | None |
+| 8. Procedure | In Resend: add the domain, add its DNS records at your registrar, wait for "verified", create the key. Then set the three values and start the review server; the startup check refuses anything partial |
+| 9. Verify | The message arrives at the approved mailbox; its link sets a new password once; a second use is refused; sign-in works |
+| 10. Rollback | Remove the three settings (mail stops, nothing else changes); revoke the key; remove the DNS records |
+
+### D. AI recognition provider (decide whether one is needed)
+
+On-device reading now covers clean labels and the main dish of a meal, at no cost and with nothing leaving this PC. It doesn't read most real packets, or several foods on a plate. Two ways to close that, or neither:
+
+| | D1. A local vision model through Ollama | D2. The existing Anthropic integration |
+|---|---|---|
+| 1. Action | Install Ollama, pull a vision model (for example a 7-billion-parameter one, about 5 to 8 GB), and add an adapter in place of the current local ones | Set `ANTHROPIC_API_KEY`, `LABEL_EXTRACTION_MODEL`, `MEAL_IDENTIFICATION_MODEL` (already built and tested against a stand-in) |
+| 2. Why | Multi-item meals and real packets, still free and private | The same, with no install, typically more accurate |
+| 3. Affected | A system service on this PC listening on 127.0.0.1:11434; the GPU (RTX 4070 Ti SUPER, 16 GB, enough) | Anthropic's API |
+| 4. Cost | None in money; disk and GPU use | Paid per request; a spending limit must be set first. Current prices to be checked when deciding, not quoted from memory |
+| 5. Security | A local listener (loopback only) | An API key, kept out of Git |
+| 6. Privacy | Photos never leave this PC | **Photos are sent to Anthropic.** The notice and data inventory say so |
+| 7. Downtime | None | None |
+| 8. Procedure | After approval: install, pull the model, measure accuracy on the same 35 meal photos and 21 label photos, then integrate | After approval: set the values with a spending limit; measure on the same photos |
+| 9. Verify | The same benchmarks, beside today's numbers | The same benchmarks |
+| 10. Rollback | Uninstall; the on-device features stay | Remove the settings; on-device features take over |
+
+### E. Private HTTPS for testing on your phones (MOBILE-01 and 02)
+
+| | |
+|---|---|
+| 1. Action | Install Tailscale on this PC, your iPhone and your Android phone, signed in to one personal tailnet; run `tailscale serve --bg 3003` (or 3002); start the review server with `--origin=https://<pc>.<tailnet>.ts.net` |
+| 2. Why | Phones need HTTPS to keep the Secure session cookie and to use the camera; this gives it without exposing the app to the internet or the LAN |
+| 3. Affected | Tailscale on three devices; no firewall change (it works with A1 done) |
+| 4. Cost | A personal plan; check the current free tier |
+| 5. Security | Only devices signed in to your tailnet can reach the name; the app still listens on loopback; HTTPS has a valid certificate from Tailscale |
+| 6. Privacy | Traffic goes device to device, encrypted; Tailscale's coordination service learns device names |
+| 7. Downtime | The review server restarts once with `--origin` |
+| 8. Procedure | Install and sign in on each device; enable HTTPS certificates and MagicDNS in the Tailscale admin page; `tailscale serve --bg 3003`; restart the review server with `--origin`; on each phone open the address |
+| 9. Verify | Journey H on each phone: sign in, take a label and a meal photo, log food and a workout, view history, stay signed in after closing the browser |
+| 10. Rollback | `tailscale serve reset`, uninstall, restart the review server without `--origin` |
+
+### F. Local food catalog (FOOD-03)
+
+**Not recommended now.** The measured problem was ranking, and the benchmark puts the ideal food first in 23 of 24 cases from the providers' own results. The one remaining case, "bread", is about which variety is everyday, which a local copy of the same USDA records wouldn't settle. A catalog would add a migration, a download and an update process. If you want it anyway: a product review by `product-strategy-agent` first, then approval to download USDA's Foundation, SR Legacy and FNDDS files (public domain; sizes to be confirmed at download), a new table with a text index (a migration), and an update procedure. No cost in money.
+
+### G. Production hosting and deployment (DEPLOY-01, 02, 04)
+
+| | |
+|---|---|
+| 1. Action | Decide decisions 4 (name and domain), 5 (host, database, monthly ceiling) and 14 (who may read production data); then a rehearsal deployment to a disposable server |
+| 2. Why | Nothing exists outside this PC; real users need the pre-beta safeguards in `PRODUCT_STRATEGY.md` first |
+| 3. Affected | A VPS, managed PostgreSQL, a domain and DNS, Caddy, the image (`Dockerfile`, `deploy/`) |
+| 4. Cost | Monthly hosting and database, and a domain: within the ceiling you set |
+| 5. Security | Least-privilege roles (`deploy/database-roles.sql`), secrets only on the host, HTTPS by Caddy, one instance |
+| 6. Privacy | Real personal data, under the notice, retention and access decisions still open (4.0.5, decision 14) |
+| 7. Downtime | Not applicable before launch |
+| 8. Procedure | `PHASE_4_0_3_DEPLOYMENT.md`, with its release-completion section: build the image with the model files, measure memory, migrate with `fit_migrator`, start, verify |
+| 9. Verify | `/api/health`, the startup check, a backup and a restore with `restore-check.cjs`'s method, the journeys on the deployed address |
+| 10. Rollback | The previous image tag; no migration was added on this branch |
 
 **A known limit, not a defect:** the session cookie is `Secure`, and this Windows WebKit build won't send one over plain `http://localhost`. Sign-in succeeds there, and the browser check carries on with a non-Secure copy, as other WebKit suites do. Chrome, Edge and Firefox stay signed in. Real Safari and real phones are unverified (T-15, R-13).
 

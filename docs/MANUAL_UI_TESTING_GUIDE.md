@@ -151,10 +151,13 @@ On `feature/release-completion`, in the folder `FitWorkoutFoodTracker-release`. 
 cd $HOME\Desktop\FitWorkoutFoodTracker-release
 Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue
 $env:LABEL_OCR = "local"
+$env:MEAL_RECOGNITION = "local"
 node --env-file=.env.review scripts/review-server.cjs --confirm=fitdb_review --port=3003
 ```
 
-Wait for `Running at http://localhost:3003`. If the window was closed without stopping it, use the `Stop-Process` line above with `3003`. **Sign in once on each port:** both are `localhost`, so they share a sign-in cookie; signing out on one signs you out on the other.
+Wait for `Running at http://localhost:3003`. **Meal photos need their model once:** if the start is refused with "the model file … is missing", run `node scripts/meal-model-fetch.cjs` in the same folder first (about 150 MB, checked against recorded hashes).
+
+**If it says port 3003 is already held,** it names the process and whether it's this folder's own server left running. Stop only that one with `node scripts/review-server.cjs --stop --port=3003`: it refuses anything else, including the stable server on 3002, which belongs to another folder. **Sign in once on each port:** both are `localhost`, so they share a sign-in cookie; signing out on one signs you out on the other.
 
 | # | Where | Do this | What should happen |
 |---|---|---|---|
@@ -165,8 +168,15 @@ Wait for `Running at http://localhost:3003`. If the window was closed without st
 | R.5 | Nutrition → Add → **Scan a nutrition label** | Photograph or upload a clear, straight nutrition label, Continue, then **Use this** | In a second or two, the review screen. It says the values were read **by text recognition on this server**. Nothing leaves this computer |
 | R.6 | The review screen | Compare every number with the label | Each is either exactly what's printed or empty with a reason. **A number that's different from the label is a defect: please report it with the photo.** The product name is empty for you to type |
 | R.7 | The review screen | Correct a value, type the name, check the confirmation, save, then **Add to diary** | The food is saved once, then logged like any of your foods |
+| R.8 | Nutrition → Add → **Identify foods in a photo** | Upload a photo of one dish (a pizza, a salad, a bowl of rice), then **Identify foods** | In about a second: "Possibly …", the two closest alternatives, and a notice that a model on this server names only the main dish. No amount or calorie appears anywhere |
+| R.9 | The suggestion | Accept it or correct the name, then **Find this food**, choose a meal and a food, type how much you had, and add it | The food's values come from the record you chose, for the amount you typed. Anything else on the plate: **Add a food the AI missed** |
+| R.10 | Identify a meal | Upload a photo with no food (a document, a room) | It says it found no food, rather than naming a dish |
 
-**What to expect from label reading:** it's ordinary text recognition, not AI. It reads clean, flat, well-lit labels well. Curved packets, glare, small print or a photo at an angle will leave more fields empty for you to fill. It never fills in a value it couldn't read.
+**What to expect from label reading:** it's ordinary text recognition, not AI. Every label is read twice, two different ways, and only the numbers both readings agree on are filled in; the rest are left empty with both readings shown in the reason. It reads clean, flat, well-lit, printed labels well. **On real packets it leaves most values for you:** measured on 21 real photos from Open Food Facts, it recognized 9 as labels and filled in only 5 values, none wrong. Curved or glossy packets, light text on dark panels, and labels in several languages side by side are the hardest. It never fills in a value it couldn't read.
+
+**What to expect from meal photos:** the model compares the whole photo with a list of 116 dishes and foods. On 35 real photos it named the right food first in 23 and among its three in 30. It can't count, weigh or see more than the main dish: you choose the foods and amounts.
+
+**On your phones (not yet possible):** once Tailscale is approved and installed (tracker section 2j, group E), start the server with `--origin=https://<your-pc>.<your-tailnet>.ts.net` and open that address on the phone. The server stays on this computer only; Tailscale carries it to your own signed-in devices. While `--origin` is set, use that address on this computer too.
 
 ## Phase 3: photo features, unavailable here
 

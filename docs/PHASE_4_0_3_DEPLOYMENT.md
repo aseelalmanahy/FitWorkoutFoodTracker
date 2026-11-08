@@ -121,3 +121,27 @@ The design's minimum, with no vendor chosen:
 | Page errors | `next start` logs errors thrown while rendering by itself. A console guard reduces Prisma errors there to type and code | Unit-tested. **Not triggered by a real page failure** |
 | WebKit | This Windows WebKit build won't send a `Secure` cookie over plain `http://localhost`, so its login can't complete locally | **Needs real HTTPS devices, T-15** |
 | Image validation | `/api/images/validate` returns 404 in production while AI is off | Tested |
+
+## Release completion additions (feature/release-completion, 2026-11-07)
+
+**Status: prepared, never deployed or built as an image.** The shape above stands: one instance behind Caddy, managed PostgreSQL, the health check on `/api/health`, no error-tracking service. This branch adds the following, each refused at startup if misconfigured (the preflight stops the process before it serves a request).
+
+| Setting | Values | What it needs | Refused when |
+|---|---|---|---|
+| `MAIL_PROVIDER`, `RESEND_API_KEY`, `MAIL_FROM` | `resend`, a `re_…` key, an address at a verified domain | A Resend account and a sending domain verified by DNS (approval group C) | Any one set without the others; a placeholder or malformed key; a malformed sender |
+| `LABEL_OCR` | `local` | Nothing extra: tesseract.js and its English data are npm dependencies | Any other value |
+| `MEAL_RECOGNITION` | `local` | The pinned model files in `.cache/models` (about 150 MB), fetched once by `node scripts/meal-model-fetch.cjs` and checked against `src/lib/server/meals/local-model.json` | Any other value; a missing file; a file whose SHA-256 differs |
+
+**What the image would need, untested as no Docker daemon was available:**
+
+1. In the runner stage, the model files: copy `scripts/meal-model-fetch.cjs` and `src/lib/server/meals/local-model.json`, then `RUN node scripts/meal-model-fetch.cjs` as root before `USER node`, so they're in the image and the read-only filesystem never needs to write them. The app never downloads at run time (`allowRemoteModels` is off).
+2. `onnxruntime-node` runs from prebuilt binaries in its package: on this Windows machine the model loaded with install scripts turned off. Confirm the same on Linux x64 in the image. Measure the image size: transformers.js and its runtime add roughly 380 MB of packages on Windows.
+3. Memory: the app's 1.5 GB limit was sized before on-device recognition. The OCR worker and the meal model stay loaded once used. **Unmeasured on Linux**; measure peak memory with a label scan, a meal photo and an export at once before choosing the limit.
+
+**Images are never stored,** for labels or meals: the upload is validated, a clean copy is read in memory, and nothing is written to disk or the database. So there's no private image storage to provision, encrypt or delete. If progress photos are ever built (product backlog), that changes.
+
+**Secrets** stay in the host's environment file outside the image (`.dockerignore` excludes `.env*`), with `RESEND_API_KEY` beside the database URL. Rotation of the local development credentials is approval group A in `PROJECT_COMPLETION_TRACKER.md` section 2j.
+
+**Rollback** is unchanged: redeploy the previous image tag. No migration was added on this branch, so a rollback needs no database step. Turning off `LABEL_OCR` or `MEAL_RECOGNITION` hides each feature without a redeploy of code.
+
+**Backups:** `scripts/restore-check.cjs` proves a restore into an empty scratch database, comparing schema, migration history and representative records, and checking the source is untouched. It's ready, and waits for the owner's approval to create and drop `fitdb_restore_check` locally (group B).
