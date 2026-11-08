@@ -9,6 +9,7 @@ import { ButtonLink, Card, EmptyState, PageHeader, SectionTitle, cx } from "@/co
 import { ChevronRight, PlusIcon } from "@/components/icons";
 import { StartWorkoutButton } from "@/components/workouts/start-workout-button";
 import { Page } from "@/components/page";
+import { GymPicker } from "@/components/workouts/gym-picker";
 
 export const metadata = { title: "Workouts" };
 
@@ -16,7 +17,7 @@ export default async function WorkoutsPage() {
   const { user, profile } = await requireProfile();
   const tz = profile.timezone;
   const today = localParts(new Date(), tz).weekday;
-  const [active, plans, schedule, week, recent] = await Promise.all([
+  const [active, plans, schedule, week, recent, gyms] = await Promise.all([
     prisma.workoutSession.findFirst({ where: { userId: user.id, status: "IN_PROGRESS" } }),
     prisma.workoutTemplate.findMany({
       where: { userId: user.id },
@@ -31,6 +32,7 @@ export default async function WorkoutsPage() {
       take: 5,
       include: { exercises: { include: { sets: true } } },
     }),
+    prisma.gymLocation.findMany({ where: { userId: user.id }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
   ]);
 
   return (
@@ -46,6 +48,8 @@ export default async function WorkoutsPage() {
           <span className="flex items-center gap-1 text-sm font-semibold">Resume <ChevronRight width={18} height={18} /></span>
         </Link>
       )}
+
+      {!active && <GymPicker gyms={gyms} />}
 
       <div className="grid gap-x-8 lg:grid-cols-2 lg:items-start">
       <div className="min-w-0">

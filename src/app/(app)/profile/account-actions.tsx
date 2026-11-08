@@ -33,6 +33,8 @@ export function AccountActions() {
 
   async function logout() {
     await api("POST", "/api/auth/logout").catch(() => {});
+    // The remembered gym for the next workout is this person's; the next one to sign in here starts without it.
+    try { localStorage.removeItem("fit.nextGym"); } catch {}
     router.replace("/login");
     router.refresh();
   }

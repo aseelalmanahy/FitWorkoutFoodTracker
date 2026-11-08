@@ -5,6 +5,7 @@ import { getExerciseHistories, getPreviousPerformances, getSessionDetail } from 
 import { summarizeSessions } from "@/lib/server/stats";
 import { compareToPrevious, computeRecords, RECORD_LABELS, summarizeSets } from "@/lib/overload";
 import { formatLocalDate } from "@/lib/time";
+import { contextKey } from "@/lib/movement-patterns";
 import { formatDuration, formatMass, formatVolume, massUnit, toDisplayMass } from "@/lib/units";
 import { Card, PageHeader, Stat } from "@/components/ui";
 import { OverloadBadge, PrBadge } from "@/components/overload-badge";
@@ -23,14 +24,20 @@ export default async function SessionDetailPage({ params, searchParams }: { para
   if (session.status === "IN_PROGRESS") redirect(`/workouts/session/${id}`);
 
   const units = profile.unitSystem;
-  const exerciseIds = [...new Set(session.exercises.map((e) => e.exerciseId))];
-  const [prev, histories] = await Promise.all([
-    getPreviousPerformances(user.id, exerciseIds, { excludeSessionId: id, before: session.startedAt }),
-    getExerciseHistories(user.id, exerciseIds),
+  // Multi-gym: each exercise is compared, and its records counted, in its own context: one machine's sets only with
+  // that machine's, and sets with no machine with the shared history.
+  const contexts = [...new Map(session.exercises.map((e) => [contextKey(e.exerciseId, e.gymEquipmentId), { exerciseId: e.exerciseId, gymEquipmentId: e.gymEquipmentId }])).values()];
+  const machineIds = [...new Set(contexts.map((c) => c.gymEquipmentId))];
+  const [prev, ...historyByMachine] = await Promise.all([
+    getPreviousPerformances(user.id, contexts, { excludeSessionId: id, before: session.startedAt }),
+    ...machineIds.map((m) => getExerciseHistories(user.id, contexts.filter((c) => c.gymEquipmentId === m).map((c) => c.exerciseId), { gymEquipmentId: m })),
   ]);
   const sum = summarizeSessions([session]);
-  const prsByExercise = new Map(exerciseIds.map((eid) => [eid, computeRecords(histories.get(eid) ?? []).prsBySession.get(id) ?? []]));
-  const prCount = [...prsByExercise.values()].reduce((n, l) => n + l.length, 0);
+  const prsByContext = new Map(contexts.map((c) => {
+    const history = historyByMachine[machineIds.indexOf(c.gymEquipmentId)].get(c.exerciseId) ?? [];
+    return [contextKey(c.exerciseId, c.gymEquipmentId), computeRecords(history).prsBySession.get(id) ?? []];
+  }));
+  const prCount = [...prsByContext.values()].reduce((n, l) => n + l.length, 0);
 
   return (
     <Page width="wide">
@@ -39,6 +46,7 @@ export default async function SessionDetailPage({ params, searchParams }: { para
         subtitle={formatLocalDate(session.startedAt, profile.timezone, { weekday: "long", month: "long", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}
         back="/workouts/history"
       />
+      {session.gym && <p className="-mt-2 mb-3 text-sm text-muted" data-testid="history-gym">At {session.gym.name}</p>}
       {done && (
         <Card className="mb-4 border-accent/40 bg-accent/10 p-4">
           <p className="font-bold">Workout complete</p>
@@ -54,9 +62,10 @@ export default async function SessionDetailPage({ params, searchParams }: { para
 
       <div className="mt-4 grid gap-3 md:grid-cols-2 md:items-start">
         {session.exercises.map((e) => {
-          const p = prev.get(e.exerciseId);
+          const key = contextKey(e.exerciseId, e.gymEquipmentId);
+          const p = prev.get(key);
           const cmp = compareToPrevious(p ? summarizeSets(p.sets) : null, summarizeSets(e.sets));
-          const prs = prsByExercise.get(e.exerciseId) ?? [];
+          const prs = prsByContext.get(key) ?? [];
           let n = 0;
           return (
             <Card key={e.id} className="p-4">
@@ -64,6 +73,9 @@ export default async function SessionDetailPage({ params, searchParams }: { para
                 <Link href={`/progress/${e.exerciseId}`} className="font-bold hover:underline">{e.exercise.name}</Link>
                 <OverloadBadge status={cmp.status} />
               </div>
+              {e.plannedExercise && <p className="text-xs font-medium text-accent-ink" data-testid="history-swapped-in">Swapped in for {e.plannedExercise.name}</p>}
+              {e.substitutedBy.length > 0 && <p className="text-xs font-medium text-muted" data-testid="history-swapped-out">Swapped out partway; these sets are kept</p>}
+              {e.machine?.name && <p className="text-xs text-muted" data-testid="history-machine">On {e.machine.name}: compared with this machine only</p>}
               <p className="mt-0.5 text-xs text-muted">{cmp.headline}{p && <> · vs {formatLocalDate(p.date, profile.timezone)}</>}</p>
               {prs.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-1.5">{prs.map((k) => <PrBadge key={k} label={`PR · ${RECORD_LABELS[k]}`} />)}</div>

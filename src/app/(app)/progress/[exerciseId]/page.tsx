@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { prisma } from "@/lib/server/db";
 import { requireProfile } from "@/lib/server/profile";
-import { getExerciseHistory, visibleExercises } from "@/lib/server/workouts";
+import { getExerciseHistory, getMachinesUsedFor, visibleExercises } from "@/lib/server/workouts";
 import { compareToPrevious, computeRecords, RECORD_LABELS, summarizeSets, type RecordKind } from "@/lib/overload";
 import { formatLocalDate } from "@/lib/time";
 import { formatMass, formatVolume, massUnit, round, toDisplayMass } from "@/lib/units";
@@ -13,15 +13,21 @@ import { Page } from "@/components/page";
 
 export const metadata = { title: "Exercise progress" };
 
-export default async function ExerciseProgressPage({ params }: { params: Promise<{ exerciseId: string }> }) {
+export default async function ExerciseProgressPage({ params, searchParams }: { params: Promise<{ exerciseId: string }>; searchParams: Promise<{ machine?: string }> }) {
   const { exerciseId } = await params;
+  const { machine: machineParam } = await searchParams;
   const { user, profile } = await requireProfile();
   const exercise = await prisma.exercise.findFirst({ where: { id: exerciseId, ...visibleExercises(user.id) } });
   if (!exercise) notFound();
   const units = profile.unitSystem;
   const tz = profile.timezone;
 
-  const history = await getExerciseHistory(user.id, exercise.id);
+  // Multi-gym: the shared history (no specific machine, including everything from before gyms) and each machine's
+  // own history are kept apart: different machines aren't mechanically equivalent, so neither are their records.
+  const machines = await getMachinesUsedFor(user.id, exercise.id);
+  const machine = machineParam ? machines.find((m) => m.id === machineParam) : null;
+  if (machineParam && !machine) notFound();
+  const history = await getExerciseHistory(user.id, exercise.id, machine?.id ?? null);
   const records = computeRecords(history);
   const summaries = history.map((h) => ({ ...h, sum: summarizeSets(h.sets) }));
   const bodyweight = summaries.every((s) => s.sum.topWeightKg === 0);
@@ -40,7 +46,17 @@ export default async function ExerciseProgressPage({ params }: { params: Promise
 
   return (
     <Page width="wide">
-      <PageHeader title={exercise.name} subtitle={`${history.length} session${history.length === 1 ? "" : "s"} logged`} back="/progress" />
+      <PageHeader title={exercise.name} subtitle={`${history.length} session${history.length === 1 ? "" : "s"} logged${machine ? ` on ${machine.name}` : ""}`} back="/progress" />
+      {machines.length > 0 && (
+        <nav aria-label="History context" className="mb-3 flex flex-wrap gap-1.5" data-testid="progress-contexts">
+          <Link href={`/progress/${exercise.id}`} aria-current={!machine ? "page" : undefined} className={`rounded-full border px-3 py-1 text-xs ${!machine ? "border-accent bg-accent-soft font-semibold" : "border-line"}`}>No specific machine</Link>
+          {machines.map((m) => (
+            <Link key={m.id} href={`/progress/${exercise.id}?machine=${m.id}`} aria-current={machine?.id === m.id ? "page" : undefined} data-testid="progress-machine"
+              className={`rounded-full border px-3 py-1 text-xs ${machine?.id === m.id ? "border-accent bg-accent-soft font-semibold" : "border-line"}`}>{m.name} · {m.gym}</Link>
+          ))}
+        </nav>
+      )}
+      {machines.length > 0 && <p className="mb-3 text-xs text-muted" data-testid="progress-context-note">{machine ? `Only sets on ${machine.name} at ${machine.gym}; its records are its own.` : "Sets with no specific machine, such as free weights. Each machine's sets have their own history."}</p>}
       {history.length === 0 ? (
         <EmptyState title="No completed sessions" body="Log this exercise in a workout to see its progress." />
       ) : (

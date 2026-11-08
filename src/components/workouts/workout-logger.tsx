@@ -10,6 +10,7 @@ import { CheckIcon, PlusIcon, TimerIcon, TrashIcon } from "@/components/icons";
 import { OverloadBadge } from "@/components/overload-badge";
 import { ExercisePicker, type ExerciseOption } from "./exercise-picker";
 import { NoteSaver, flushAll, type NoteSaveStatus } from "@/lib/client/note-saver";
+import { SwapSheet, type Swapped } from "./swap-sheet";
 
 export interface LoggedSet {
   id: string;
@@ -27,7 +28,15 @@ export interface LoggerExercise {
   sets: LoggedSet[];
   prev: { date: string; sets: LoggedSet[] } | null;
   target: { sets: number; repsMin: number; repsMax: number; weightKg: number | null } | null;
+  /** Multi-gym: the specific machine, if chosen; its previous performance is that machine's own. */
+  machine?: { id: string; name: string } | null;
+  /** A swap: the exercise it replaced in this workout. */
+  planned?: { name: string } | null;
+  /** This one was swapped for another; its own sets stay. */
+  swappedOut?: boolean;
 }
+
+export type LoggerGym = { id: string; name: string; machines: { id: string; name: string; exerciseId: string | null }[] };
 
 interface Props {
   sessionId: string;
@@ -37,6 +46,11 @@ interface Props {
   initial: LoggerExercise[];
   /** The workout's own notes, as already saved. */
   initialNotes?: string | null;
+  /** Multi-gym: the person's gyms, and the one this workout is at (null: not said). */
+  gyms?: LoggerGym[];
+  gymId?: string | null;
+  /** Started from a plan, so a swap can offer to update it. */
+  fromPlan?: boolean;
 }
 
 const DEFAULT_REST = 90;
@@ -45,9 +59,12 @@ export const NOTE_MAX = 1000;
 
 const SAVE_STATE_TEXT: Record<NoteSaveStatus, string> = { idle: "", saving: "Saving…", saved: "Saved", failed: "Not saved. Try again, or check your connection." };
 
-export function WorkoutLogger({ sessionId, name, startedAt, units, initial, initialNotes }: Props) {
+export function WorkoutLogger({ sessionId, name, startedAt, units, initial, initialNotes, gyms = [], gymId: initialGymId = null, fromPlan = false }: Props) {
   const router = useRouter();
   const [exercises, setExercises] = useState(initial);
+  const [gymId, setGymId] = useState<string | null>(initialGymId);
+  const [swapping, setSwapping] = useState<string | null>(null);
+  const machines = gyms.find((g) => g.id === gymId)?.machines ?? [];
   const [error, setError] = useState<string | null>(null);
   const [picker, setPicker] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -171,6 +188,34 @@ export function WorkoutLogger({ sessionId, name, startedAt, units, initial, init
     ]);
   }
 
+  /** Previous performance in a context: the exercise, on a machine or not. */
+  async function previousFor(exerciseId: string, machineId: string | null) {
+    const q = new URLSearchParams({ exclude: sessionId, ...(machineId ? { machine: machineId } : {}) });
+    return (await api<{ previous: { date: string; sets: LoggedSet[] } | null }>("GET", `/api/exercises/${exerciseId}/previous?${q}`).catch(() => null))?.previous ?? null;
+  }
+
+  async function chooseGym(id: string) {
+    const ok = await run(() => api("PUT", `/api/sessions/${sessionId}/gym`, { gymLocationId: id || null }));
+    if (ok) setGymId(id || null);
+  }
+
+  async function chooseMachine(ex: LoggerExercise, machineId: string) {
+    const ok = await run(() => api("PUT", `${base}/${ex.id}/machine`, { gymEquipmentId: machineId || null }));
+    if (!ok) return;
+    const m = machines.find((x) => x.id === machineId) ?? null;
+    const prev = await previousFor(ex.exercise.id, m?.id ?? null);
+    patchEx(ex.id, (e) => ({ ...e, machine: m ? { id: m.id, name: m.name } : null, prev }));
+  }
+
+  async function swapped(original: LoggerExercise, s: Swapped) {
+    setSwapping(null);
+    const se = s.sessionExercise;
+    const m = machines.find((x) => x.id === se.gymEquipmentId) ?? null;
+    const prev = await previousFor(se.exerciseId, se.gymEquipmentId);
+    const replacement: LoggerExercise = { id: se.id, exercise: { id: se.exercise.id, name: se.exercise.name, equipment: se.exercise.equipment }, notes: se.notes, restSeconds: se.restSeconds, sets: [], prev, target: original.target, machine: m ? { id: m.id, name: m.name } : null, planned: { name: original.planned?.name ?? original.exercise.name } };
+    setExercises((xs) => xs.flatMap((x) => (x.id === original.id ? [{ ...x, swappedOut: true }, replacement] : [x])));
+  }
+
   async function removeExercise(ex: LoggerExercise) {
     if (ex.sets.length && !confirm(`Remove ${ex.exercise.name} and its ${ex.sets.length} logged set(s)?`)) return;
     const ok = await run(() => api("DELETE", `${base}/${ex.id}`));
@@ -233,6 +278,12 @@ export function WorkoutLogger({ sessionId, name, startedAt, units, initial, init
         <div className="min-w-0">
           <p className="truncate font-bold">{name}</p>
           <p className="num text-xs text-muted">{formatDuration(elapsed)} elapsed</p>
+          {gyms.length > 0 && (
+            <select aria-label="Gym" className="mt-1 max-w-[12rem] rounded-lg border border-line bg-surface px-2 py-1 text-xs" value={gymId ?? ""} onChange={(e) => chooseGym(e.target.value)} disabled={busy} data-testid="session-gym">
+              <option value="">No gym chosen</option>
+              {gyms.map((g) => <option key={g.id} value={g.id}>{g.name}</option>)}
+            </select>
+          )}
         </div>
         <Button onClick={finish} disabled={busy}>Finish</Button>
       </header>
@@ -254,6 +305,9 @@ export function WorkoutLogger({ sessionId, name, startedAt, units, initial, init
             onMeta={(p) => saveExerciseMeta(ex, p)}
             noteSavers={noteSavers.current}
             locked={busy}
+            machines={machines.filter((m) => m.exerciseId === null || m.exerciseId === ex.exercise.id)}
+            onMachine={(id) => chooseMachine(ex, id)}
+            onSwap={() => setSwapping(ex.id)}
           />
         ))}
         {exercises.length === 0 && (
@@ -287,6 +341,7 @@ export function WorkoutLogger({ sessionId, name, startedAt, units, initial, init
       )}
 
       <ExercisePicker open={picker} onClose={() => setPicker(false)} onPick={addExercise} />
+      {swapping && <SwapSheet sessionId={sessionId} seId={swapping} fromPlan={fromPlan} onClose={() => setSwapping(null)} onSwapped={(s) => swapped(exercises.find((x) => x.id === swapping)!, s)} />}
     </div>
   );
 }
@@ -298,7 +353,7 @@ function fmtSets(sets: LoggedSet[], units: UnitSystem) {
     .join(", ");
 }
 
-function ExerciseCard({ ex, units, first, last, onLog, onUpdate, onDelete, onRemove, onMove, onMeta, noteSavers, locked }: {
+function ExerciseCard({ ex, units, first, last, onLog, onUpdate, onDelete, onRemove, onMove, onMeta, noteSavers, locked, machines = [], onMachine, onSwap }: {
   ex: LoggerExercise;
   units: UnitSystem;
   first: boolean;
@@ -313,6 +368,10 @@ function ExerciseCard({ ex, units, first, last, onLog, onUpdate, onDelete, onRem
   noteSavers: Map<string, NoteSaver>;
   /** The workout is finishing: notes can't change underneath it. */
   locked: boolean;
+  /** Multi-gym: machines at this workout's gym that suit this exercise. */
+  machines?: { id: string; name: string }[];
+  onMachine?: (id: string) => void;
+  onSwap?: () => void;
 }) {
   const mu = massUnit(units);
   const working = ex.sets.filter((s) => !s.isWarmup);
@@ -368,10 +427,13 @@ function ExerciseCard({ ex, units, first, last, onLog, onUpdate, onDelete, onRem
     : null;
 
   return (
-    <Card className="overflow-hidden">
+    <Card className="overflow-hidden" data-testid="exercise-card">
       <div className="flex items-start justify-between gap-2 px-4 pt-4">
         <div className="min-w-0">
           <h3 className="font-bold leading-tight">{ex.exercise.name}</h3>
+          {ex.planned && <p className="text-xs font-medium text-accent-ink" data-testid="swapped-in">Swapped in for {ex.planned.name}</p>}
+          {ex.swappedOut && <p className="text-xs font-medium text-muted" data-testid="swapped-out">Swapped out{ex.sets.length ? "; its sets are kept" : ""}</p>}
+          {ex.machine && <p className="text-xs text-muted" data-testid="exercise-machine">On {ex.machine.name}: compared with this machine only</p>}
           <p className="mt-0.5 text-xs text-muted">
             {targetLabel && <>Target {targetLabel} · </>}
             {ex.prev ? <>Last: {fmtSets(ex.prev.sets, units) || "—"}</> : "No previous data"}
@@ -380,6 +442,17 @@ function ExerciseCard({ ex, units, first, last, onLog, onUpdate, onDelete, onRem
         {comparison && <OverloadBadge status={comparison.status} />}
       </div>
       {comparison && comparison.status !== "first" && <p className="px-4 pt-1 text-xs text-muted">{comparison.headline}</p>}
+      {!ex.swappedOut && (onSwap || machines.length > 0) && (
+        <div className="flex flex-wrap items-center gap-2 px-4 pt-2">
+          {onSwap && <Button variant="secondary" size="sm" onClick={onSwap} disabled={locked} data-testid="swap-exercise">Swap exercise</Button>}
+          {machines.length > 0 && working.length === 0 && (
+            <select aria-label={`Machine for ${ex.exercise.name}`} className="h-8 rounded-lg border border-line bg-surface px-2 text-sm" value={ex.machine?.id ?? ""} onChange={(e) => onMachine?.(e.target.value)} disabled={locked} data-testid="exercise-machine-select">
+              <option value="">No specific machine</option>
+              {machines.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}
+            </select>
+          )}
+        </div>
+      )}
 
       <div className="mt-3 grid grid-cols-[2rem_minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_2.75rem] items-center gap-x-2 px-4 text-[11px] font-semibold uppercase tracking-wide text-muted">
         <span>Set</span><span>Previous</span><span>{mu}</span><span>Reps</span><span />

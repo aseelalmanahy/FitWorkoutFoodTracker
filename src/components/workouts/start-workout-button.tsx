@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { api, ApiError } from "@/lib/client/api";
 import { Button } from "@/components/ui";
+import { chosenGym } from "./gym-picker";
 
 type Source = { templateId: string } | { fromSessionId: string } | { name: string };
 
@@ -20,7 +21,7 @@ export function StartWorkoutButton({ source, children, variant = "primary", size
   async function start() {
     setBusy(true);
     try {
-      const { session } = await api<{ session: { id: string } }>("POST", "/api/sessions", source);
+      const { session } = await api<{ session: { id: string } }>("POST", "/api/sessions", { ...source, ...(chosenGym() ? { gymLocationId: chosenGym() } : {}) });
       router.push(`/workouts/session/${session.id}`);
     } catch (e) {
       const err = e as ApiError;

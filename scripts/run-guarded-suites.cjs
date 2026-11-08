@@ -180,6 +180,7 @@ const SUITES = {
   responsive: () => withApp("responsive", { appEnv: MANY }, ({ url }) => runNode([script("e2e-responsive.cjs")], { BASE_URL: url }, 590_000)),
   // Multi-gym: gyms, equipment, machines, swaps and machine-specific history, through the API.
   "gyms-api": () => withApp("gyms-api", {}, ({ url }) => runNode(nodeTest("gyms-api.test.cjs"), { BASE_URL: url }, 300_000)),
+  "gyms-e2e": () => withApp("gyms-e2e", {}, ({ url }) => runNode([script("e2e-gyms.cjs")], { BASE_URL: url }, 590_000)),
   "workout-sets": () => withApp("workout-sets", {}, ({ url }) => runNode(nodeTest("workout-sets.test.cjs"), { BASE_URL: url }, 300_000)),
   "readiness-performance": () => withApp("readiness-performance", {}, ({ url }) => runNode(nodeTest("readiness-performance.test.cjs"), { BASE_URL: url }, 300_000)),
   "readiness-e2e": () => withApp("readiness-e2e", {}, ({ url }) => runNode([script("e2e-readiness.cjs")], { BASE_URL: url, SHOTS_DIR: LOGS }, 590_000)),
