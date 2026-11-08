@@ -569,6 +569,100 @@ Earlier items keep their full rows in 2j; new items are marked **new**.
 | 11 | G2–G7 | Hosting, budget, rehearsal, HTTPS, restore on target, monitoring, invited rollout; merges | Each approved; security sign-off; final regression |
 | 12 | BRAND | Final name and icons | Owner |
 
+## 2m. Review-findings round (multi-gym branch)
+
+**On `feature/multi-gym-exercise-alternatives`, `a376204..e35f76d`, 8 commits.** No merge, no deployment, and no migration applied to `fitdb`, `fitdb_test`, `fitdb_review` or production. Tests ran on the throwaway cluster from `scripts/disposable-db.cjs`. **MIG-GYM and GYM-ACCEPT are not approved.** Nothing here is OWNER ACCEPTED.
+
+### The seven review findings, and two later security reviews
+
+| # | Finding | Confirmed defect? | Fix (commit) | Regression test |
+|---|---|---|---|---|
+| 1 | Machine deletion vs machine choice | Partly. Foreign keys already kept any workout from pointing at a removed machine. The defect was the answer: a generic 409, "Referenced by other records" | Removal holds the machine row `FOR UPDATE` and counts its uses; a choice, directly or in a swap, holds it `FOR SHARE`. The answer is now "kept, it's used" (409) or "not found" (404) (`99c68f6`) | `gyms-api`: 12 concurrent rounds, plus forced orderings in both directions through real database locks, plus a swap onto a machine being removed |
+| 2 | Swap idempotency with `updatePlan` | **Yes.** A retry with `updatePlan: true` answered "not updated" and dropped the request | A retry makes the plan change it asks for; a retry without it never undoes one (`99c68f6`) | `gyms-api`: a plain swap, then 2 concurrent retries with the update, then one without |
+| 3 | The same exercise twice in a plan | **Yes.** The update changed the first matching entry | Each workout row records its plan entry (`SessionExercise.templateExerciseId`, nullable, `SET NULL`, kept when repeating a workout). Only that entry changes, under a row lock. If the plan can't be changed as asked, the whole swap is refused with the reason (`99c68f6`) | `gyms-api`: the second of two bench entries; a repeated workout; no plan; an exercise added during the workout; a plan edited since the workout started |
+| 4 | Gym-name uniqueness | **Yes**, for spellings that differ only by Unicode encoding, invisible characters or case folding (for example "Straße" and "STRASSE"), sent at once or one after another | Names are cleaned (NFKC, hidden characters removed, spaces collapsed) and compared case-folded, under the person's lock (`99c68f6`, `ebabcee`, `6e77cd8`) | `gyms-api`: six spellings at once give 1 created; a rename racing a create gives 1; machine names. Unit: 8 cases, including Persian ZWNJ, emoji ZWJ and flag tags kept |
+| 5 | Migration safeguards and role permissions | **Yes, found live:** the default privileges gave `fit_app` write access to `_prisma_migrations`, so the app's role could mark a migration as applied, or erase one | After each deploy, and before it, the migrate step leaves the history writable by its owner alone, or refuses. It revokes every grant in the table's ACL, then checks effective write access (`has_table_privilege`) for every role but the owner (`4926fb9`, `5c5d7d2`, `e35f76d`) | Live, the real script run from a disposable copy against throwaway databases, S1–S7: see below. `migration-safety` 8 |
+| 6 | Food-photo matching | **Yes:** records sharing no word were shown, as were look-alike duplicates. A fast second tap could show a different product | Candidates sharing nothing, or only the brand, aren't offered; look-alike records are shown once; complete records rank first; missing nutrients are named; weak matches are marked "partial"; each candidate says which words it shares; a second tap is ignored; the resolved record must be the one chosen (`f468dd8`) | `package-match` unit 11; `barcode` suite |
+| 7 | CSP violations | **Yes, wider than reported:** on the previous build, Chromium reported zod's eval probe on 5 pages too | zod is imported only through `src/lib/zod.ts`, which sets `jitless`. The policy is unchanged (`60fbc0f`) | `csp-e2e`: 28 pages, signed out and in, in Chromium, Firefox and WebKit, with a positive control in each. It failed on the previous build and passes here. A unit test keeps every zod import going through the one module |
+
+**Second review (full branch, including the modified MIG-GYM): no critical or high finding, and no cross-user access.**
+
+| ID | Severity | Finding | Fixed (commit) |
+|---|---|---|---|
+| M1 | Medium | Two lock-order deadlocks gave a 500: a swap against a plan save, and a gym rename against machine changes | One lock order (person, gym, equipment; workout, machine, plan entry, exercise rows). A deadlock (P2034 or 40P01) answers 503 with Retry-After, and nothing changes (`ebabcee`) |
+| M2 | Medium | The history protection could find nothing to revoke and still print success | It fails closed, before and after each deploy, on success and failure (`5c5d7d2`) |
+| L1 | Low | Bidi isolates and other invisible characters weren't removed from names | `ebabcee`, refined in `6e77cd8` |
+| L2 | Low | A stale read before the swap's transaction | Re-read under the lock (`ebabcee`) |
+| L3 | Low | "Nothing was swapped" when an earlier swap existed | The message is right now (`ebabcee`) |
+
+**Third review (the fixes): no critical or high finding.**
+
+| ID | Severity | Finding | Fixed (commit) |
+|---|---|---|---|
+| N1 | Low | Deleting a plan against a swap could deadlock (it answered 503 after M1) | The delete holds the plan's in-progress workouts first (`6e77cd8`) |
+| N2 | Low | When the final check failed, the revokes before it were rolled back | Revoke and verify run as two commands, and each revoke stands alone (`e35f76d`) |
+| N3 | Low | Write access without an ACL entry (membership of the owner role, `pg_write_all_data`) was missed | Checked through `has_table_privilege` (`e35f76d`) |
+| N4 | Low | The L1 fix stripped characters real names need (ZWNJ, ZWJ, flag tags) | Kept as typed, and ignored only when comparing (`6e77cd8`) |
+
+**MIG-GYM changed in this round.** `20261109120000_multi_gym` gains `SessionExercise.templateExerciseId` (nullable TEXT), its index, and a `SET NULL` foreign key to `TemplateExercise`, all regenerated with `prisma migrate diff`. It still only adds (`migration-safety`). It has been applied only to the throwaway cluster. **The owner's review of MIG-GYM must cover this column.**
+
+### Migration guard, live (from a disposable copy; the working tree wasn't changed)
+
+| Scenario | Result |
+|---|---|
+| S1: fresh database | Deployed, exit 0. `fit_app` can't forge, erase or read the history; its rows still work; DDL is still refused |
+| S2: run again | Exit 0, idempotent, still protected |
+| S3: history owned by an administrator (a direct deploy) | Refused, exit 4, nothing applied (10 rows before and after) |
+| S4: a grant re-exposed | With the grant back, the test's own probe really did erase the history. The guard took the access away again, and the deploy then failed loudly ("type Sex already exists"): never reported as success. This is the attack the protection prevents |
+| S5: a write grant passed on by a third role | Refused, exit 4. The grants that could be revoked stayed revoked; it names `fit_app` and `fit_other` |
+| S6: `fit_app` a member of the owner role | Refused, exit 4 |
+| S7: `fit_app` given `pg_write_all_data` | Refused, exit 4. Afterwards, the earlier erase in S6 made the next deploy fail, as in S4 |
+| S8: `fit_app` a member of the owner role, with `INHERIT FALSE` | Without the fix (R2), its direct write was denied but writing after `SET ROLE` was allowed, and the guard passed. Now refused, exit 4 |
+| S9: `fit_app` a member of `pg_write_all_data`, with `INHERIT FALSE` | Refused, exit 4. With the membership removed: deployed, exit 0 |
+
+Also checked: the app role can't run `prisma migrate deploy`, and the app image has no Prisma CLI.
+
+**Fourth pass (the N fixes): no critical or high finding.**
+
+| ID | Severity | Finding | Status |
+|---|---|---|---|
+| R2 | Low | The final check missed membership that isn't inherited (`SET ROLE`), and a leftover PUBLIC grant | **Fixed** (`92a80f5`), verified live in S8 and S9 |
+| R1 | Low | Saving and deleting the same plan at once can deadlock (opposite lock orders). Existed before this branch | **Open.** Ends as a 503 with nothing changed. Repro: two tabs, one saving a plan while the other deletes it. Fix: lock the plan row `FOR UPDATE` before the save's `deleteMany` |
+| I-1 | Informational | Look-alike names that remain: the Braille blank U+2800 (a name of only U+2800 passes), a repeated combining mark, and look-alikes across scripts (Cyrillic "а") | **Open.** Only within a person's own private names. Repro: create "Café" then "Café" + U+2800 |
+| I-2 | Informational | Tag characters outside a flag are kept, so a name could carry invisible ASCII text, which matters if names are ever given to a language model | **Open.** Repro: a name ending in U+E0041. Fix: keep tags only after U+1F3F4 |
+| I-3 | Informational | A workout started from a plan just after the delete's lock query isn't locked by it. A cycle is only theoretically possible, and would end as a 503 | **Open.** Accepted |
+
+**Remaining from 2l (unchanged):**
+- anyone who can run the migrate image with another command can call Prisma directly (operational access, G3);
+- finished workouts can be edited by their owner (K-04);
+- the remembered next gym is cleared only on sign-out.
+- **New, for G2:** a provider whose administrator role holds `pg_write_all_data` makes the migrate step refuse, on purpose. That needs to be part of the hosting choice.
+
+### Test results, actual
+
+| Check | Code | Result |
+|---|---|---|
+| Full guarded regression | `e35f76d` (all app code) | **56 suites ran: 56 passed, 0 failed, 0 blocked.** Excluded: 5 on-demand suites (`migration-snapshot`, `migration-verify`, `profile-migration-snapshot`, `profile-migration-verify`, `demo-account-e2e`). Includes `gyms-api` 23/23, `gyms-e2e`, `csp-e2e` (3 engines), `barcode`, `account-data` 26/26, `workout-sets`, `readiness-e2e`. `label-pdf-unconfigured` passed and no suite logged `ERR_PROXY` (RC-08). `safety-no-marker` 7 passed, 1 skipped (QA-05) |
+| Previous full regression | `5c5d7d2` | 56 of 56 passed |
+| Unit (vitest) | `e35f76d` | 71 files, **2,309 passed, 1 skipped** (the on-request evaluation runner) |
+| Script tests | `92a80f5` | `migration-safety` 8/8, `mig-04` 103/103, `demo-account` 33/33, script audit 60/60 |
+| Live migration guard, S1–S9 | `92a80f5` | As in the table above |
+| Type check | `92a80f5` | Clean |
+| `npm audit` | `92a80f5` | 0 vulnerabilities (all, and production only) |
+| Physical phones | — | **Not tested.** Simulated widths only (E1) |
+
+`92a80f5` changes only the migration guard's SQL and its test, neither of which is in the app build or the browser suites.
+
+**Process note:** in this round, a negative-control run once swapped an older `gyms.ts` into the working tree, and an interruption left it there. It was restored, byte-identical, from a saved copy, and the seven fix groups were checked present before continuing. Negative controls now use disposable copies only: the migration guard's runs used one.
+
+### Gates (dependency order): unchanged from 2l, with these notes
+
+- **MIG-GYM (gate 4): not approved.** Its content changed this round (the `templateExerciseId` column), so the owner's review must cover the current file. It's unapplied anywhere but the throwaway cluster.
+- **GYM-ACCEPT (gate 7): not accepted.**
+- **The migrate step (G1, G3) now refuses** unless the migrator owns the migration history and no other role can write it.
+
+**Verdict: NOT READY.** The branch is ready for independent review. Owner approvals A1–A4, B2/B1b, MIG-FB, MIG-GYM, NOTICE-B, UX-01, GYM-ACCEPT, E1, C1/C2, G1, G2–G7 and the security sign-off are still open.
+
 ## 3. Tests: run, failed, blocked
 
 ### Phase 4.0.3, on `fitdb_test` and with fake settings, with no schema change
