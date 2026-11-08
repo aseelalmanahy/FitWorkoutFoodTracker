@@ -121,9 +121,36 @@ Get-NetTCPConnection -State Listen -LocalPort 3002 | ForEach-Object { Stop-Proce
 | Limits | Open Food Facts allows each person **4 searches a minute** (10 for the whole app). Typing a long word can use several, and the app then says so. USDA allows 20 a minute. Results are the providers' own, with their order and gaps |
 | Not available | Photo label scanning and meal photos (paid AI, off). Sign-up, and password reset by email (no email service). Ask for a new account if a password is lost |
 
+**One real password-reset email (journey G), once C1 and C2 are approved.** With the three mail settings from C1 in `.env.review`, restart the review server, then create the one test account at an inbox you control. It has no known password, so only the emailed link opens it:
+
+```powershell
+cd $HOME\Desktop\FitWorkoutFoodTracker-release
+Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue
+node --env-file=.env.review scripts/review-account.cjs --mail-tester --email=<your address> --confirm=fitdb_review
+```
+
+| # | Do this | Passes when |
+|---|---|---|
+| G.1 | On the review server, **Forgot password**, with that address | The page says the same as for any address. The email arrives within a few minutes (if in spam, note it), from your `MAIL_FROM` |
+| G.2 | In the email, **Show original** | SPF and DKIM both say pass |
+| G.3 | Open the link | The reset page of the review server's own address (`http://localhost:3003`, or the tailnet name if started with `--origin`) |
+| G.4 | Set a new password, then sign in with it | Sign-in works with the new password only. A second "password changed" email arrives |
+| G.5 | Open the same link again | It's refused: a link works once, for 60 minutes |
+| G.6 | **Forgot password** with an address that has no account | The same answer on screen, and no email |
+
 ## UX-01: food search, layout, design and notes
 
 On `feature/ux-reliability-redesign`. To try it without disturbing the demo on port 3000, build and run it from its own folder, `FitWorkoutFoodTracker-ux`, beside this one, with the same two steps above and `--port=3001`, and with `--env-file=..\FitWorkoutFoodTracker\.env.test`, as `.env.test` stays in this folder only.
+
+**After A1 (this computer only).** The UX-01 preview keeps its own build, but is served by the release folder's launcher, which listens on this computer only. Stop the old preview on 3001 first, then:
+
+```powershell
+cd $HOME\Desktop\FitWorkoutFoodTracker-release
+Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue
+node --env-file=..\FitWorkoutFoodTracker\.env.test scripts/demo-server.cjs --confirm=fitdb_test --port=3001 --app-dir=..\FitWorkoutFoodTracker-ux
+```
+
+It says `Running at http://localhost:3001 (127.0.0.1 only) from …FitWorkoutFoodTracker-ux`. The demo on 3000 is the same, with `--port=3000` and `--app-dir=` the folder it's served from now.
 
 | # | Where | Do this | What should happen |
 |---|---|---|---|
@@ -178,6 +205,23 @@ Wait for `Running at http://localhost:3003`. **Meal photos need their model once
 
 **On your phones (not yet possible):** once Tailscale is approved and installed (tracker section 2j, group E), start the server with `--origin=https://<your-pc>.<your-tailnet>.ts.net` and open that address on the phone. The server stays on this computer only; Tailscale carries it to your own signed-in devices. While `--origin` is set, use that address on this computer too.
 
+**Before E1, know this:** Tailscale's HTTPS certificate is public. Every certificate is published in Certificate Transparency logs, so the names `<your-pc>` and `<your-tailnet>` become publicly searchable, though the address stays reachable only from your own signed-in devices. Choose a machine name you don't mind being public. Device setup: Tailscale on this PC, the iPhone and the Android phone, all signed in to the same personal tailnet; MagicDNS and HTTPS certificates turned on in the Tailscale admin page; `tailscale serve --bg 3003` on this PC. Use review tester 2's account on the phones, not your own.
+
+| # | iPhone, Safari | Android, Chrome | Passes when |
+|---|---|---|---|
+| H.1 | Open the address | Same | It loads with a padlock and no certificate warning |
+| H.2 | Sign in | Same | The dashboard appears |
+| H.3 | Close Safari completely, reopen the address | Close Chrome completely, reopen | Still signed in |
+| H.4 | Nutrition → Scan a label → **Take photo** | Same | The phone asks for camera permission once, and the camera opens. Refusing it leaves the photo library choice working |
+| H.5 | Choose a photo from the library (iPhone photos are HEIC) | Take a photo with the camera (JPEG) | It's accepted, and the label review appears (read on the server, as the screen says) |
+| H.6 | Log a food from search, with a serving | Same | It appears in today's meal, with totals that add up |
+| H.7 | Start a workout, log two sets, add a note, Finish | Same | It appears in history with its sets and note |
+| H.8 | Every page, upright and sideways | Same | Nothing is wider than the screen; the bottom bar is reachable |
+| H.9 | Sign out, then press Back | Same | You stay signed out |
+| H.10 | From a phone not on your tailnet (Wi-Fi off, mobile data, Tailscale off) | Same | The address doesn't open |
+
+Browser emulation on this computer (WebKit at phone size through a local HTTPS stand-in) passed the app's side of this, but **H.1 to H.10 only count when done on the real phones.**
+
 ## Phase 3: photo features, unavailable here
 
 **Scan a label and Identify a meal need a paid AI service, which is off here,** so don't expect results from them. The add-food screen hides the link to scanning for that reason. They were tested against a local stand-in.
@@ -211,7 +255,7 @@ Wait for `Running at http://localhost:3003`. **Meal photos need their model once
 - **Two unexplained one-off test failures are open.** Tracker T-25 (the emailed sign-up link's page) and T-27 (after Finish, the finished page didn't appear). If you see either, please report it.
 - **Finished workouts can still be changed by their owner** from a page left open (K-04), and a malformed address can give a bare error on some pages (J-07).
 - **Open product decisions** are in `PHASE_4_MERGE_READINESS.md`, including how much evidence a numerical weight change needs (J-05).
-- **UX-01's browser suites haven't run,** as they write to `fitdb_test` and need the owner's authorization. Its signed-in screens haven't been checked by anyone but the owner yet.
+- **UX-01's browser suites now run on the release branch,** which contains UX-01's code, against the separate `fitdb_test_isolated`, in Chromium, Firefox and WebKit (including `responsive`: 13 views, 4 widths, 2 themes). The preview on 3001 is UX-01's own build, which those suites don't drive. **Only you can accept UX-01.**
 - **The local food stand-in is small.** It has no egg, plain milk or oats, so "eggs" and "oatmeal" find nothing here. That's the demo data, not the real catalogs, which weren't called.
 
 ## Reporting a defect
