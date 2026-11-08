@@ -599,6 +599,7 @@ const OTHER_WRITE_CAPABLE = {
   "restore-check.cjs": { must: ["envFileProblem(", "localDatabaseProblem(", "readLocalIdentity(", "REVIEW_MARKER", "--confirm=${SCRATCH}", "isn't empty"], reason: "by hand: restores a backup only into an empty fitdb_restore_check the owner created, reads fitdb_review, never creates or drops a database (DEPLOY-03)" },
   "local-db-roles.cjs": { must: ["--confirm=A4", "ADMIN_DATABASE_URL isn't this machine", "rolsuper", "never printed", "fs.copyFileSync(f.path", "matrixProblems("], reason: "by hand, only with the owner's A4 approval: changes local database roles and owners, after backing up every env file and the state to restore; --verify reads the catalog only" },
   "local-db-roles.rehearsal.cjs": { must: ["mkdtempSync(path.join(os.tmpdir(), \"fit-a4-rehearsal-\")", "listen_addresses=127.0.0.1", "FIT_ROLES_DESKTOP: desktop"], reason: "creates its own throwaway cluster in a temporary folder, rehearses A4 on it, and deletes it; never connects to the machine's PostgreSQL service" },
+  "g1-image-check.cjs": { must: ["--approval=G1", "Docker isn't running. Starting Docker Desktop is part of the G1 approval", "fit_g1_rehearsal", "127.0.0.1:${PORT}:3000", "rm\", \"-f\", \"-v\""], reason: "only with the owner's G1 approval and Docker already running: builds the image and checks it against its own throwaway database container; never touches this machine's PostgreSQL, databases or env files, and removes what it started" },
   "measure-recognition.cjs": { must: ["review-tester-", "listeningPid(", "[3002, 3003]"], reason: "by hand: signs in as a review tester on the local review server only, sends generated images that aren't stored, and reads the server process's memory (RC-06)" },
 };
 const NOT_GUARDED = {
@@ -1037,4 +1038,47 @@ test("review-account.cjs --mail-tester refuses unusable addresses and other form
   assert.doesNotMatch(fn, /writeFileSync|console\.log\(`[^`]*\$\{password/, "no password file and no password shown");
   assert.match(fn, /hash\(randomBytes\(32\)/, "a random password, hashed and forgotten");
   assert.match(fn, /already has an account\. It isn't changed/, "an existing account is never changed");
+});
+
+// ─── G1: the image check, before Docker is approved ─────────────────────────
+
+test("the layer scan finds forbidden files and local secret values by value, and reports neither secret", () => {
+  const os = require("node:os");
+  const { localSecrets, scanTree } = require("./lib/image-scan.cjs");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fit-image-scan-"));
+  try {
+    const secret = "Xq9-local-password-value-31415";
+    fs.writeFileSync(path.join(dir, ".env.review"), `DATABASE_URL=postgresql://fit:${encodeURIComponent(secret)}@localhost:5432/fitdb_review\nFDC_API_KEY=abcdefghijklmnop12\nSHORT_KEY=abc\n`);
+    fs.writeFileSync(path.join(dir, "review-tester-1.local.md"), "| Password | TesterPasswordValue77 |\n");
+    const values = localSecrets([path.join(dir, ".env.review"), path.join(dir, "review-tester-1.local.md"), path.join(dir, "missing.env")]);
+    assert.ok(values.includes(secret) && values.includes("abcdefghijklmnop12") && values.includes("TesterPasswordValue77"));
+    assert.ok(!values.includes("abc"), "short values aren't searched for");
+    const layer = path.join(dir, "layer");
+    for (const [rel, body] of [
+      ["app/.env.example", "DATABASE_URL=postgresql://x:CHANGE_ME@h/db"], ["app/.next/server/chunk.js", `const x = "${secret}";`],
+      ["app/.env", "A=1"], ["app/demo-account.local.md", "x"], ["app/.git/config", "x"], ["app/.cache/meal-photos/a.jpg", "x"],
+      ["app/backup.dump", "x"], ["app/docs/BUNNY_AGENT_DESIGN.md", "x"], ["app/clean.js", "nothing here"],
+    ]) { fs.mkdirSync(path.dirname(path.join(layer, rel)), { recursive: true }); fs.writeFileSync(path.join(layer, rel), body); }
+    const findings = scanTree(layer, values);
+    assert.deepEqual(findings.map((f) => `${f.file} ${f.rule}`).sort(), [
+      "app/.cache/meal-photos/a.jpg evaluation photos", "app/.env an env file", "app/.git/config the Git folder", "app/.next/server/chunk.js secret #1",
+      "app/backup.dump a database dump", "app/demo-account.local.md a local account file", "app/docs/BUNNY_AGENT_DESIGN.md the protected design file",
+    ].sort());
+    assert.equal(JSON.stringify(findings).includes(secret), false, "the finding names the rule, not the value");
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("the G1 image check refuses to start anything without the owner's G1 approval", () => {
+  const { spawnSync } = require("node:child_process");
+  for (const args of [[], ["--approval=yes"], ["--approval=G1", "--force"]]) {
+    const r = spawnSync(process.execPath, [path.join(SCRIPTS, "g1-image-check.cjs"), ...args], { encoding: "utf8", timeout: 30_000 });
+    assert.equal(r.status, 4, `${args}: ${r.stdout}${r.stderr}`);
+    assert.match(`${r.stdout}${r.stderr}`, /REFUSED \(nothing was started\): use --approval=G1/);
+  }
+  const code = fs.readFileSync(path.join(SCRIPTS, "g1-image-check.cjs"), "utf8");
+  assert.match(code, /Docker isn't running\. Starting Docker Desktop is part of the G1 approval/, "it never starts Docker itself");
+  assert.doesNotMatch(code, /Docker Desktop\.exe|com\.docker|Start-Process/, "nothing starts Docker Desktop");
+  assert.match(code, /"--read-only", "--tmpfs", "\/tmp", "--tmpfs", "\/app\/\.next\/cache", "--cap-drop", "ALL"/, "the app runs hardened, as in Compose");
+  assert.match(code, /"--memory", "1536m"/);
+  assert.match(code, /sslmode=require/);
 });
