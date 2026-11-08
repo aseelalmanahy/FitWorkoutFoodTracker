@@ -77,6 +77,13 @@ The commits after `e35f76d` didn't change application code. `92a80f5` changed on
 | OPS-1 | Info | Anyone who can run the migrate image with another command can call Prisma directly. That's operational access, for G3 | Not applicable |
 | OPS-2 | Info | The remembered "next gym" (an ID in browser storage) is cleared on sign-out only | Not applicable |
 
+### Found during the security-gate checks (2026-11-08)
+
+| ID | Severity | Finding | Status |
+|---|---|---|---|
+| A3-PS7 | Medium (tooling; it failed safe) | A3's `-Apply` couldn't find its line under PowerShell 7 (`-split …, -1`), so it refused with nothing changed, and A3 couldn't be applied from PowerShell 7 | **Fixed** (`2fb9c3e`), with a regression test in both editions |
+| SEC-ACL | Medium (data exposure on this PC) | `Desktop\FitWorkoutFoodTracker-backups`, which holds the database dumps (including `fitdb_review`'s) and would hold A4's credential backups, inherits **Modify** access for `CodexSandboxUsers` and two unresolved SIDs, and isn't encrypted | **Open, owner decision.** It blocks A4 (safeguard 3). Repro: `(Get-Acl "$HOME\Desktop\FitWorkoutFoodTracker-backups").Access` |
+
 ---
 
 ## Part 2. Administrative approvals
@@ -128,6 +135,32 @@ The old processes were stopped by their PIDs: the two launchers (23736 and 50748
 - **Owner action:** run it elevated, or approve it to be run.
 - **Pass:** its check passes, and a phone on the same Wi-Fi can't open port 3000. **Fail:** the check fails, or the port opens. Roll back with `-Rollback -State <file>`.
 
+**A2 status: READY. BLOCKED only by elevation** (checked 2026-11-08). The security review approved A2 conditionally. This session's shell isn't elevated (medium integrity), so `-Apply` wasn't run, and nothing was changed.
+
+**Preconditions, all passed:**
+- **Rules targeted:** the inbound rules for `node.exe` are exactly two, both "Node.js JavaScript Runtime" (TCP and UDP): Public profile, any port, any remote address, Allow, enabled. Windows created them when someone allowed Node.js at its prompt.
+- **Why they matter:** the Wi-Fi network and the Radmin VPN adapter both use the **Public** profile, so these rules apply to them. They're what made 3000 and 3001 reachable before A1.
+- **Dependents:** none. No Node.js process listens beyond loopback (all six listeners are on 127.0.0.1), and none has a UDP endpoint. `tailscale serve` forwards to 127.0.0.1, so it's unaffected.
+- **Unrelated rules:** other wide inbound Allow rules (ASUS Armoury and drivers, Teams, Copilot, Radmin VPN) aren't Node.js rules and aren't touched.
+- **Backup folder:** exists and is writable.
+- **Dry run:** `-Apply -WhatIf` would disable exactly those two rules, by name, and change nothing else.
+
+**Owner action:** in PowerShell opened with **Run as administrator**:
+```powershell
+cd $HOME\Desktop\FitWorkoutFoodTracker-beta
+.\deploy\local-security\A2-firewall.ps1 -Apply -Approval A2
+```
+
+**Expected:** `A2 APPLIED AND VERIFIED: no enabled inbound Allow rule for node.exe. Policy export: …firewall-before-A2-<time>.wfw. State: …firewall-A2-<time>.json`.
+
+**Then (non-elevated, I can run these):**
+- the A2 read-only check reports 0 enabled Allow rules for `node.exe`;
+- 3000–3003 still answer on 127.0.0.1;
+- they're unreachable on the LAN addresses;
+- the `.wfw` export and the state file exist.
+
+**Rollback:** `.\deploy\local-security\A2-firewall.ps1 -Rollback -Approval A2 -State <the state file>`, or `netsh advfirewall import <the .wfw file>`. **Downtime:** none. **Data:** none changes.
+
 ### A3. PostgreSQL listens on loopback only
 
 - **What:** `deploy/local-security/A3-postgres-listen.ps1 -Apply -Approval A3`, elevated. It restarts PostgreSQL for 5 to 10 seconds.
@@ -135,6 +168,45 @@ The old processes were stopped by their PIDs: the two launchers (23736 and 50748
 - **Unverified:** the apply path has never been executed.
 - **Owner action:** run it elevated, at a quiet moment.
 - **Pass:** 5432 listens on 127.0.0.1 and ::1 only, and the servers reconnect. **Fail:** anything else. Roll back with `-Rollback -Backup <copy>`.
+
+**A3 status: READY. BLOCKED only by elevation** (checked 2026-11-08). The security review approved A3 conditionally. `-Apply` wasn't run; the real `postgresql.conf` and the service weren't touched.
+
+**Defect found and fixed** (`2fb9c3e`, tooling only): under PowerShell 7, `-Apply` couldn't find the `listen_addresses` line. `-split "\r?\n", -1` returns the whole file as one piece there, so the script refused ("found 0") with nothing changed. Windows PowerShell 5.1 worked. It now uses `[regex]::Split`. The regression test `scripts/local-security.test.cjs` passes in both editions, and fails on the previous script.
+
+**Preconditions, all passed:**
+- **Service:** `postgresql-x64-18` is running, with automatic start.
+- **Listening:** `listen_addresses = '*'` (line 60), so it listens on `0.0.0.0` and `::`.
+- **Connections:** all 34 established connections reach PostgreSQL over loopback (`::1`). They come from exactly the four app servers (3000–3003). None comes from another address.
+- **Docker, WSL:** not running.
+- **Env files:** every one points at `localhost:5432`. The beta worktree's `.env.isolated` points at the separate throwaway cluster on 127.0.0.1:55434, which A3 doesn't affect.
+- **`pg_hba.conf`:** already accepts only `127.0.0.1/32` and `::1/128`.
+- **Backup folder:** exists and is writable. There's no earlier `postgresql.conf` backup; the script makes one and checks its hash before changing anything.
+- **Dry run:** under Windows PowerShell 5.1, line 60 changes `'*'` to `'localhost'`.
+
+**Rehearsal on a copy of the real file** (`-ConfPath <copy> -NoRestart`, in PowerShell 7 and 5.1):
+- exactly one of 890 lines changed;
+- CRLF and the final newline were kept;
+- the backup matched the original byte for byte;
+- rollback was byte for byte;
+- the real file was unchanged.
+
+**Owner action:** at a quiet moment, in PowerShell opened with **Run as administrator**:
+```powershell
+cd $HOME\Desktop\FitWorkoutFoodTracker-beta
+.\deploy\local-security\A3-postgres-listen.ps1 -Apply -Approval A3
+```
+
+**Expected:** `Listening on 5432 after the restart: 127.0.0.1, ::1` and `A3 APPLIED AND VERIFIED: PostgreSQL listens on loopback only`.
+
+**Then (non-elevated, I can run these):**
+- 5432 listens on loopback only;
+- 3000–3003 answer, and reach the database (a signed-in page loads);
+- the demo account's read-only status is identical to before;
+- `fitdb_review`'s row counts, read only, are identical to before.
+
+**Rollback:** `.\deploy\local-security\A3-postgres-listen.ps1 -Rollback -Approval A3 -Backup <the copy it names>`, which puts the copy back and restarts.
+
+**Downtime:** a 5–10 second restart; requests in flight on 3000–3003 fail, and Prisma reconnects. **Data:** none changes.
 
 ### A4. One PostgreSQL role per local environment
 
@@ -144,6 +216,41 @@ The old processes were stopped by their PIDs: the two launchers (23736 and 50748
 - **Owner action:** type the `postgres` password into your own shell only, then run the command.
 - **Pass:** `--verify` reports ISOLATED, and every server works after its restart. **Fail:** anything else. Roll back with `--rollback --confirm=A4 --state=<file>`.
 
+**A4 status: ON HOLD** (security review: additional safeguards required). Only read-only work was done on 2026-11-08: `local-db-roles.cjs --verify`, and a catalog survey in `READ ONLY` transactions (metadata only, as `fit`). No password was asked for or written anywhere.
+
+| Safeguard | Finding |
+|---|---|
+| 1. Databases match the role plan | **Yes.** `fitdb`, `fitdb_review`, `fitdb_test`, `fitdb_test_isolated` and `fitdb_test_other` are all owned by `fit`. `fit` owns every table (15 or 17), index and enum. The `public` schema is owned by `pg_database_owner`, so it follows the database's owner. `fitdb_test_isolated_other` and `fitdb_restore_check` don't exist, and are skipped. `--verify`: NOT ISOLATED, as expected before A4 |
+| 2. Affected env files identified | **Yes: 6.** `FitWorkoutFoodTracker\.env` and `.env.test`; `FitWorkoutFoodTracker-review\.env.review` and `.env.isolated`; `FitWorkoutFoodTracker-release\.env.review` and `.env.isolated`. All use login `fit` with one shared password. The demo copy on 3000 and the UX folder have no env file of their own (they use `FitWorkoutFoodTracker\.env.test`). The beta worktree's `.env.isolated` is the throwaway cluster, and isn't affected |
+| 3. Credential backups stored securely | **NOT MET.** A4 copies the env files, with plaintext database passwords, into `Desktop\FitWorkoutFoodTracker-backups\A4-<time>\`. That folder isn't encrypted (EFS), and it inherits **Modify** access for the local group `CodexSandboxUsers` and two unresolved account SIDs, beyond you, SYSTEM and Administrators. The same applies to the database dumps already there. **Owner decision needed** before A4: restrict that folder's access list (disable inheritance; keep you and SYSTEM), or choose a protected location |
+| 4. Rollback covers the actual permissions | **Yes, for the current state.** Rollback restores a database's access list only when it was the default `NULL`, and restores only `CREATEDB` on `fit`. Today every access list is `NULL`, and `fit` is `NOSUPERUSER NOCREATEROLE CREATEDB`, with no memberships. There are no default privileges, no grants to other roles, no extensions and no other schemas. Re-check just before applying |
+| 5. Unexpected grants or ownership | **None found** |
+| 6. Recovery from a backup on a disposable target | **Demonstrated** (see B2): a real `fitdb_test` backup restored cleanly into the throwaway cluster, and the real restore check passed on a stand-in |
+| 7. Before-and-after checklist | Below |
+
+**A4 checklist.**
+
+Before:
+1. `--verify` (NOT ISOLATED, as now);
+2. the catalog survey (as above);
+3. read-only row counts for `fitdb_review` and `fitdb_test`, and the demo status;
+4. a fresh backup of `fitdb_review` and `fitdb_test`;
+5. safeguard 3 resolved.
+
+Apply:
+- set `ADMIN_DATABASE_URL` in your own shell;
+- `--plan` (read only), then `--apply --confirm=A4`;
+- restart each of 3000–3003 so it uses the new credentials.
+
+After:
+1. `--verify` reports ISOLATED;
+2. each env file's login reaches only its own databases, and owns and writes them (A4 checks this itself);
+3. the row counts and demo status are identical;
+4. 3000–3003 answer;
+5. no password appears in any log or report.
+
+**Rollback:** `--rollback --confirm=A4 --state=<state.json>`, rehearsed end to end (`diagnostics\a4-rehearsal`).
+
 ### B2. Restore check
 
 - **What:** create the empty scratch database `fitdb_restore_check` (owner `fit_review`, or `fit` before A4), run `restore-check.cjs`, then drop it.
@@ -152,6 +259,31 @@ The old processes were stopped by their PIDs: the two launchers (23736 and 50748
 - **Owner action:** create the database, run the check, then drop it.
 - **Pass:** "RESTORE VERIFIED", with `fitdb_review` unchanged before and after. **Fail:** anything else.
 
+**B2 status: READY FOR OWNER APPROVAL. The mechanism was proven on the disposable cluster** on 2026-11-08; no protected database was touched.
+
+**The real `restore-check.cjs`** ran against a stand-in `fitdb_review` (migrated, marked, with an owner account) and its `pg_dump` backup:
+- **RESTORE VERIFIED:** 10 migrations, 20 tables, 184 columns, the owner account and 47 built-in exercises all matched; row counts equal for every table; the source unchanged.
+- **Refusals:** exit 4 when the scratch database wasn't empty, and exit 4 when the source had no review marker.
+
+**An actual backup file** (`fitdb_test`, from before MIG-04, test data) was restored into a disposable scratch database with `--exit-on-error`: 7 migrations, 16 tables, 828,726 rows, 19 foreign keys validated, 47 built-in exercises. Then it was dropped.
+
+**The actual `fitdb_review` backup** (`fitdb_review-2026-11-07-21-52-51.dump`) lists cleanly: 17 tables of data, 20 foreign keys. **It wasn't restored**, because it holds your data and that's B2 itself.
+
+**Still unverified:** a restore of the real `fitdb_review` backup and its comparison with `fitdb_review`, which is B2.
+
+**Owner action** (creates and drops one scratch database on 5432):
+```powershell
+# 1. Create the empty scratch database, owned by fit (before A4) or fit_review (after A4).
+#    For example, in psql as the PostgreSQL superuser: CREATE DATABASE fitdb_restore_check OWNER fit;
+# 2. From the release folder:
+cd $HOME\Desktop\FitWorkoutFoodTracker-release
+Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue
+node --env-file=.env.review scripts/restore-check.cjs --backup=..\FitWorkoutFoodTracker-backups\fitdb_review-2026-11-07-21-52-51.dump --confirm=fitdb_restore_check
+# 3. Then drop it: DROP DATABASE fitdb_restore_check;
+```
+
+**Pass:** "RESTORE VERIFIED", with `fitdb_review` unchanged. **Downtime:** none. **Data:** `fitdb_review` is only read. The scratch copy holds your data until it's dropped. **Rollback:** drop the scratch database.
+
 ### B1b. The companion test database on the real server
 
 - **What:** `local-db.cjs --init --confirm=fitdb_test_isolated_other` (from `.env.isolated`), then the runner with `safety-no-marker db-guard-scoped`.
@@ -159,6 +291,22 @@ The old processes were stopped by their PIDs: the two launchers (23736 and 50748
 - **Unverified:** on this PC's real PostgreSQL.
 - **Owner action:** approve, or run the two commands.
 - **Pass:** both suites pass, and the other databases' markers and row counts are unchanged. **Fail:** otherwise.
+
+**B1b status: READY FOR OWNER APPROVAL. BLOCKED** because it creates a persistent database on 5432 (`fitdb_test_isolated_other`).
+
+**Configuration checked:** the release folder's `.env.isolated` points at `localhost:5432/fitdb_test_isolated`, which exists. The companion doesn't exist yet. Both suites passed on the throwaway cluster this round: `safety-no-marker` 7 passed and 1 skipped (POSIX-only), and `db-guard-scoped` 6/6.
+
+**Condition:** run it from the **release folder** (`ca015e5`, 8 migrations), so the companion matches `fitdb_test_isolated`'s schema. Run from this branch (10 migrations), `--init` would apply MIG-FB and MIG-GYM to a new persistent test database. The approval guard deliberately doesn't cover test databases.
+
+**Owner action:**
+```powershell
+cd $HOME\Desktop\FitWorkoutFoodTracker-release
+Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue
+node --env-file=.env.isolated scripts/local-db.cjs --init --confirm=fitdb_test_isolated_other
+node --env-file=.env.isolated scripts/run-guarded-suites.cjs safety-no-marker db-guard-scoped
+```
+
+**Pass:** both suites pass, and the other databases' markers and row counts are unchanged. **Blocked tests:** `safety-no-marker` and `db-guard-scoped` on the real server. **Downtime:** none. **Data:** one new test database. **Rollback:** drop `fitdb_test_isolated_other`.
 
 ### MIG-FB. The feedback migration
 
@@ -184,6 +332,24 @@ The old processes were stopped by their PIDs: the two launchers (23736 and 50748
 - **Unverified:** on a database with long-lived data. A nullable column with no default is a metadata-only change in PostgreSQL 11 and later, so existing rows aren't rewritten, but that hasn't been measured here.
 - **Owner action:** review the current `migration.sql` (the earlier version had no `templateExerciseId`). Then, per database, say "MIG-GYM approved for `<database>`". The backup and the record in `approved-migrations.json` are as for MIG-FB.
 - **Pass:** as for MIG-FB. In addition, every existing workout's new columns are null; no gym or machine is invented for old sessions. **Fail:** otherwise.
+
+**Migration verification, 2026-11-08** (throwaway cluster only; neither migration is approved or applied to `fitdb`, `fitdb_test`, `fitdb_review` or production).
+
+**Upgrade on realistic existing data:** the real `fitdb_test` backup from before MIG-04 (7 migrations, 15 tables, 828,719 rows of test data) was restored. Then `migrate deploy` applied MIG-04, MIG-FB and MIG-GYM in order, in 0.6 seconds.
+
+| Check | Result |
+|---|---|
+| Original rows unchanged | **All 15 existing tables byte-identical**, fingerprinted over their original columns before and after: workouts, workout exercises, sets, exercises, accounts, profiles, foods and the rest |
+| Migration history | The 7 earlier records unchanged; 10 in total |
+| New columns on existing tables | All null: `WorkoutSession.gymLocationId` (0 of 1,478); `SessionExercise.gymEquipmentId`, `substitutesId`, `plannedExerciseId` and `templateExerciseId` (each 0 of 3,758). No gym or machine invented |
+| New tables | `GymLocation`, `GymEquipment` and `Feedback` empty |
+| Ownership | `userId` is required on both gym tables. Deleting a user cascades to gyms, equipment and feedback. Deleting a gym cascades to its equipment, and clears a workout's gym. A machine or planned exercise with sets on it can't be deleted (`RESTRICT`). A deleted plan entry, swapped row or machine's exercise clears its link (`SET NULL`) |
+| Foreign keys | 31, every one validated |
+| Schema | No drift from `schema.prisma` |
+| Order | Folder order: `…_body_metrics` < `…_feedback` < `…_multi_gym`. MIG-GYM depends on nothing in MIG-FB, but they deploy together |
+| Checksums | MIG-FB `23a3268b…f4b5b`; MIG-GYM `16e04fa8…bbc5d` (in full in their sections) |
+| Guard | On this checkout, `migrate-approved.cjs` refuses, exit 4, naming both. `local-db.cjs` refuses `fitdb_review` likewise |
+| Backups and recovery | B2's mechanism proven (above); a real backup restores. Rollback after these migrations is forward-only, from the backup taken first |
 
 ### NOTICE-B. The privacy notice
 
@@ -300,7 +466,7 @@ Simulated phone widths in desktop browsers **don't count** here.
 
 ## Part 5. Order
 
-1. A1 (**COMPLETE**, 2026-11-08), then A2, A3, A4
+1. A1 (**COMPLETE**, 2026-11-08); A2 and A3 (ready, need an elevated shell); A4 (on hold until SEC-ACL is resolved)
 2. B2 and B1b
 3. MIG-FB and MIG-GYM: `fitdb_test`, then `fitdb_review`
 4. GYM-ACCEPT and UX-01
@@ -312,3 +478,29 @@ Simulated phone widths in desktop browsers **don't count** here.
 10. G3 to G7, each in order
 
 Merging is a separate approval, at G7.
+
+## Part 6. Beta requirements status (2026-11-08)
+
+The labels: **IMPLEMENTED**, the code exists; **VERIFIED**, the acceptance criteria passed with recorded evidence; **BLOCKED**, an approval, device, credential or resource is missing; **FAILED**, a check didn't pass.
+
+| Requirement | Status | Evidence, or what's missing |
+|---|---|---|
+| RC-08 (proxy connection failures in tests) | VERIFIED as test-only, still monitored | No recurrence in the last three full regressions. Every suite's proxy connections are traced. It's never in the app |
+| QA-05 (late sign-up cleanup) | VERIFIED | `safety-no-marker` passes on the throwaway cluster; on the real server, BLOCKED by B1b |
+| UX-01 acceptance | BLOCKED | Your acceptance. The preview is on 3001, loopback only |
+| GYM-ACCEPT | BLOCKED | MIG-FB and MIG-GYM on `fitdb_test` (or a throwaway preview), then your acceptance |
+| Privacy notice (NOTICE-B) | BLOCKED | Drafts exist; owner and legal review |
+| Branding consistency | VERIFIED in the app and emails; final name and icons BLOCKED | No "Forge" in `src`, `public` or `scripts`; icons are temporary; FitBunny deferred |
+| Physical iPhone | BLOCKED | E1: Tailscale and the phone; never tested |
+| Physical Android | BLOCKED | E1: Tailscale and the phone; never tested |
+| Real email delivery | BLOCKED | C1 and C2: a domain and a Resend account |
+| Linux container | BLOCKED | G1: Docker Desktop, and MIG-FB and MIG-GYM recorded first |
+| Hosting selection | BLOCKED | G2 decisions |
+| HTTPS | BLOCKED | G4, which needs a domain and hosting |
+| Database restoration | IMPLEMENTED; mechanism VERIFIED on throwaway databases | B2 on the real `fitdb_review` backup is BLOCKED by approval |
+| Monitoring and alerts | IMPLEMENTED (`/api/health`); not set up | G6 |
+| A1 | VERIFIED | Above |
+| A2, A3 | BLOCKED by elevation only | Preconditions passed; exact commands above |
+| A4 | BLOCKED | On hold; SEC-ACL first |
+
+**FAILED: none.** No check that ran failed.
