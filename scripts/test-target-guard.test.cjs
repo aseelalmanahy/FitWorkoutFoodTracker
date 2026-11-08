@@ -966,3 +966,41 @@ test("the runner pairs each target with its own companion, and runs the cross-da
   assert.match(source, /GUARD_SNAPSHOT_DATABASES: `\$\{TARGET\},\$\{OTHER_NAME\}`/);
   assert.match(source, /if \(needsOther\.length\) throw new Error/);
 });
+
+// ─── B2: the restore check refuses before it reads or writes anything ────────
+
+test("restore-check.cjs refuses unexpected targets, settings and backups before connecting to any database", () => {
+  const { spawnSync } = require("node:child_process");
+  const os = require("node:os");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fit-restore-refusals-"));
+  const garbage = path.join(dir, "not-a-backup.dump");
+  fs.writeFileSync(garbage, "this is not a pg_dump archive");
+  const run = (envName, url, args) => {
+    fs.writeFileSync(path.join(dir, envName), `DATABASE_URL=${url}\n`);
+    const env = { ...process.env };
+    delete env.DATABASE_URL;
+    const r = spawnSync(process.execPath, [`--env-file=${envName}`, path.join(SCRIPTS, "restore-check.cjs"), ...args], { cwd: dir, env, encoding: "utf8", timeout: 30_000 });
+    return { code: r.status, text: `${r.stdout}${r.stderr}` };
+  };
+  const REVIEW = "postgresql://none:SECRETPW@127.0.0.1:1/fitdb_review";
+  const ok = [`--backup=${garbage}`, "--confirm=fitdb_restore_check"];
+  try {
+    for (const [label, envName, url, args, re] of [
+      ["no confirmation", ".env.review", REVIEW, [`--backup=${garbage}`], /--confirm=fitdb_restore_check/],
+      ["the review database as the target", ".env.review", REVIEW, [`--backup=${garbage}`, "--confirm=fitdb_review"], /--confirm=fitdb_restore_check/],
+      ["another scratch name", ".env.review", REVIEW, [`--backup=${garbage}`, "--confirm=fitdb_restore_check2"], /--confirm=fitdb_restore_check/],
+      ["an extra argument", ".env.review", REVIEW, [...ok, "--force"], /--confirm=fitdb_restore_check/],
+      ["another settings file", ".env.isolated", "postgresql://none:SECRETPW@127.0.0.1:1/fitdb_test_isolated", ok, /--env-file=\.env\.review/],
+      ["settings naming a test database", ".env.review", "postgresql://none:SECRETPW@127.0.0.1:1/fitdb_test", ok, /names "fitdb_test", not fitdb_review/],
+      ["settings on another machine", ".env.review", "postgresql://none:SECRETPW@db.example.invalid:5432/fitdb_review", ok, /isn't this machine/],
+      ["a missing backup", ".env.review", REVIEW, [`--backup=${path.join(dir, "missing.dump")}`, "--confirm=fitdb_restore_check"], /doesn't exist/],
+      ["a file that isn't a backup", ".env.review", REVIEW, ok, /can't be listed/],
+    ]) {
+      const r = run(envName, url, args);
+      assert.equal(r.code, 4, `${label}: ${r.text}`);
+      assert.match(r.text, /REFUSED \(nothing was restored\)/, label);
+      assert.match(r.text, re, label);
+      assert.doesNotMatch(r.text, /SECRETPW/, label);
+    }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
