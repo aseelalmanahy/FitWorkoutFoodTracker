@@ -8,6 +8,7 @@ const path = require("node:path");
 const playwright = require("playwright");
 const sharp = require("sharp");
 const { fixtures } = require("./lib/pdf-fixtures.cjs");
+const { watchAppScripts } = require("./lib/app-load-watch.cjs");
 
 const { completeOnboarding } = require("./lib/e2e-onboarding.cjs");
 const { signUpWithApi, signUpInBrowser } = require("./lib/signup.cjs");
@@ -60,7 +61,8 @@ async function runBrowser(name, jpeg) {
   const page = await ctx.newPage();
   const consoleLines = [];
   page.on("console", (m) => { if (m.type() === "error" || m.type() === "warning") consoleLines.push(`${m.type()}: ${m.text().slice(0, 200)}`); });
-  current = { name, ctx, consoleLines };
+  current = { name, browser, ctx, consoleLines };
+  const scripts = watchAppScripts(page, BASE);
   const errors = [], requests = [], dialogs = [], consoleText = [];
   page.on("console", (m) => consoleText.push(m.text()));
   page.on("pageerror", (e) => {
@@ -97,9 +99,12 @@ async function runBrowser(name, jpeg) {
   await signUp(page);
   await stub.reset();
 
+  // RC-08: a scan page whose own scripts didn't all load can't react to a file, so that fails here, naming the script.
   const open = async (file) => {
+    scripts.clear();
     await page.goto(`${BASE}/nutrition/scan`);
     await page.locator("#label-photo").waitFor();
+    scripts.assertNone(`${name}: opening the scan page for ${file.name}`);
     await page.locator("#label-photo").setInputFiles(file);
   };
   // RC-08: if the page list doesn't appear, the failure says what the scan page showed instead.
@@ -116,7 +121,7 @@ async function runBrowser(name, jpeg) {
         workers: performance.getEntriesByType("resource").filter((r) => /pdf\.worker|pdf\.mjs/.test(r.name)).map((r) => `${r.name.split("/").pop()} ${Math.round(r.duration)}ms`),
         text: document.body.innerText.replace(/\s+/g, " ").slice(0, 300),
       })).catch((err) => ({ unreadable: String(err.message).slice(0, 120) }));
-      throw new Error(`${name}: the PDF page list didn't appear for ${file.name}. Shown: ${JSON.stringify(shown)}. ${e.message.split("\n")[0]}`);
+      throw new Error(`${name}: the PDF page list didn't appear for ${file.name}. Shown: ${JSON.stringify(shown)}. Failed app scripts: ${scripts.failures.join("; ") || "none"}. ${e.message.split("\n")[0]}`);
     }
   };
   const choosePage = async (n) => { await page.getByTestId(`pdf-page-${n}`).click(); await page.getByTestId("pdf-page-image").waitFor(); };
@@ -470,6 +475,7 @@ async function unconfigured(jpeg) {
     const trace = `${SHOTS}pdf-${current.name}-failure-trace.zip`;
     await current.ctx.tracing.stop({ path: trace }).then(() => console.error(`Trace of the failed run: ${trace}`), () => {});
     console.error(`Browser console errors and warnings: ${current.consoleLines.length ? current.consoleLines.slice(-20).join(" | ") : "none"}`);
+    await current.browser.close().catch(() => {});
   }
   process.exit(1);
 });

@@ -16,6 +16,7 @@ const assert = require("node:assert/strict");
 const http = require("node:http");
 const playwright = require("playwright");
 const { createDestinationPolicy, startGuardProxy, browserLaunchOptions, guardBrowserContext, PROVIDER_STUB_IDENTITY } = require("./lib/test-target-guard.cjs");
+const { watchAppScripts } = require("./lib/app-load-watch.cjs");
 
 const BROWSERS = (process.env.BROWSERS || "chromium,firefox,webkit").split(",");
 const GUARD_RECORD_MS = 5_000;
@@ -57,6 +58,14 @@ before(async () => {
       req.on("data", (d) => (n += d.length));
       return req.on("end", () => { res.setHeader("Set-Cookie", "session=1; Path=/; HttpOnly; SameSite=Lax"); res.setHeader("Content-Type", "application/json"); res.end(JSON.stringify({ n })); });
     }
+    // RC-08: a page with two of its own scripts, each recording that it ran; the app drops the third's connection.
+    if (req.url === "/hydrate") return html(res, `<script src="/chunk-ok.js"></script><script src="/chunk-broken.js"></script>`);
+    if (req.url === "/hydrate-dropped") return html(res, `<script src="/chunk-ok.js"></script><script src="/chunk-dropped.js"></script>`);
+    if (req.url === "/chunk-ok.js") { res.setHeader("Content-Type", "text/javascript"); return res.end("window.okRan = 1;"); }
+    if (req.url === "/chunk-broken.js") { res.setHeader("Content-Type", "text/javascript"); return res.end("window.brokenRan = 1;"); }
+    if (req.url === "/chunk-dropped.js") return req.socket.destroy();
+    if (req.url === "/slow") return html(res, `<script src="/chunk-slow.js"></script>`);
+    if (req.url === "/chunk-slow.js") { const t = setTimeout(() => res.end("window.slowRan = 1;"), 10_000); return res.on("close", () => clearTimeout(t)); }
     if (req.url === "/cookie") { res.setHeader("Content-Type", "application/json"); return res.end(JSON.stringify({ cookie: req.headers.cookie || null })); }
     html(res, "APPLICATION");
   });
@@ -106,6 +115,10 @@ async function assertStopped(browser, label, send, mark) {
     noForbiddenHits(label);
   } finally { await closeContext(context); }
 }
+async function expectSoon(condition, label) {
+  const deadline = Date.now() + GUARD_RECORD_MS;
+  while (!condition()) { assert.ok(Date.now() < deadline, label); await new Promise((r) => setTimeout(r, 20)); }
+}
 const navigate = (url) => (page) => page.goto(url).catch(() => {});
 
 for (const name of BROWSERS) {
@@ -123,6 +136,49 @@ for (const name of BROWSERS) {
       assert.equal(after.cookie, "session=1", "cookies set through the proxy are sent back");
       noForbiddenHits("normal use");
       assert.deepEqual(stopped, [], "nothing legitimate was stopped");
+    } finally { await browser.close(); }
+  });
+
+  // RC-08: the failure seen in label-pdf, made deterministic: one of the page's own scripts can't be loaded.
+  test(`${name}: RC-08: an app script whose connection fails is reported at once, by path, and never ran`, { timeout: 120_000 }, async () => {
+    reset();
+    const browser = await guardedBrowser(name);
+    try {
+      const { context, page } = await pageOnApp(browser);
+      const watch = watchAppScripts(page, app.origin);
+      await page.route("**/chunk-broken.js", (route) => route.abort("connectionfailed"));
+      await page.goto(`${app.origin}/hydrate`);
+      assert.deepEqual(await page.evaluate(() => [window.okRan ?? 0, window.brokenRan ?? 0]), [1, 0], "the working script ran, the failed one didn't");
+      assert.equal(watch.failures.length, 1, `exactly the failed script is reported: ${watch.failures}`);
+      assert.match(watch.failures[0], /^\/chunk-broken\.js \S/);
+      assert.throws(() => watch.assertNone("opening the page"), /^Error: opening the page: the application's own script failed to load.*\/chunk-broken\.js/);
+      watch.clear();
+      watch.assertNone("after clearing");
+      await closeContext(context);
+    } finally { await browser.close(); }
+  });
+
+  test(`${name}: RC-08: an app script the proxy answers with 502 is reported; a cancelled load isn't`, { timeout: 120_000 }, async () => {
+    reset();
+    const browser = await guardedBrowser(name);
+    try {
+      const { context, page } = await pageOnApp(browser);
+      const watch = watchAppScripts(page, app.origin);
+      await page.goto(`${app.origin}/hydrate-dropped`);
+      assert.deepEqual(watch.failures, ["/chunk-dropped.js HTTP 502"], "the app dropped the connection, and the proxy said so");
+      assert.equal(await page.evaluate(() => window.okRan ?? 0), 1);
+      watch.clear();
+      // A real cancellation: leave the page while its script is still loading.
+      const cancelled = [];
+      page.on("requestfailed", (r) => { if (r.url().endsWith("/chunk-slow.js")) cancelled.push(r.failure()?.errorText); });
+      const slowRequested = page.waitForRequest((r) => r.url().endsWith("/chunk-slow.js"));
+      await page.goto(`${app.origin}/slow`, { waitUntil: "commit" });
+      await slowRequested;
+      await page.goto(`${app.origin}/`);
+      // Chromium and Firefox don't report a load cancelled by leaving the page; WebKit does, so there it's really tested.
+      if (name === "webkit") await expectSoon(() => cancelled.length > 0, "WebKit reported the cancelled load");
+      assert.deepEqual(watch.failures, [], `a load cancelled by navigating away (${cancelled}) is the navigation's doing, not a failure`);
+      await closeContext(context);
     } finally { await browser.close(); }
   });
 
