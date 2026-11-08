@@ -103,6 +103,11 @@ describe("every API route is classified", () => {
     "app/api/auth/logout/route.ts": "publicRoute",
     "app/api/health/db-identity/route.ts": "none",
     "app/api/health/route.ts": "none",
+    // Phase 5: feedback stays open to a restricted account; the review is for administrators only, by user ID.
+    "app/api/feedback/route.ts": "accountRoute",
+    "app/api/admin/feedback/route.ts": "adminRoute",
+    "app/api/admin/feedback/[id]/route.ts": "adminRoute",
+    "app/api/admin/feedback/export/route.ts": "adminRoute",
   };
 
   it("T33: finds the routes", () => {
@@ -123,7 +128,11 @@ describe("every API route is classified", () => {
   });
   it("accountRoute is used only where named", () => {
     const users = source.filter((f) => read(f).includes("accountRoute(") && !f.endsWith(path.join("server", "api.ts"))).map(rel);
-    expect(users.sort()).toEqual(["app/api/account/delete/route.ts", "app/api/account/export/route.ts", "app/api/account/password/route.ts", "app/api/profile/route.ts"]);
+    expect(users.sort()).toEqual(["app/api/account/delete/route.ts", "app/api/account/export/route.ts", "app/api/account/password/route.ts", "app/api/feedback/route.ts", "app/api/profile/route.ts"]);
+  });
+  it("adminRoute is used only for the feedback review", () => {
+    const users = source.filter((f) => /adminRoute\s*(<[^>]*>)?\(/.test(read(f)) && !f.endsWith(path.join("server", "api.ts"))).map(rel);
+    expect(users.sort()).toEqual(["app/api/admin/feedback/[id]/route.ts", "app/api/admin/feedback/export/route.ts", "app/api/admin/feedback/route.ts"]);
   });
 });
 
