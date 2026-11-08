@@ -612,6 +612,7 @@ const OTHER_WRITE_CAPABLE = {
   "measure-recognition.cjs": { must: ["review-tester-", "listeningPid(", "[3002, 3003]"], reason: "by hand: signs in as a review tester on the local review server only, sends generated images that aren't stored, and reads the server process's memory (RC-06)" },
 };
 const NOT_GUARDED = {
+  "local-security.test.cjs": "A3's procedure rehearsed on a sample postgresql.conf in a temporary folder (-NoRestart), with no database or service",
   "migration-safety.test.cjs": "the approved-migrations list, the refusals of the image's migration step and local-db.cjs, and the multi-gym migration's SQL, with no database",
   "demo-account.test.cjs": "the demo data's rules, and what the demo scripts must refuse, spawning them, with no database",
   "account-facts.test.cjs": "the report's rules, and spawns the script for what it must refuse, with no database",

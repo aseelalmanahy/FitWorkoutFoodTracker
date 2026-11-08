@@ -65,7 +65,9 @@ $rehearsal = $NoRestart -and ($ConfPath -ne "C:\Program Files\PostgreSQL\18\data
 if ($Apply) {
   $raw = [IO.File]::ReadAllText($ConfPath)
   $nl = if ($raw.Contains("`r`n")) { "`r`n" } else { "`n" }
-  $lines = $raw -split "\r?\n", -1
+  # Every line, the same in Windows PowerShell 5.1 and PowerShell 7: in PowerShell 7, `-split ..., -1` returns the
+  # whole file as one piece, so the line would never be found and -Apply would refuse.
+  $lines = [regex]::Split($raw, "\r?\n")
   $active = Get-ListenLines $lines
   if ($active.Count -ne 1) { throw "REFUSED (nothing was changed): expected exactly one active listen_addresses line, found $($active.Count)." }
   $old = $active[0].Line
