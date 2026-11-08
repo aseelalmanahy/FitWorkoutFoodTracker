@@ -321,3 +321,40 @@ test("an imported plan can be done at different gyms, and the plan stays indepen
   const filtered = await c.call("GET", `/workouts/history?gym=${home.id}`);
   assert.equal(filtered.status, 200);
 });
+
+test("limits and duplicates hold under concurrent saves", async () => {
+  const { user, c } = await newUser("race");
+  const created = await Promise.all(Array.from({ length: 25 }, (_, i) => c.post("/api/gyms", { name: `Gym ${i}` })));
+  assert.equal(created.filter((r) => r.status === 200).length, 20, created.map((r) => r.status).join(","));
+  assert.ok(created.every((r) => r.status === 200 || r.status === 409));
+  assert.equal(await prisma.gymLocation.count({ where: { userId: user.id } }), 20, "twenty-five at once: still at most twenty");
+  const same = await newUser("race-same");
+  const dup = await Promise.all(Array.from({ length: 6 }, (_, i) => same.c.post("/api/gyms", { name: i % 2 ? "Twin" : "TWIN" })));
+  assert.equal(dup.filter((r) => r.status === 200).length, 1, "one name, ignoring case, however many at once");
+  const { gym } = dup.find((r) => r.status === 200).body;
+  const machines = await Promise.all(Array.from({ length: 6 }, () => same.c.post(`/api/gyms/${gym.id}/equipment`, { kind: "MACHINE", name: "Press" })));
+  assert.equal(machines.filter((r) => r.status === 200).length, 1);
+  assert.equal(await prisma.gymEquipment.count({ where: { gymId: gym.id, name: { not: null } } }), 1);
+});
+
+test("a workout's gym can't change under machines chosen at it, and a machine set up for one exercise isn't used for another", async () => {
+  const { c } = await newUser("gym-change");
+  const { gym: a, machines: [press] } = await gymWith(c, "A", [], [{ kind: "MACHINE", name: "Press", exerciseId: lib["Machine Chest Press"].id }]);
+  const { gym: b } = await gymWith(c, "B");
+  const s = await start(c, { name: "W", gymLocationId: a.id });
+  const pressSe = ok(await c.post(`/api/sessions/${s.id}/exercises`, { exerciseId: lib["Machine Chest Press"].id })).sessionExercise;
+  const squatSe = ok(await c.post(`/api/sessions/${s.id}/exercises`, { exerciseId: lib["Back Squat"].id })).sessionExercise;
+  assert.equal((await c.put(`/api/sessions/${s.id}/exercises/${squatSe.id}/machine`, { gymEquipmentId: press.id })).status, 409, "a chest press machine for squats");
+  assert.equal((await c.post(`/api/sessions/${s.id}/exercises/${squatSe.id}/substitute`, { exerciseId: lib["Push-Up"].id, gymEquipmentId: press.id })).status, 409, "nor for a swap to push-ups");
+  ok(await c.put(`/api/sessions/${s.id}/exercises/${pressSe.id}/machine`, { gymEquipmentId: press.id }));
+  assert.equal((await c.put(`/api/sessions/${s.id}/gym`, { gymLocationId: b.id })).status, 409, "an exercise is on a machine at A");
+  assert.equal((await prisma.workoutSession.findUnique({ where: { id: s.id } })).gymLocationId, a.id);
+  ok(await c.put(`/api/sessions/${s.id}/gym`, { gymLocationId: a.id }), "choosing the same gym again is fine");
+  ok(await c.put(`/api/sessions/${s.id}/exercises/${pressSe.id}/machine`, { gymEquipmentId: null }));
+  ok(await c.put(`/api/sessions/${s.id}/gym`, { gymLocationId: b.id }), "with the machine cleared, the gym can change");
+  // A gym change and a machine choice at the same moment: never a machine from a gym the workout isn't at.
+  ok(await c.put(`/api/sessions/${s.id}/gym`, { gymLocationId: a.id }));
+  await Promise.all([c.put(`/api/sessions/${s.id}/gym`, { gymLocationId: b.id }), c.put(`/api/sessions/${s.id}/exercises/${pressSe.id}/machine`, { gymEquipmentId: press.id })]);
+  const after_ = await prisma.workoutSession.findUnique({ where: { id: s.id }, include: { exercises: { include: { machine: true } } } });
+  for (const e of after_.exercises) if (e.machine) assert.equal(e.machine.gymId, after_.gymLocationId, "the machine is at the workout's gym");
+});

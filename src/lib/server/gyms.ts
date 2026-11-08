@@ -23,16 +23,29 @@ export async function getOwnedGym(userId: string, gymId: string) {
 
 const duplicateName = () => new HttpError(409, "You already have a gym with that name.");
 
+/** The person's row, held so their gyms are counted and names compared one save at a time. */
+async function lockPerson(tx: Prisma.TransactionClient, userId: string) {
+  await limitLockWait(tx);
+  await tx.$queryRaw`SELECT id FROM "User" WHERE id = ${userId} FOR UPDATE`;
+}
+const SHORT = { maxWait: 5_000, timeout: 15_000 };
+
 export async function createGym(userId: string, name: string) {
-  if ((await prisma.gymLocation.count({ where: { userId } })) >= MAX_GYMS) throw new HttpError(409, `You can have up to ${MAX_GYMS} gyms.`);
-  if (await prisma.gymLocation.findFirst({ where: { userId, name: { equals: name, mode: "insensitive" } } })) throw duplicateName();
-  return prisma.gymLocation.create({ data: { userId, name }, include: gymInclude });
+  return prisma.$transaction(async (tx) => {
+    await lockPerson(tx, userId);
+    if ((await tx.gymLocation.count({ where: { userId } })) >= MAX_GYMS) throw new HttpError(409, `You can have up to ${MAX_GYMS} gyms.`);
+    if (await tx.gymLocation.findFirst({ where: { userId, name: { equals: name, mode: "insensitive" } } })) throw duplicateName();
+    return tx.gymLocation.create({ data: { userId, name }, include: gymInclude });
+  }, SHORT);
 }
 
 export async function renameGym(userId: string, gymId: string, name: string) {
   await getOwnedGym(userId, gymId);
-  if (await prisma.gymLocation.findFirst({ where: { userId, id: { not: gymId }, name: { equals: name, mode: "insensitive" } } })) throw duplicateName();
-  return prisma.gymLocation.update({ where: { id: gymId }, data: { name }, include: gymInclude });
+  return prisma.$transaction(async (tx) => {
+    await lockPerson(tx, userId);
+    if (await tx.gymLocation.findFirst({ where: { userId, id: { not: gymId }, name: { equals: name, mode: "insensitive" } } })) throw duplicateName();
+    return tx.gymLocation.update({ where: { id: gymId }, data: { name }, include: gymInclude });
+  }, SHORT);
 }
 
 /** The kinds of equipment a gym has: unnamed rows. Named machines aren't touched. */
@@ -51,11 +64,17 @@ export async function setGymKinds(userId: string, gymId: string, kinds: Equipmen
 
 /** A specific machine at a gym, optionally for one exercise the person can see. */
 export async function addMachine(userId: string, gymId: string, input: { kind: Equipment; name: string; exerciseId?: string | null }) {
-  const gym = await getOwnedGym(userId, gymId);
-  if (gym.equipment.filter((e) => e.name !== null).length >= MAX_MACHINES_PER_GYM) throw new HttpError(409, `A gym can have up to ${MAX_MACHINES_PER_GYM} machines.`);
+  await getOwnedGym(userId, gymId);
   if (input.exerciseId && !(await prisma.exercise.findFirst({ where: { id: input.exerciseId, ...visibleExercises(userId) }, select: { id: true } }))) throw new HttpError(400, "One or more exercises are unknown");
-  if (gym.equipment.some((e) => e.name !== null && e.name.toLowerCase() === input.name.toLowerCase() && e.kind === input.kind)) throw new HttpError(409, "That machine is already listed at this gym.");
-  return prisma.gymEquipment.create({ data: { userId, gymId, kind: input.kind, name: input.name, exerciseId: input.exerciseId ?? null } });
+  return prisma.$transaction(async (tx) => {
+    // The gym row is held, so the limit and the duplicate check count every machine saved at the same time.
+    await limitLockWait(tx);
+    await tx.$queryRaw`SELECT id FROM "GymLocation" WHERE id = ${gymId} FOR UPDATE`;
+    const named = await tx.gymEquipment.findMany({ where: { gymId, name: { not: null } }, select: { name: true, kind: true } });
+    if (named.length >= MAX_MACHINES_PER_GYM) throw new HttpError(409, `A gym can have up to ${MAX_MACHINES_PER_GYM} machines.`);
+    if (named.some((e) => e.name!.toLowerCase() === input.name.toLowerCase() && e.kind === input.kind)) throw new HttpError(409, "That machine is already listed at this gym.");
+    return tx.gymEquipment.create({ data: { userId, gymId, kind: input.kind, name: input.name, exerciseId: input.exerciseId ?? null } });
+  }, SHORT);
 }
 
 /** A machine with history can't be removed: its sets would lose the machine they were done on. */
@@ -70,11 +89,20 @@ export async function removeMachine(userId: string, gymId: string, machineId: st
  * Holds the workout's row, as logging a set and finishing do, and checks it's still in progress. So a set can't be
  * logged between the "no sets yet" check and choosing a machine, and nothing changes in a workout that just finished.
  */
-async function lockInProgress(tx: Prisma.TransactionClient, userId: string, sessionId: string) {
+async function lockInProgress(tx: Prisma.TransactionClient, userId: string, sessionId: string): Promise<{ gymLocationId: string | null }> {
   await limitLockWait(tx);
-  const rows = await tx.$queryRaw<{ status: string }[]>`SELECT status::text AS status FROM "WorkoutSession" WHERE id = ${sessionId} AND "userId" = ${userId} FOR UPDATE`;
+  const rows = await tx.$queryRaw<{ status: string; gymLocationId: string | null }[]>`SELECT status::text AS status, "gymLocationId" FROM "WorkoutSession" WHERE id = ${sessionId} AND "userId" = ${userId} FOR UPDATE`;
   if (!rows.length) throw notFound("Workout");
   if (rows[0].status !== "IN_PROGRESS") throw new HttpError(409, "This workout is finished.");
+  return { gymLocationId: rows[0].gymLocationId };
+}
+
+/** A machine for an exercise: this person's, named, at the workout's gym as it is now, and not set up for another exercise. */
+async function usableMachine(tx: Prisma.TransactionClient, userId: string, machineId: string, gymLocationId: string | null, exerciseId: string) {
+  const m = await tx.gymEquipment.findFirst({ where: { id: machineId, userId, name: { not: null } } });
+  if (!m) throw notFound("Machine");
+  if (m.gymId !== gymLocationId) throw new HttpError(409, "That machine is at another gym. Choose this workout's gym first.");
+  if (m.exerciseId && m.exerciseId !== exerciseId) throw new HttpError(409, "That machine is set up for a different exercise.");
 }
 
 async function ownedInProgress(userId: string, sessionId: string) {
@@ -84,23 +112,31 @@ async function ownedInProgress(userId: string, sessionId: string) {
   return s;
 }
 
+/**
+ * The workout's gym, while it's in progress. Not while an exercise in it is on a machine at its current gym: those sets
+ * were done there, and history filtered by gym would otherwise put them at the wrong one.
+ */
 export async function setSessionGym(userId: string, sessionId: string, gymLocationId: string | null) {
   await ownedInProgress(userId, sessionId);
   if (gymLocationId) await getOwnedGym(userId, gymLocationId);
-  return prisma.workoutSession.update({ where: { id: sessionId }, data: { gymLocationId }, select: { id: true, gymLocationId: true } });
+  return prisma.$transaction(async (tx) => {
+    const now = await lockInProgress(tx, userId, sessionId);
+    if (now.gymLocationId !== gymLocationId && (await tx.sessionExercise.count({ where: { sessionId, gymEquipmentId: { not: null } } }))) {
+      throw new HttpError(409, "Some exercises in this workout are on machines at this gym. Clear their machine first, or swap them.");
+    }
+    return tx.workoutSession.update({ where: { id: sessionId }, data: { gymLocationId }, select: { id: true, gymLocationId: true } });
+  }, SHORT);
 }
 
 /** The machine for one exercise in a workout: one of this person's, at the workout's gym; only before any set is logged. */
 export async function setSessionMachine(userId: string, sessionId: string, seId: string, gymEquipmentId: string | null) {
-  const s = await ownedInProgress(userId, sessionId);
-  if (!(await prisma.sessionExercise.findFirst({ where: { id: seId, sessionId }, select: { id: true } }))) throw notFound("Exercise");
-  if (gymEquipmentId) {
-    const m = await prisma.gymEquipment.findFirst({ where: { id: gymEquipmentId, userId, name: { not: null } } });
-    if (!m) throw notFound("Machine");
-    if (m.gymId !== s.gymLocationId) throw new HttpError(409, "That machine is at another gym. Choose this workout's gym first.");
-  }
+  await ownedInProgress(userId, sessionId);
+  const se = await prisma.sessionExercise.findFirst({ where: { id: seId, sessionId }, select: { id: true, exerciseId: true } });
+  if (!se) throw notFound("Exercise");
   return prisma.$transaction(async (tx) => {
-    await lockInProgress(tx, userId, sessionId);
+    // Checked under the workout's lock, so a gym changed at the same moment can't leave a machine from the other one.
+    const now = await lockInProgress(tx, userId, sessionId);
+    if (gymEquipmentId) await usableMachine(tx, userId, gymEquipmentId, now.gymLocationId, se.exerciseId);
     if (await tx.setEntry.count({ where: { sessionExerciseId: seId } })) throw new HttpError(409, "Sets are already logged for this exercise. Swap it instead, so they keep the machine they were done on.");
     return tx.sessionExercise.update({ where: { id: seId }, data: { gymEquipmentId }, select: { id: true, gymEquipmentId: true } });
   }, { maxWait: 5_000, timeout: 15_000 });
@@ -133,14 +169,11 @@ export async function substitute(userId: string, sessionId: string, seId: string
   if (!se) throw notFound("Exercise");
   if (input.exerciseId === se.exerciseId) throw new HttpError(400, "Choose a different exercise.");
   if (!(await prisma.exercise.findFirst({ where: { id: input.exerciseId, ...visibleExercises(userId) }, select: { id: true } }))) throw new HttpError(400, "One or more exercises are unknown");
-  if (input.gymEquipmentId) {
-    const m = await prisma.gymEquipment.findFirst({ where: { id: input.gymEquipmentId, userId, name: { not: null } } });
-    if (!m || m.gymId !== s.gymLocationId) throw new HttpError(409, "That machine isn't at this workout's gym.");
-  }
   const gymEquipmentId = input.gymEquipmentId ?? null;
   return prisma.$transaction(async (tx) => {
     // The workout is held, so two swaps of one exercise can't both pass this check, and a finished workout isn't changed.
-    await lockInProgress(tx, userId, sessionId);
+    const now = await lockInProgress(tx, userId, sessionId);
+    if (gymEquipmentId) await usableMachine(tx, userId, gymEquipmentId, now.gymLocationId, input.exerciseId);
     const earlier = await tx.sessionExercise.findFirst({ where: { substitutesId: se.id }, include: { exercise: true, sets: true } });
     if (earlier) {
       // The same swap sent again (a retry after a lost answer) gets the replacement it made; a different one is refused.
