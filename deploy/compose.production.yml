@@ -21,6 +21,13 @@ services:
       REGISTRATION_ALLOWLIST: ${REGISTRATION_ALLOWLIST:-}
       FDC_API_KEY: ${FDC_API_KEY:-}
       OFF_CONTACT: ${OFF_CONTACT:-}
+      # Only the variables listed here reach the app; the env file alone sets nothing inside the container. Empty
+      # means off. Mail is all three or none, which the startup preflight enforces.
+      MAIL_PROVIDER: ${MAIL_PROVIDER:-}
+      RESEND_API_KEY: ${RESEND_API_KEY:-}
+      MAIL_FROM: ${MAIL_FROM:-}
+      LABEL_OCR: ${LABEL_OCR:-}
+      MEAL_RECOGNITION: ${MEAL_RECOGNITION:-}
     # Reached only by the proxy. Never published on the host.
     expose:
       - "3000"

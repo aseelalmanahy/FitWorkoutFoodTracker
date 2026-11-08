@@ -100,6 +100,18 @@ describe("the environment template", () => {
   it("is the only environment file Git will track here", () => {
     expect(read(".gitignore")).toContain("deploy/production.env");
   });
+  // G1 review: Compose passes only the variables its app service lists, so a setting in the template that isn't
+  // listed there would be silently ignored in production (mail and on-device reading were, before this test).
+  it("every app setting it offers, set or commented out, reaches the app container", () => {
+    const compose = read("deploy/compose.production.yml");
+    const app = compose.slice(compose.indexOf("\n  app:\n"), compose.indexOf("\n  proxy:\n"));
+    const offered = [...raw.matchAll(/^#?\s*([A-Z][A-Z_]+)=/gm)].map((m) => m[1]);
+    const forCompose = new Set(["APP_IMAGE_TAG", "APP_DOMAIN", "MIGRATION_DATABASE_URL", "APP_DATABASE_URL"]);
+    const missing = offered.filter((k) => !forCompose.has(k) && !new RegExp(`\\$\\{${k}[:}]`).test(app));
+    expect(offered).toEqual(expect.arrayContaining(["MAIL_PROVIDER", "RESEND_API_KEY", "MAIL_FROM", "LABEL_OCR", "MEAL_RECOGNITION"]));
+    expect(missing).toEqual([]);
+    expect(app).toMatch(/DATABASE_URL: \$\{APP_DATABASE_URL:\?/);
+  });
 });
 
 describe("the design documents don't claim what isn't true", () => {
