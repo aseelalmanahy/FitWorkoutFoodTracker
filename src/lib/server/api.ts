@@ -1,6 +1,6 @@
 import "server-only";
 import { NextResponse, type NextRequest } from "next/server";
-import { z, ZodError } from "zod";
+import { z, ZodError } from "@/lib/zod";
 import { Prisma } from "@prisma/client";
 import { accessStateFor } from "@/lib/eligibility";
 import { getCurrentUser, type AuthUser } from "./auth";

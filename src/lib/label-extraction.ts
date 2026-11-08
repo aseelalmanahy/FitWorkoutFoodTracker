@@ -9,7 +9,7 @@
  *  - unreadable: it's there but can't be read reliably. Its value is null, never a guess.
  *  - Columns stay separate. Grams and millilitres are never converted into each other.
  */
-import { z } from "zod";
+import { z } from "@/lib/zod";
 import { implausibleNutrients, macroKcal, MAX_SERVING_AMOUNT, MIN_SERVING_AMOUNT, NUTRIENT_KEYS, scaleNutrients, type NutrientKey, type Nutrients } from "./nutrition";
 
 /** A full label is far smaller than this, so anything larger isn't a label reading. */

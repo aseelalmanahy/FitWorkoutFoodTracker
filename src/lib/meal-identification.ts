@@ -5,7 +5,7 @@
  * Separately, nothing reads text as a number: these strings are only shown, or used as a search term
  * a person accepted. So no quantity or nutrition value from a photo can reach a calculation.
  */
-import { z } from "zod";
+import { z } from "@/lib/zod";
 
 export const MAX_IDENTIFICATION_CHARS = 32_000;
 const MAX_ITEMS = 12;

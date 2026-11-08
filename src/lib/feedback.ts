@@ -2,7 +2,7 @@
  * Beta feedback (phase 5): what a person may send, and what an administrator may change. Shared by server and client.
  * Bounded everywhere: no attachments, no device details, a short page path, and at most 2,000 characters of text.
  */
-import { z } from "zod";
+import { z } from "@/lib/zod";
 
 export const FEEDBACK_CATEGORIES = ["BUG", "FEATURE", "IMPROVEMENT", "UX", "GENERAL"] as const;
 export const FEEDBACK_STATUSES = ["NEW", "TRIAGED", "PLANNED", "IN_PROGRESS", "DONE", "DECLINED", "DUPLICATE"] as const;

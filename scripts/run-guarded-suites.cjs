@@ -180,6 +180,8 @@ const SUITES = {
   responsive: () => withApp("responsive", { appEnv: MANY }, ({ url }) => runNode([script("e2e-responsive.cjs")], { BASE_URL: url }, 590_000)),
   // Multi-gym: gyms, equipment, machines, swaps and machine-specific history, through the API.
   "gyms-api": () => withApp("gyms-api", {}, ({ url }) => runNode(nodeTest("gyms-api.test.cjs"), { BASE_URL: url }, 300_000)),
+  // Every page in three engines, under the real CSP: no violation, with a positive control. An administrator, so the review page is included.
+  "csp-e2e": () => { const id = `c${require("node:crypto").randomBytes(12).toString("hex")}`; return withApp("csp-e2e", { appEnv: { ADMIN_USER_IDS: id } }, ({ url }) => runNode([script("e2e-csp.cjs")], { BASE_URL: url, CSP_ADMIN_ID: id }, 590_000)); },
   "gyms-e2e": () => withApp("gyms-e2e", {}, ({ url }) => runNode([script("e2e-gyms.cjs")], { BASE_URL: url }, 590_000)),
   "workout-sets": () => withApp("workout-sets", {}, ({ url }) => runNode(nodeTest("workout-sets.test.cjs"), { BASE_URL: url }, 300_000)),
   "readiness-performance": () => withApp("readiness-performance", {}, ({ url }) => runNode(nodeTest("readiness-performance.test.cjs"), { BASE_URL: url }, 300_000)),

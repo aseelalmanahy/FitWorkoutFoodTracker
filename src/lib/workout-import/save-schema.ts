@@ -3,7 +3,7 @@
  * required where the app needs it (sets and repetitions), so nothing missing from the plan can be saved as if it were
  * there; the person fills it in or removes the exercise. Bounded like the plan editor.
  */
-import { z } from "zod";
+import { z } from "@/lib/zod";
 
 export const MUSCLE_GROUPS = ["CHEST", "BACK", "SHOULDERS", "BICEPS", "TRICEPS", "FOREARMS", "QUADS", "HAMSTRINGS", "GLUTES", "CALVES", "CORE", "FULL_BODY", "OTHER"] as const;
 export const EQUIPMENT = ["BARBELL", "DUMBBELL", "MACHINE", "CABLE", "BODYWEIGHT", "KETTLEBELL", "BAND", "OTHER"] as const;

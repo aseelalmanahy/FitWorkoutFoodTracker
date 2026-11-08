@@ -1,4 +1,4 @@
-import { z } from "zod";
+import { z } from "@/lib/zod";
 import { EQUIPMENT, MUSCLE_GROUPS } from "./labels";
 import { implausibleNutrients, MAX_SERVING_AMOUNT, MIN_SERVING_AMOUNT, PLAUSIBLE_KCAL_PER_100, plausibleMassPer100 } from "./nutrition";
 
