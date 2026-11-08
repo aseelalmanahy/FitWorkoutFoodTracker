@@ -1,5 +1,7 @@
 // Runs the application for hands-on testing, on fitdb_test only, until stopped with Ctrl+C:
 //   node --env-file=.env.test scripts/demo-server.cjs --confirm=fitdb_test
+// A1: --app-dir=<folder> serves another folder's existing production build (for example the UX-01 worktree), with
+// that folder's own Next.js, so its code isn't replaced; it gets this script's checks and loopback-only binding.
 // Needs a production build. It's the same setup the guarded suites use: a production build as a designated local test server,
 // with the local food stub in place of USDA and Open Food Facts, AI features off, and mail going only to a temporary folder.
 // So it calls nothing outside this machine and costs nothing. Registration stays closed, as it would on a real deployment.
@@ -16,7 +18,16 @@ const refuse = (message) => { console.error(`REFUSED (nothing was started): ${me
 
 const args = process.argv.slice(2);
 const portArg = args.find((a) => a.startsWith("--port="));
-if (!args.includes(`--confirm=${TARGET}`) || args.some((a) => a !== `--confirm=${TARGET}` && a !== portArg)) refuse(`use --confirm=${TARGET}, and optionally --port=<number>.`);
+const appDirArg = args.find((a) => a.startsWith("--app-dir="));
+if (!args.includes(`--confirm=${TARGET}`) || args.some((a) => a !== `--confirm=${TARGET}` && a !== portArg && a !== appDirArg)) refuse(`use --confirm=${TARGET}, and optionally --port=<number> and --app-dir=<folder>.`);
+const APP_DIR = appDirArg ? path.resolve(appDirArg.slice("--app-dir=".length)) : ROOT;
+const APP_NEXT_BIN = appDirArg ? path.join(APP_DIR, "node_modules", "next", "dist", "bin", "next") : NEXT_BIN;
+if (appDirArg) {
+  let name = null;
+  try { name = JSON.parse(fs.readFileSync(path.join(APP_DIR, "package.json"), "utf8")).name; } catch { /* refused below */ }
+  if (name !== "fit-workout-food-tracker") refuse("--app-dir must be a folder of this application.");
+  if (!fs.existsSync(APP_NEXT_BIN)) refuse("--app-dir has no installed Next.js.");
+}
 const port = portArg ? Number(portArg.slice("--port=".length)) : 3000;
 if (!Number.isInteger(port) || port < 1024 || port > 65535) refuse("the port must be a number from 1024 to 65535.");
 const envFiles = process.execArgv.filter((a) => a.startsWith("--env-file"));
@@ -26,17 +37,17 @@ const DB = process.env.DATABASE_URL;
 const problems = [databaseUrlProblem(DB), ...environmentProblems(process.env)].filter(Boolean);
 if (problems.length) refuse(problems.map((p) => p.message).join(" | "));
 if (decodeURIComponent(new URL(DB).pathname.slice(1)) !== TARGET) refuse(`DATABASE_URL must name ${TARGET} exactly.`);
-if (!fs.existsSync(path.join(ROOT, ".next", "BUILD_ID"))) refuse("there's no production build. Run the build in docs/MANUAL_UI_TESTING_GUIDE.md first.");
+if (!fs.existsSync(path.join(APP_DIR, ".next", "BUILD_ID"))) refuse("there's no production build. Run the build in docs/MANUAL_UI_TESTING_GUIDE.md first.");
 
 (async () => {
   if (await portInUse(port)) refuse(`port ${port} is already in use. Stop what's using it, or add --port=<number>.`);
   const mailDir = fs.mkdtempSync(path.join(os.tmpdir(), "fit-demo-mail-"));
   const stub = await startStub({});
   // Only this machine can reach it (SEC-01): it holds the demo sign-in and publishes its database identity.
-  const app = spawnNode([NEXT_BIN, "start", "-H", LOOPBACK_HOST, "-p", String(port)], {
+  const app = spawnNode([APP_NEXT_BIN, "start", "-H", LOOPBACK_HOST, "-p", String(port)], {
     DATABASE_URL: DB, FDC_BASE_URL: `${stub.url}/fdc/v1`, OFF_BASE_URL: `${stub.url}/off`, FDC_API_KEY: "stub", EXPOSE_DB_IDENTITY: "1", MAIL_STUB_DIR: mailDir, FIT_LOCAL_TEST_SERVER: "1",
     ANTHROPIC_API_KEY: "", ANTHROPIC_BASE_URL: "", LABEL_EXTRACTION_MODEL: "", MEAL_IDENTIFICATION_MODEL: "", FOOD_RATE_LIMIT_MULTIPLIER: "100",
-  });
+  }, { cwd: APP_DIR });
   let stopping = false;
   const stop = async (code) => {
     if (stopping) return;
@@ -57,5 +68,5 @@ if (!fs.existsSync(path.join(ROOT, ".next", "BUILD_ID"))) refuse("there's no pro
     console.error(`REFUSED: the server couldn't be verified as using ${TARGET}: ${e.message}`);
     return stop(4);
   }
-  console.log(`Running at ${url}, verified on ${TARGET}. Sign-in details are in demo-account.local.md. Press Ctrl+C to stop.`);
+  console.log(`Running at ${url} (127.0.0.1 only) from ${APP_DIR}, verified on ${TARGET}. Sign-in details are in demo-account.local.md. Press Ctrl+C to stop.`);
 })().catch((e) => { console.error(`FAILED: ${String(e.message).slice(0, 200)}`); process.exit(1); });

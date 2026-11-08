@@ -205,6 +205,35 @@ test("demo-account.cjs treats an unreachable database as a failure, and leaves n
   assert.doesNotMatch(r.text, /READY|none:none/);
 });
 
+// A1: serving another folder's build (the UX-01 worktree, the demo copy) without replacing its code.
+test("demo-server.cjs --app-dir refuses a folder that isn't this application, or has no Next.js, before connecting", () => {
+  const other = fs.mkdtempSync(path.join(os.tmpdir(), "fit-appdir-"));
+  try {
+    fs.writeFileSync(path.join(other, "package.json"), JSON.stringify({ name: "something-else" }));
+    let r = run("demo-server.cjs", [...SERVE, `--app-dir=${other}`], CLOSED);
+    assert.equal(r.code, 4, r.text);
+    assert.match(r.text, /--app-dir must be a folder of this application/);
+    fs.writeFileSync(path.join(other, "package.json"), JSON.stringify({ name: "fit-workout-food-tracker" }));
+    r = run("demo-server.cjs", [...SERVE, `--app-dir=${other}`], CLOSED);
+    assert.equal(r.code, 4, r.text);
+    assert.match(r.text, /--app-dir has no installed Next\.js/);
+    const bin = path.join(other, "node_modules", "next", "dist", "bin");
+    fs.mkdirSync(bin, { recursive: true });
+    fs.writeFileSync(path.join(bin, "next"), "");
+    r = run("demo-server.cjs", [...SERVE, `--app-dir=${other}`], CLOSED);
+    assert.equal(r.code, 4, r.text);
+    assert.match(r.text, /there's no production build/, "the build is looked for in that folder, not this one");
+    assert.equal(run("demo-server.cjs", [...SERVE, `--app-dir=${other}`, "--extra"], CLOSED).code, 4, "other arguments are still refused");
+  } finally { fs.rmSync(other, { recursive: true, force: true }); }
+});
+
+test("demo-server.cjs starts the chosen folder's own Next.js, from that folder, on loopback", () => {
+  const code = fs.readFileSync(path.join(__dirname, "demo-server.cjs"), "utf8");
+  assert.match(code, /spawnNode\(\[APP_NEXT_BIN, "start", "-H", LOOPBACK_HOST,/);
+  assert.match(code, /\}, \{ cwd: APP_DIR \}\);/);
+  assert.match(code, /path\.join\(APP_DIR, "\.next", "BUILD_ID"\)/);
+});
+
 test("demo-server.cjs keeps registration closed, AI off and providers stubbed", () => {
   const code = fs.readFileSync(path.join(__dirname, "demo-server.cjs"), "utf8");
   assert.doesNotMatch(code, /FIT_TEST_OPEN_REGISTRATION/, "registration isn't opened");

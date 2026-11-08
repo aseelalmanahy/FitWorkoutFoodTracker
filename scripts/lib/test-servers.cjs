@@ -35,14 +35,14 @@ function portInUse(port) {
 const EXIT_WITH_PARENT = path.join(__dirname, "exit-with-parent.cjs");
 
 /** Spawn `node <args>` (cwd = repo root), tracked for cleanup, ending with this process. NODE_PATH is removed. */
-function spawnNode(args, env = {}, { capture = false } = {}) {
+function spawnNode(args, env = {}, { capture = false, cwd = ROOT } = {}) {
   const e = { ...process.env, ...env, FIT_EXIT_WITH_PARENT: "1" };
   delete e.NODE_PATH;
   // Set by `node --test` for its workers. A nested `node --test` that inherits it runs in
   // child-reporter mode and exits 0 even when tests fail, so never pass it on.
   delete e.NODE_TEST_CONTEXT;
   const child = spawn(process.execPath, ["-r", EXIT_WITH_PARENT, ...args], {
-    cwd: ROOT, env: e,
+    cwd, env: e,
     detached: process.platform !== "win32", // own process group on POSIX, so the whole tree can be killed
     stdio: capture ? ["pipe", "pipe", "pipe"] : ["pipe", "ignore", "ignore"], // stdin: the pipe that ends it with us
     windowsHide: true,

@@ -851,7 +851,8 @@ test("every script that starts the app binds it to loopback, and every server it
   let starts = 0;
   for (const file of files) {
     const source = fs.readFileSync(file, "utf8").replace(/^\s*\/\/.*$/gm, "");
-    for (const m of source.matchAll(/NEXT_BIN,\s*"start",([^\]]*)\]/g)) {
+    // A1: demo-server.cjs can start another folder's build, as APP_NEXT_BIN; it's held to the same rule.
+    for (const m of source.matchAll(/\b(?:APP_)?NEXT_BIN,\s*"start",([^\]]*)\]/g)) {
       starts++;
       if (!/^\s*"-H",\s*(LOOPBACK_HOST|"127\.0\.0\.1")/.test(m[1])) unbound.push(`${path.basename(file)}: next start without -H loopback`);
     }
