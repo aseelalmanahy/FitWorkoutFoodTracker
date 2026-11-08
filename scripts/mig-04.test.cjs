@@ -113,9 +113,10 @@ test("it follows account_tokens with none named between; a later migration (phas
   const at = names.indexOf("20261106150000_body_metrics");
   assert.equal(names[at - 1], "20261106140000_account_tokens");
   const later = names.slice(at + 1);
-  assert.deepEqual(later, ["20261108120000_feedback"], "the only later migration is the reviewed feedback one");
-  // So, on this branch, mig-04.cjs stops just before migrate deploy, which would apply the later one too.
-  assert.match(SOURCE, /return fs\.readdirSync\(path\.join\(ROOT, "prisma", "migrations"\)\)\.filter\(\(d\) => \/\^\\d\{14\}_\/\.test\(d\) && d > MIG\);/);
+  assert.deepEqual(later, ["20261108120000_feedback", "20261109120000_multi_gym"], "the only later migrations are the reviewed feedback and multi-gym ones");
+  // So, on this branch, mig-04.cjs stops just before migrate deploy, which would apply the later ones too. Every
+  // folder counts, whatever its name, as migrate deploy applies any folder with a migration.sql.
+  assert.match(SOURCE, /return fs\.readdirSync\(path\.join\(ROOT, "prisma", "migrations"\), \{ withFileTypes: true \}\)\.filter\(\(e\) => e\.isDirectory\(\) && \(e\.name > MIG \|\| !\/\^\\d\{14\}_\/\.test\(e\.name\)\)\)\.map\(\(e\) => e\.name\);/);
   const deploy = SOURCE.slice(SOURCE.indexOf("deploy: () => {"), SOURCE.indexOf('return prismaCli("migrate", "deploy");'));
   assert.match(deploy, /const later = laterMigrations\(\);\s*if \(later\.length\) stop\(`a later migration is in prisma\/migrations/, "checked inside the deploy step, before deploying");
 });

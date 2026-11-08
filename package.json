@@ -12,7 +12,7 @@
     "lint": "tsc --noEmit",
     "test": "vitest run",
     "db:migrate": "prisma migrate dev",
-    "db:deploy": "prisma migrate deploy",
+    "db:deploy": "node scripts/migrate-approved.cjs",
     "db:seed": "prisma db seed",
     "test:guard": "node --test scripts/test-target-guard.test.cjs",
     "test:guard:browser": "node --test scripts/test-target-guard.browser.test.cjs",

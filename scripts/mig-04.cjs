@@ -198,7 +198,8 @@ async function backup() {
 
 /** migrate deploy applies every pending migration, so MIG-04 must be the newest one here, or another would come too. */
 function laterMigrations() {
-  return fs.readdirSync(path.join(ROOT, "prisma", "migrations")).filter((d) => /^\d{14}_/.test(d) && d > MIG);
+  // Every folder migrate deploy would apply, whatever its name: one not named like a migration counts too.
+  return fs.readdirSync(path.join(ROOT, "prisma", "migrations"), { withFileTypes: true }).filter((e) => e.isDirectory() && (e.name > MIG || !/^\d{14}_/.test(e.name))).map((e) => e.name);
 }
 
 async function apply() {

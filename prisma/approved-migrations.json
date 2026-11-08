@@ -1,5 +1,5 @@
 {
-  "note": "Migrations the owner has approved for databases that keep data: fitdb_review and production. migrate deploy applies every migration in prisma/migrations, so scripts/migrate-approved.cjs and local-db.cjs refuse those databases while any migration here is missing from this list. Disposable test databases are not limited by it. Pending: 20261108120000_feedback (MIG-FB), 20261109120000_multi_gym (MIG-GYM).",
+  "note": "Migrations the owner has approved for databases that keep data: fitdb_review and production, each with the SHA-256 of its migration.sql (line endings normalised) at approval. migrate deploy applies every folder in prisma/migrations, so scripts/migrate-approved.cjs (also npm run db:deploy) and local-db.cjs refuse those databases while any folder is missing from this list or its file no longer matches. Disposable test databases are not limited by it. Pending: 20261108120000_feedback (MIG-FB), 20261109120000_multi_gym (MIG-GYM).",
   "approved": [
     "20261103155557_init",
     "20261103155823_profile_timezone",
@@ -9,5 +9,15 @@
     "20261106130000_nullable_profile_fields",
     "20261106140000_account_tokens",
     "20261106150000_body_metrics"
-  ]
+  ],
+  "sha256": {
+    "20261103155557_init": "284f4a03ae1377b65499cd6a3573c2bab0dd6ca2fcb39074744b3c4917aa4265",
+    "20261103155823_profile_timezone": "b9b8da1215ef1933c4956dd33dd61af133056cf7d54a46e3f826bc4e59eabe36",
+    "20261103164718_nutrition": "76d299715f8ff226b965889605f72668780f79a5c781fbebd09d743d1110f744",
+    "20261103172723_food_origin": "126f14fc6b43a3da63479fdc1bb9dab4eae57f6ece549ffe960fbd6635cfb792",
+    "20261106120000_nullable_nutrition_targets": "ed81ca6f524626d870358f27ab8573b8862741477399afc49a0836e0d03f6c29",
+    "20261106130000_nullable_profile_fields": "c218a1164a4b5801be927536a768c0dcfaaf63b28c027cf1d4d3808322df6aaa",
+    "20261106140000_account_tokens": "dea179274aa866af7922c7f347970eec1a3e41462d6ea261d52ebf403055fa0b",
+    "20261106150000_body_metrics": "b5dd6a4b31dc8717952cef81a67bf42e7b71cc2f3de216d516c5864e5155bbf4"
+  }
 }

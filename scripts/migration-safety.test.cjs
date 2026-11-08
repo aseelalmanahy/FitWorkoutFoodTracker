@@ -65,3 +65,37 @@ test("the multi-gym migration only adds: nullable columns on existing tables, ne
   assert.match(sql, /"GymLocation_userId_fkey"[^;]+ON DELETE CASCADE/);
   assert.match(sql, /CREATE UNIQUE INDEX "GymLocation_userId_name_key"/);
 });
+
+test("any folder prisma would apply counts, whatever its name, and an approved migration edited since approval doesn't pass", () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "fit-approved-"));
+  try {
+    const mig = path.join(root, "prisma", "migrations");
+    const add = (name, sql) => { fs.mkdirSync(path.join(mig, name), { recursive: true }); fs.writeFileSync(path.join(mig, name, "migration.sql"), sql); };
+    add("20260101000000_ok", "CREATE TABLE a (id int);\n");
+    fs.writeFileSync(path.join(mig, "migration_lock.toml"), 'provider = "postgresql"\n');
+    const { sha256 } = require("./lib/approved-migrations.cjs");
+    const list = (hash) => fs.writeFileSync(path.join(root, "prisma", "approved-migrations.json"), JSON.stringify({ approved: ["20260101000000_ok"], sha256: { "20260101000000_ok": hash } }));
+    list(sha256(path.join(mig, "20260101000000_ok", "migration.sql")));
+    assert.deepEqual(unapprovedMigrations(root), [], "approved, unchanged, and the lock file isn't a migration");
+    fs.writeFileSync(path.join(mig, "20260101000000_ok", "migration.sql"), "CREATE TABLE a (id int);\r\n");
+    assert.deepEqual(unapprovedMigrations(root), [], "a Windows checkout's line endings are the same file");
+    add("hotfix_drop_everything", "DROP TABLE a;\n");
+    add("20260102000000-dashed", "SELECT 1;\n");
+    assert.deepEqual(unapprovedMigrations(root), ["20260102000000-dashed", "hotfix_drop_everything"]);
+    fs.rmSync(path.join(mig, "hotfix_drop_everything"), { recursive: true });
+    fs.rmSync(path.join(mig, "20260102000000-dashed"), { recursive: true });
+    fs.writeFileSync(path.join(mig, "20260101000000_ok", "migration.sql"), "CREATE TABLE a (id int);\nDROP TABLE b;\n");
+    assert.deepEqual(unapprovedMigrations(root), ["20260101000000_ok (changed since it was approved)"]);
+    list(undefined);
+    fs.writeFileSync(path.join(mig, "20260101000000_ok", "migration.sql"), "CREATE TABLE a (id int);\n");
+    assert.deepEqual(unapprovedMigrations(root), ["20260101000000_ok (changed since it was approved)"], "no recorded hash: not approved");
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test("every approved migration has its hash recorded, and npm run db:deploy goes through the guard", () => {
+  const list = JSON.parse(fs.readFileSync(path.join(ROOT, "prisma", "approved-migrations.json"), "utf8"));
+  assert.deepEqual(Object.keys(list.sha256).sort(), [...list.approved].sort());
+  const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
+  assert.equal(pkg.scripts["db:deploy"], "node scripts/migrate-approved.cjs");
+  assert.ok(!Object.values(pkg.scripts).some((s) => /migrate deploy/.test(s)), "no script runs migrate deploy unguarded");
+});
