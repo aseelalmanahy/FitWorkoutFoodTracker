@@ -14,4 +14,9 @@ GRANT USAGE ON SCHEMA public TO fit_app;
 ALTER DEFAULT PRIVILEGES FOR ROLE fit_migrator IN SCHEMA public GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO fit_app;
 ALTER DEFAULT PRIVILEGES FOR ROLE fit_migrator IN SCHEMA public GRANT USAGE, SELECT ON SEQUENCES TO fit_app;
 
+-- Those default privileges also reach Prisma's own history table, _prisma_migrations, which the migrator creates on its
+-- first deploy: checked live, fit_app could then forge a migration as applied, or erase one. The app never reads it.
+-- scripts/migrate-approved.cjs (the image's migrate step) removes every other role's access to it after each successful
+-- deploy, as its owner. Run the migrations only through that step.
+
 -- Backups use a separate read-only role, or the provider's own mechanism. See docs/PHASE_4_0_3_BACKUP_RECOVERY.md.
