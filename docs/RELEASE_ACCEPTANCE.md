@@ -91,6 +91,35 @@ For each item: what is being approved, the existing evidence, what is still unve
 - **Owner action:** say "A1 approved", or run the two restarts as in the manual guide.
 - **Pass:** `netstat` shows 3000 and 3001 on 127.0.0.1 only; each serves its own build ID; the demo status is unchanged. **Fail:** either one listens beyond loopback, or the demo account changed.
 
+**A1 status: COMPLETE.** Approved by the owner ("Proceed with A1 only") and carried out on 2026-11-08. Every criterion passed.
+
+**The servers:**
+
+| | 3000 (the demo) | 3001 (the UX-01 preview) |
+|---|---|---|
+| Was | `next start -p 3000` on `::`, every interface, with its food stub on `::`:54220 | `next start -p 3001` on `::`, with its food stub on `::`:62493 |
+| Reachable before on 172.25.64.1, 26.145.70.150 and 192.168.1.207 (the virtual, VPN and home-network adapters) | Yes, 200 on all three | Yes, 200 on all three |
+| Build served | `feature/demo-account` at `6dc45b7`, build `hEG6mXMo4n4mdvD2nCZyO` (from the scratchpad checkout `…\f6d0aefc-…\scratchpad\demo-run`) | `feature/ux-reliability-redesign` at `7daf826`, build `Gi3IYdrQ0T9jFWTcJucAv` (`FitWorkoutFoodTracker-ux`) |
+| Restarted with | From `FitWorkoutFoodTracker-release` (`ca015e5`): `node --env-file=../FitWorkoutFoodTracker/.env.test scripts/demo-server.cjs --confirm=fitdb_test --port=3000 --app-dir=<demo-run>` | The same, with `--port=3001 --app-dir=../FitWorkoutFoodTracker-ux` |
+| Launcher said | "Running at http://localhost:3000 (127.0.0.1 only) … verified on fitdb_test" | "Running at http://localhost:3001 (127.0.0.1 only) … verified on fitdb_test" |
+
+The old processes were stopped by their PIDs: the two launchers (23736 and 50748), their apps (25876 and 42692) and their food stubs (64404 and 31332). Each launcher's children were listed first, so nothing else was touched.
+
+**The checks:**
+
+| Check | Result |
+|---|---|
+| `netstat`, after | `127.0.0.1:3000` (pid 41864), `127.0.0.1:3001` (pid 29596), and the new food stubs on `127.0.0.1:62255` and `127.0.0.1:62259`. **No listener on 3000 or 3001 other than 127.0.0.1**, and nothing on 54220 or 62493 |
+| Reachable on this computer | `/login`: 200 through both `127.0.0.1` and `localhost`, on both ports |
+| Not reachable from elsewhere | 172.25.64.1, 26.145.70.150 and 192.168.1.207 are unreachable on both ports. So is `[::1]` (IPv4 loopback only) |
+| Each serves its own build | 3000: its own build's manifest 200, the other's 404. 3001: its own 200, the other's 404 |
+| Demo status unchanged | `demo-account.cjs --status` (read-only) before and after: identical row counts (profile 1, exercise 1, plans 4, plan entries 20, schedule slots 4, targets 2, foods 17, servings 17, food entries 163, workouts 31, workout exercises 151, sets 518, weight entries 53); its password file present and working |
+| Review servers untouched | `127.0.0.1:3002` (pid 30772) and `127.0.0.1:3003` (pid 14380): the same processes, before and after |
+
+**Notes:**
+- The demo on 3000 is still served from a scratchpad checkout under the temp folder. If that folder is ever deleted, the demo needs rebuilding from a folder of its own; this is outside A1.
+- Rollback is the old commands, which listen on every interface again.
+
 ### A2. Firewall rules
 
 - **What:** `deploy/local-security/A2-firewall.ps1 -Apply -Approval A2`, elevated.
@@ -271,7 +300,7 @@ Simulated phone widths in desktop browsers **don't count** here.
 
 ## Part 5. Order
 
-1. A1, A2, A3, A4
+1. A1 (**COMPLETE**, 2026-11-08), then A2, A3, A4
 2. B2 and B1b
 3. MIG-FB and MIG-GYM: `fitdb_test`, then `fitdb_review`
 4. GYM-ACCEPT and UX-01
