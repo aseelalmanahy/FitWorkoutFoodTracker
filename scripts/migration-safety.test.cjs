@@ -102,15 +102,32 @@ test("every approved migration has its hash recorded, and npm run db:deploy goes
   assert.ok(!Object.values(pkg.scripts).some((s) => /migrate deploy/.test(s)), "no script runs migrate deploy unguarded");
 });
 
-test("after a successful deploy, the migrate step takes away every other role's access to the migration history", () => {
+test("the migrate step protects the migration history before deploying (or applies nothing), and after, whatever the deploy did", () => {
   const src = fs.readFileSync(path.join(__dirname, "migrate-approved.cjs"), "utf8");
-  const deploy = src.indexOf('prisma(["migrate", "deploy"])');
-  const stopOnFailure = src.indexOf("if (deployed.status !== 0) process.exit(");
-  const protect = src.indexOf("prisma([\"db\", \"execute\", \"--stdin\"");
-  assert.ok(deploy > 0 && stopOnFailure > deploy && protect > stopOnFailure, "deploy, stop if it failed, then protect the history");
-  assert.match(src, /REVOKE ALL ON TABLE "_prisma_migrations" FROM PUBLIC/);
-  assert.match(src, /format\('REVOKE ALL ON TABLE "_prisma_migrations" FROM %I', r\.grantee\)/, "every grantee, by name, quoted");
-  assert.match(src, /grantee <> current_user/, "never the migrator itself");
-  assert.doesNotMatch(/const PROTECT_HISTORY = `([^`]+)`/.exec(src)[1], /fit_app|fit_migrator/, "its SQL names no role");
+  const at = (s) => { const i = src.indexOf(s); assert.ok(i > 0, s); return i; };
+  const refusePending = at("if (pending.length)");
+  const before = at("if (!protectHistory(true))");
+  const deploy = at('const deployed = prisma(["migrate", "deploy"]);');
+  const after = at("const protectedAfter = protectHistory(deployed.status !== 0);");
+  const success = at('console.log("Migrations applied; only the migrator can change their history.");');
+  assert.ok(refusePending < before && before < deploy && deploy < after && after < success, "approved?, protected?, deploy, protect again, then success");
+  assert.match(src.slice(before, deploy), /REFUSED \(nothing was applied\)[\s\S]*process\.exit\(4\)/);
+  assert.match(src.slice(after, success), /if \(!protectedAfter\)[\s\S]*process\.exit\(1\)/, "no success message unless protected");
   assert.match(fs.readFileSync(path.join(ROOT, "deploy", "database-roles.sql"), "utf8"), /_prisma_migrations/, "the role template says why");
+});
+
+test("the history SQL fails closed: not on the search path, not the owner, or any grant left afterwards", () => {
+  const { protectHistorySql } = require("./lib/approved-migrations.cjs");
+  const strict = protectHistorySql();
+  const first = protectHistorySql({ missingOk: true });
+  assert.match(strict, /IF t IS NULL THEN\s+RAISE EXCEPTION/, "missing: an error");
+  assert.match(first, /IF t IS NULL THEN\s+RETURN;/, "before the first deploy, missing is fine");
+  for (const sql of [strict, first]) {
+    assert.match(sql, /to_regclass\('_prisma_migrations'\)/, "the table found as the connection sees it, then used schema-qualified");
+    assert.match(sql, /IF owner_name <> current_user THEN\s+RAISE EXCEPTION/, "only the owner can revoke every grant");
+    assert.match(sql, /aclexplode\(c\.relacl\)/, "grants read from the table's own ACL, whatever their grantor");
+    assert.match(sql, /format\('REVOKE ALL ON TABLE %s FROM %I', t, pg_get_userbyid\(r\.grantee\)\)/, "roles quoted as identifiers");
+    assert.match(sql, /IF EXISTS \(SELECT 1 FROM pg_class c, aclexplode\(c\.relacl\) a WHERE c\.oid = t AND a\.grantee <> c\.relowner\) THEN\s+RAISE EXCEPTION/, "anything left: an error");
+    assert.doesNotMatch(sql, /fit_app|fit_migrator/, "names no role");
+  }
 });
