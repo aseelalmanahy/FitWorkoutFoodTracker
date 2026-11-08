@@ -51,7 +51,8 @@
   "notDestinations": {
     "github.com": "Named inside the User-Agent sent to Open Food Facts, and never called",
     "www.w3.org": "An SVG namespace",
-    "localhost": "A development and test default, never a real deployment"
+    "localhost": "A development and test default, never a real deployment",
+    "127.0.0.1": "Evaluation only (D1): src/lib/server/eval/ollama.ts reaches an Ollama on this machine. The app never imports it (a test checks), so no user data goes there"
   },
   "mail": {
     "factory": "src/lib/server/mail/transport.ts",

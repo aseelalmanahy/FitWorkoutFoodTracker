@@ -65,3 +65,14 @@ describe("Ollama evaluation adapter", () => {
     expect(meals).toContain(`const MEAL_USER_PROMPT = ${JSON.stringify(MEAL_USER_PROMPT)};`);
   });
 });
+
+describe("the evaluation code stays out of the app", () => {
+  it("no application file imports src/lib/server/eval, so the inventory's note that it handles no user data holds", async () => {
+    const { readdirSync, statSync } = await import("node:fs");
+    const walk = (d: string): string[] => readdirSync(d).flatMap((n) => { const f = path.join(d, n); return statSync(f).isDirectory() ? walk(f) : [f]; });
+    const app = walk(path.join(process.cwd(), "src")).filter((f) => /\.(ts|tsx)$/.test(f) && !/\.test\.tsx?$/.test(f) && !f.includes(`${path.sep}eval${path.sep}`));
+    const importers = app.filter((f) => /server\/eval\b|["']\.\.?\/eval\//.test(readFileSync(f, "utf8")));
+    expect(app.length).toBeGreaterThan(50);
+    expect(importers).toEqual([]);
+  });
+});
