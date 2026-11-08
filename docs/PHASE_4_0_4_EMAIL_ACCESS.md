@@ -155,6 +155,8 @@ The read-only security agent found no high or medium defect. **It reasoned from 
 | **Risk** | The findings stay open, with the exposure above | Two large changes at once: a failure couldn't be pinned on either |
 | **Evidence needed** | The 4.0.4 suites | All guarded suites and browsers, needing `fitdb_test` either way |
 
+**Resolved at `55a686a` (2026-11-08), without Prisma 7:** an npm override pins `deepmerge-ts` 8.0.2 under `@prisma/config`, the Prisma CLI's config loader and the advisory's only path; `npm audit` reports 0 vulnerabilities (tracker 2j). The original recommendation follows, kept for the record.
+
 **Recommendation: stay on Prisma 6 for now, accept F-11 in writing for development only, and upgrade as its own reviewed change, after MIG-03 and the 4.0.4 suites pass and before F-07's image build and any real user.** The exposure is low and doesn't grow with this work, while the upgrade's risk falls on the code this milestone just made lock-sensitive. With 4.0.4's races proved on Prisma 6, they become the upgrade's regression test.
 
 **Check at that time:** npm's `latest` tag currently points to a release candidate of Prisma 8, so the target should be chosen deliberately, and 7.10.1 is the version audit names. **Nothing was upgraded, and no dependency changed.**

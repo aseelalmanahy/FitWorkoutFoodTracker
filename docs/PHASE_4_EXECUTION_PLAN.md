@@ -171,7 +171,7 @@ Each one is **user-visible or adds a table, so each takes the full cycle:** prod
 | **A6** | Back up and apply MIG-03 to `fitdb_test` only | | **Done,** on the owner's authorization of 2026-11-06 |
 | **A7** | Same for MIG-04 | | **Done,** on the owner's authorization of 2026-11-07, `fitdb_test` only |
 | **A8** | 4.1's scope, Decision 21, `currentWeightKg`, table shape | Before 4.1 | Section 5 |
-| **A9** | F-11: Prisma 7, or accept in writing | Before F-07 and any real user | **The owner kept Prisma 6 for 4.0.4's development verification, which doesn't accept it for production.** Open, for a separate reviewed upgrade |
+| **A9** | F-11: Prisma 7, or accept in writing. **Resolved at `55a686a` without Prisma 7 (an override of `deepmerge-ts`; `npm audit` 0); no acceptance needed** | Before F-07 and any real user | **The owner kept Prisma 6 for 4.0.4's development verification, which doesn't accept it for production.** Open, for a separate reviewed upgrade |
 | **A10** | Decisions 3, 4, 5, 6, 7, 12, 14, 16, 17, 23, and engaging legal and clinical reviewers | Before 4.0.5's final text, deployment and 4.0.6 | Owner's call. Paid services and production resources each need their own approval |
 
 **`fitdb` and `fitdb_test_other` aren't touched by any of this.** B-07, C-08 and T-14 need their own separate decisions.
@@ -187,7 +187,7 @@ Finishing the code leaves these open, and each stays in the tracker until its ow
 | Production and recovery verification | R-07, R-08, R-15, T-16, T-17, F-04 to F-10 |
 | Migrations on other databases | B-07, C-08, plus MIG-03 and MIG-04 on anything beyond `fitdb_test` |
 | Untested or unrun | T-06 to T-10, T-14, T-15, T-18, T-21, R-13 |
-| Accepted or undecided risk | S-02 to S-25, F-11 |
+| Accepted or undecided risk | S-02 to S-25 (F-11 resolved at `55a686a`) |
 | Email | G-03 to G-06 |
 | Owner decisions | D-01 to D-05 |
 | AI, staying off | R-14 |

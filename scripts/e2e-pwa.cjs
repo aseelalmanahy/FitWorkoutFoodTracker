@@ -19,7 +19,8 @@ async function signedIn(browser, label) {
   const email = `pwa${label}x${run}@test.dev`;
   const { user, token } = await createSignedInUser(prisma, email);
   await prisma.profile.create({ data: { userId: user.id, name: `Pwa Person ${run}`, birthDate: new Date("1990-01-01T00:00:00Z"), timezone: "UTC", unitSystem: "METRIC" } });
-  const ctx = await target.guardContext(await browser.newContext({ viewport: { width: 390, height: 844 } }));
+  // This suite tests the service worker itself, so its pages keep the API (see guardBrowserContext).
+  const ctx = await target.guardContext(await browser.newContext({ viewport: { width: 390, height: 844 } }), { serviceWorkers: true });
   await ctx.addCookies([{ name: "fit_session", value: token, url: BASE, httpOnly: true, sameSite: "Lax", secure: false }]);
   return { ctx, page: await ctx.newPage(), email, user };
 }

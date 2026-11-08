@@ -108,10 +108,16 @@ test("the migration is additive, and touches nothing MIG-03 made", () => {
   assert.doesNotMatch(sql, /AccountToken|termsVersion|termsAcceptedAt/);
 });
 
-test("it comes after every other migration, and none is named between", () => {
+test("it follows account_tokens with none named between; a later migration (phase 5's) makes mig-04.cjs refuse before deploying", () => {
   const names = fs.readdirSync(path.dirname(path.dirname(MIGRATION))).filter((d) => /^\d{14}_/.test(d)).sort();
-  assert.equal(names.at(-1), "20261106150000_body_metrics");
-  assert.equal(names.at(-2), "20261106140000_account_tokens");
+  const at = names.indexOf("20261106150000_body_metrics");
+  assert.equal(names[at - 1], "20261106140000_account_tokens");
+  const later = names.slice(at + 1);
+  assert.deepEqual(later, ["20261108120000_feedback"], "the only later migration is the reviewed feedback one");
+  // So, on this branch, mig-04.cjs stops just before migrate deploy, which would apply the later one too.
+  assert.match(SOURCE, /return fs\.readdirSync\(path\.join\(ROOT, "prisma", "migrations"\)\)\.filter\(\(d\) => \/\^\\d\{14\}_\/\.test\(d\) && d > MIG\);/);
+  const deploy = SOURCE.slice(SOURCE.indexOf("deploy: () => {"), SOURCE.indexOf('return prismaCli("migrate", "deploy");'));
+  assert.match(deploy, /const later = laterMigrations\(\);\s*if \(later\.length\) stop\(`a later migration is in prisma\/migrations/, "checked inside the deploy step, before deploying");
 });
 
 test("only apply can change the schema, by migrate deploy alone", () => {

@@ -285,3 +285,25 @@ for (const name of BROWSERS) {
     } finally { await browser.close(); }
   });
 }
+
+// Phase 1: a guarded page has no service worker API unless a suite asks for it, so no worker can route its requests
+// around the guard's route layer and a suite's own request records.
+for (const name of BROWSERS) {
+  test(`${name}: guarded pages get no service worker API unless a suite opts in`, { timeout: 120_000 }, async () => {
+    const browser = await guardedBrowser(name);
+    try {
+      const plain = await browser.newContext();
+      await guardBrowserContext(plain, () => true, policy, () => {});
+      const page = await plain.newPage();
+      await page.goto(`${app.origin}/`);
+      assert.equal(await page.evaluate(() => "serviceWorker" in navigator), false);
+      await closeContext(plain);
+      const opted = await browser.newContext();
+      await guardBrowserContext(opted, () => true, policy, () => {}, { serviceWorkers: true });
+      const page2 = await opted.newPage();
+      await page2.goto(`${app.origin}/`);
+      assert.equal(await page2.evaluate(() => "serviceWorker" in navigator), true, "the API is there when asked for");
+      await closeContext(opted);
+    } finally { await browser.close(); }
+  });
+}

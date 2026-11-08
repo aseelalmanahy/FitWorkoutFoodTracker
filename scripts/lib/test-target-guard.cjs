@@ -306,8 +306,12 @@ function browserRequestAllowed(policy, url) {
  * Aborts forbidden browser requests, including URLs a page obtains dynamically. This is the second
  * layer, and it can't see redirect targets. The proxy from launchOptions() is what stops those.
  */
-async function guardBrowserContext(context, isVerified, policy, onBlocked = () => {}) {
+async function guardBrowserContext(context, isVerified, policy, onBlocked = () => {}, { serviceWorkers = false } = {}) {
   if (!isVerified()) throw new TargetRefused("not_verified", "a browser context was opened before verifyServer() finished.");
+  // Phase 1: once the app's service worker controls a page, its requests pass through the worker, where this route
+  // layer and a suite's own routes and request records can't see them (the proxy still applies). So a guarded page
+  // doesn't get the service worker API, and the app doesn't register one, unless a suite tests the worker itself.
+  if (!serviceWorkers) await context.addInitScript(() => { try { delete Navigator.prototype.serviceWorker; } catch { /* left as is */ } });
   await context.route("**/*", (route) => {
     const url = route.request().url();
     if (browserRequestAllowed(policy, url)) return route.fallback();
@@ -453,7 +457,7 @@ function requireSafeTarget({ env = process.env, exit = process.exit, deps = {}, 
       if (video !== null && (typeof video !== "string" || !/\.y4m$/.test(video) || /[\s"=]/.test(video))) throw new TargetRefused("bad_option", "fakeCamera.video must be a .y4m path with no spaces.");
       return { ...options, args: [...options.args, `--use-fake-device-for-media-stream=device-count=${devices}`, ...(grant ? ["--use-fake-ui-for-media-stream"] : []), ...(video ? [`--use-file-for-fake-video-capture=${video}`] : [])] };
     },
-    guardContext: (context) => guardBrowserContext(context, isVerified, policy, reportBlocked),
+    guardContext: (context, options) => guardBrowserContext(context, isVerified, policy, reportBlocked, options),
   };
 }
 

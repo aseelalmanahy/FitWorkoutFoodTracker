@@ -196,8 +196,17 @@ async function backup() {
   console.log("BACKUP VERIFIED. It hasn't been restored, as restoring needs a database that isn't authorized (T-10).");
 }
 
+/** migrate deploy applies every pending migration, so MIG-04 must be the newest one here, or another would come too. */
+function laterMigrations() {
+  return fs.readdirSync(path.join(ROOT, "prisma", "migrations")).filter((d) => /^\d{14}_/.test(d) && d > MIG);
+}
+
 async function apply() {
-  const r = await applyStep({ ...io, deploy: () => prismaCli("migrate", "deploy") }, Date.now());
+  const r = await applyStep({ ...io, deploy: () => {
+    const later = laterMigrations();
+    if (later.length) stop(`a later migration is in prisma/migrations (${later.join(", ")}): migrate deploy would apply it too. Nothing was applied. Run MIG-04 from a branch where it's the newest.`);
+    return prismaCli("migrate", "deploy");
+  } }, Date.now());
   console.log(r.out.split("\n").filter((l) => /Datasource|migration|applied|Applying|error/i.test(l)).map((l) => `     ${l.trim()}`).join("\n"));
   if (r.code !== 0) stop(`migrate deploy exit ${r.code}. Nothing further was attempted: no reset, no restore. Report it.`);
   console.log("APPLIED. Run verify next.");

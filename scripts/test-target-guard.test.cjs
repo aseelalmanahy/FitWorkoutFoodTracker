@@ -357,9 +357,16 @@ test("same-origin GET redirects are followed, and writes aren't repeated", async
 test("browser requests outside the policy are aborted, and contexts can't open before verification", async () => {
   await rejectsWith(guardBrowserContext({ route: async () => assert.fail("no route") }, () => false, POLICY), "not_verified");
   let handler;
-  const context = { route: async (pattern, fn) => { assert.equal(pattern, "**/*"); handler = fn; } };
+  const scripts = [];
+  const context = { route: async (pattern, fn) => { assert.equal(pattern, "**/*"); handler = fn; }, addInitScript: async (fn) => { scripts.push(String(fn)); } };
   const blocked = [];
   assert.equal(await guardBrowserContext(context, () => true, POLICY, (u) => blocked.push(u)), context);
+  // Phase 1: a guarded page gets no service worker API, so no worker can route requests past this layer.
+  assert.equal(scripts.length, 1);
+  assert.match(scripts[0], /delete Navigator.prototype.serviceWorker/);
+  const opted = [];
+  await guardBrowserContext({ route: async () => {}, addInitScript: async (fn) => { opted.push(fn); } }, () => true, POLICY, () => {}, { serviceWorkers: true });
+  assert.equal(opted.length, 0, "only a suite that tests the worker keeps it");
   const visit = (url) => {
     const seen = [];
     handler({ request: () => ({ url: () => url }), fallback: () => seen.push("allowed"), abort: () => seen.push("aborted") });

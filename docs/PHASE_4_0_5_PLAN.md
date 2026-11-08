@@ -240,4 +240,4 @@ Every one stays in the tracker, and the tracker wins if this list differs.
 | Databases | B-07, C-08, and MIG-03 beyond `fitdb_test` |
 | Tests | T-14, T-15, T-18, T-21, R-13 |
 | Risks | S-19 to S-25 |
-| Dependency | F-11, not accepted for production |
+| Dependency | F-11, not accepted for production. **Resolved at `55a686a`: `deepmerge-ts` overridden, `npm audit` 0** |
