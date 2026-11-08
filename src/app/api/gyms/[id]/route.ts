@@ -1,5 +1,5 @@
 import { route, parseBody } from "@/lib/server/api";
-import { gymSchema } from "@/lib/gyms";
+import { gymSchema } from "@/lib/gym-schemas";
 import { getOwnedGym, renameGym } from "@/lib/server/gyms";
 
 export const GET = route<{ id: string }>(async (_req, { user, params }) => ({ gym: await getOwnedGym(user.id, params.id) }));

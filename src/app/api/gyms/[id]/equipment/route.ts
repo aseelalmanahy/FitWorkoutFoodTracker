@@ -1,5 +1,5 @@
 import { route, parseBody } from "@/lib/server/api";
-import { gymEquipmentSchema, machineSchema } from "@/lib/gyms";
+import { gymEquipmentSchema, machineSchema } from "@/lib/gym-schemas";
 import { addMachine, setGymKinds } from "@/lib/server/gyms";
 
 /** PUT: the kinds of equipment this gym has. POST: one named machine. */
