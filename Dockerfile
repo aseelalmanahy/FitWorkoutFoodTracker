@@ -28,6 +28,13 @@ COPY --from=build /app/.next ./.next
 # next.config.ts is read at startup, with the one module it imports.
 COPY next.config.ts ./
 COPY src/lib/security-headers.ts ./src/lib/security-headers.ts
+# On-device meal suggestions (MEAL_RECOGNITION=local) need the pinned model in the image, as the filesystem is
+# read-only and the app never downloads. Opt in with --build-arg WITH_MEAL_MODEL=1. Every file is checked against its
+# recorded SHA-256, and the startup preflight refuses MEAL_RECOGNITION=local without them. UNTESTED: no Docker daemon.
+ARG WITH_MEAL_MODEL=0
+COPY scripts/meal-model-fetch.cjs ./scripts/meal-model-fetch.cjs
+COPY src/lib/server/meals/local-model.json ./src/lib/server/meals/local-model.json
+RUN if [ "$WITH_MEAL_MODEL" = "1" ]; then node scripts/meal-model-fetch.cjs; fi
 USER node
 EXPOSE 3000
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 CMD ["node", "-e", "fetch('http://127.0.0.1:3000/api/health').then((r)=>process.exit(r.ok?0:1),()=>process.exit(1))"]

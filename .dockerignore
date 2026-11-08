@@ -11,3 +11,7 @@ node_modules
 docs
 .mail-outbox
 live-provider-report.json
+
+# Local account passwords (review, demo) and downloaded models and evaluation photos: never in any image layer.
+*.local.md
+.cache

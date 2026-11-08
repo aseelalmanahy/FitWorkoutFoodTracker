@@ -87,7 +87,8 @@ describe("identifications", () => {
     expect(r.status).toBe(200);
     expect(r.headers.get("cache-control")).toBe("no-store");
     const body = await r.json();
-    expect(Object.keys(body).sort()).toEqual(["identification", "identifierId", "notice", "verified"]);
+    expect(Object.keys(body).sort()).toEqual(["identification", "identifierId", "notice", "processing", "verified"]);
+    expect(body.processing).toBe("provider"); // RC-07: where it was actually read, by kind only
     expect(body.verified).toBe(false);
     expect(body.notice).toMatch(/^Unverified/);
     expect(body.identification.items[0].name).toBe("white rice");

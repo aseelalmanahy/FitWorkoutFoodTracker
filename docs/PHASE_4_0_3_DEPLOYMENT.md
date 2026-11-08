@@ -132,11 +132,11 @@ The design's minimum, with no vendor chosen:
 | `LABEL_OCR` | `local` | Nothing extra: tesseract.js and its English data are npm dependencies | Any other value |
 | `MEAL_RECOGNITION` | `local` | The pinned model files in `.cache/models` (about 150 MB), fetched once by `node scripts/meal-model-fetch.cjs` and checked against `src/lib/server/meals/local-model.json` | Any other value; a missing file; a file whose SHA-256 differs |
 
-**What the image would need, untested as no Docker daemon was available:**
+**What the image needs, still untested as no Docker daemon was available:**
 
-1. In the runner stage, the model files: copy `scripts/meal-model-fetch.cjs` and `src/lib/server/meals/local-model.json`, then `RUN node scripts/meal-model-fetch.cjs` as root before `USER node`, so they're in the image and the read-only filesystem never needs to write them. The app never downloads at run time (`allowRemoteModels` is off).
+1. The model files: the Dockerfile now has an opt-in step, `--build-arg WITH_MEAL_MODEL=1`, that fetches them into the image as root before `USER node` and checks every SHA-256, so the read-only filesystem never needs to write them. The app never downloads at run time (`allowRemoteModels` is off). `.dockerignore` keeps the local `.cache` and every `*.local.md` password file out of all layers.
 2. `onnxruntime-node` runs from prebuilt binaries in its package: on this Windows machine the model loaded with install scripts turned off. Confirm the same on Linux x64 in the image. Measure the image size: transformers.js and its runtime add roughly 380 MB of packages on Windows.
-3. Memory: the app's 1.5 GB limit was sized before on-device recognition. The OCR worker and the meal model stay loaded once used. **Unmeasured on Linux**; measure peak memory with a label scan, a meal photo and an export at once before choosing the limit.
+3. Memory: the app's 1.5 GB limit was sized before on-device recognition. Measured on the Windows development PC only (`scripts/measure-recognition.cjs`): 181 MB at start, 267 MB with the OCR loaded, about 800 MB with the meal model loaded too; first requests 430 ms (label) and 741 ms (meal), then 274 ms and 92 ms. An export peaked near 700 MB earlier. **Unmeasured on Linux**; run the same script in the image before choosing the limit, which is likely too small with meal recognition on.
 
 **Images are never stored,** for labels or meals: the upload is validated, a clean copy is read in memory, and nothing is written to disk or the database. So there's no private image storage to provision, encrypt or delete. If progress photos are ever built (product backlog), that changes.
 

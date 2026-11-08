@@ -90,7 +90,8 @@ describe("valid labels", () => {
     expect(r.status).toBe(200);
     expect(r.headers.get("cache-control")).toBe("no-store");
     const body = await r.json();
-    expect(Object.keys(body).sort()).toEqual(["extraction", "extractorId", "flags", "imageSha256", "notice", "verified"]);
+    expect(Object.keys(body).sort()).toEqual(["extraction", "extractorId", "flags", "imageSha256", "notice", "processing", "verified"]);
+    expect(body.processing).toBe("provider"); // RC-07: where it was actually read, by kind only
     expect(body.verified).toBe(false);
     expect(body.notice).toMatch(/^Unverified/);
     expect(body.extraction).toEqual(goodLabel());

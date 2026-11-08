@@ -332,15 +332,15 @@
 | FOOD-04 | VERIFIED — FUNCTIONAL | Barcodes and servings (earlier phases) | Live: two real barcodes found with their values, a made-up one found nothing; a household serving logged correctly | None | None |
 | EMAIL-01 | BLOCKED — EXTERNAL DEPENDENCY | Resend transport, refused at startup unless fully configured | Unit tests with a fake network only | A Resend account, key and verified domain: group C | **No email has ever been sent** |
 | EMAIL-02 | VERIFIED — FUNCTIONAL | Reset by emailed, single-use, expiring, hashed token | `account-tokens` 32 of 32: expiry, single use, sessions ended, same answer for known and unknown addresses (also when the provider fails, as sending happens after the answer), 60 s resend limit, hashes only. Mail written to a local folder | Real delivery: EMAIL-01 | A real inbox and link (journey G) |
-| AI-01 | IN PROGRESS | On-device reading, read twice, kept only where both agree; light-on-dark inverted; six languages | Clean labels: journey D passed; 13 generated variations, 11 fully read, none wrong. **Real packets: 21 Open Food Facts photos, 9 recognized, 5 values read, none wrong** | The owner's own photos; group D for a vision model | **Useful real-photo reading isn't achieved on-device** (RC-03) |
-| AI-02 | VERIFIED — FUNCTIONAL | On-device main-dish suggestions (CLIP ViT-B/32, pinned, hash-checked), in the existing review flow | 35 labelled Commons photos: right food first 23 (66%), among three 30 (86%); journey E passed (real photo to logged entry) | Several foods per photo: group D | Multi-item meals; the owner's own photos |
+| AI-01 | IN PROGRESS | On-device reading, read twice, kept only where both agree; light-on-dark inverted; six languages. The screens say truly where it's read (RC-07) | Clean, flat, printed labels: journey D passed; 13 generated variations, 11 fully read, none wrong. **Baseline on real packets: 21 Open Food Facts photos, 9 recognized as labels, 5 values read, none wrong.** Not accurate for arbitrary labels | The owner's own photos; group D | **Useful real-photo reading isn't achieved on-device** (RC-03); acceptance tests below |
+| AI-02 | IN PROGRESS | On-device main-dish suggestions (CLIP ViT-B/32, pinned, hash-checked), in the existing review flow; the screens say truly where it's read (RC-07) | **Baseline: 35 labelled Commons photos of single foods, right food first 23 (66%), among three 30 (86%). One main dish only.** Journey E passed (real photo to logged entry). Not accurate for arbitrary meals: multi-food plates and mixed meals are unmeasured and unsupported | Several foods per photo: group D | Multi-food plates, mixed meals, low light; acceptance tests below |
 | MOBILE-01 | BLOCKED — EXTERNAL DEPENDENCY | App side: the review mode serves a private tailnet https name (`--origin`), exactly matched | WebKit at phone size through a local HTTPS stand-in: sign-in, Secure HttpOnly session kept, saving through the origin check, HSTS, camera-or-library photo inputs | The owner's iPhone; Tailscale: group E | Physical Safari, camera, HEIC conversion |
 | MOBILE-02 | BLOCKED — EXTERNAL DEPENDENCY | As MOBILE-01 | Layouts at 390 px in three engines | The owner's Android phone; group E | Physical Chrome, camera |
 | DEPLOY-01 | BLOCKED — OWNER AUTHORIZATION | Templates from 4.0.3, plus this branch's settings (`PHASE_4_0_3_DEPLOYMENT.md`) | No image built (no Docker daemon) | Decisions 4, 5, 14: group G | Everything operational |
 | DEPLOY-02 | BLOCKED — OWNER AUTHORIZATION | Startup refuses weak or partial settings, including mail, `LABEL_OCR`, `MEAL_RECOGNITION` and missing model files | Unit tests | A domain and host: group G | Certificates, real HTTPS |
 | DEPLOY-03 | IMPLEMENTED — UNVERIFIED | A verified backup of `fitdb_review`; `restore-check.cjs` ready | Backup read back by `pg_restore --list`; the check's refusals tested | A scratch database: group B2 | **No restore has been performed** |
 | DEPLOY-04 | BLOCKED — OWNER AUTHORIZATION | Health check, rollback runbook (4.0.3) | Health route exists | A deployed server: group G | Monitoring |
-| QA-01 | IN PROGRESS | 44 suites, plus `server-lifecycle` (45) | At `905c47c`, 2026-11-07, one run, no retries: **45 of 45 run suites passed** (552 node test cases, plus the browser suites' own checks in Chromium, Firefox and WebKit); Vitest 2,185 of 2,185; type check and production build clean. Excluded, not failed: `safety-no-marker`, `db-guard-scoped` (QA-04). The earlier 42 of 44 was `nutrition-api` (a test assuming provider order, fixed) and `label-scan` (RC-04); both pass here | QA-04 | `safety-no-marker`, `db-guard-scoped` |
+| QA-01 | IN PROGRESS | 44 suites, plus `server-lifecycle` and `label-local` (46) | **Latest complete run, at `b77a7db` (the RC-07 fix), 2026-11-08: 46 of 46 run suites passed**, one run, no retries; type check clean. Its unit run had 2 failures of 2,195: two route tests that list the exact response keys, which RC-07 added to (`processing`); updated to expect and check it, then **2,195 of 2,195** with the type check clean. Changed after that run: those two tests, the Dockerfile, `.dockerignore`, `deploy/production.env.example` and documents, none of which the guarded suites run. Previous complete run: 45 of 45 at `905c47c`. Excluded, not failed: `safety-no-marker`, `db-guard-scoped` (QA-04). Open: RC-08 | QA-04 | `safety-no-marker`, `db-guard-scoped` |
 | QA-02 | IN PROGRESS | Journeys A to I | See the journeys below: A, B, C, D, E, F and I pass on the final candidate; G and H blocked | E multi-item: D; G: C; H: E | G and H |
 | QA-03 | VERIFIED — FUNCTIONAL | Firefox teardown and navigation races handled, only those exact errors | Firefox `guard-browser` 8 of 8, and every full run since | None | None |
 | QA-04 | BLOCKED — OWNER AUTHORIZATION | Approach prepared: group B1 | No | Owner, a new test database | Neither suite has run on recent code (T-14) |
@@ -359,8 +359,50 @@
 | RC-01 | USDA "bread" ranks flavoured breads (fruit, naan, zucchini) before white or whole-wheat bread; nothing in the records marks the everyday variety | P3 |
 | RC-03 | On-device label reading fills in few values on real packet photos (5 values from 21 photos; none wrong) | P2 |
 | RC-05 | The meal model names one main dish; other foods on a plate must be added by hand, and a small item on a large plate can be taken for no food | P3 |
-| RC-06 | The production image hasn't been built with the on-device models, and peak memory with them loaded is unmeasured on Linux | P2 |
-| RC-07 | With on-device label reading, the review screen still tags values "Read by AI" and its footer says scanning "sends the image to the AI provider". Neither is true for `LABEL_OCR=local`: nothing leaves the PC. The screen needs the reader's id to word both correctly | P2 |
+| RC-06 | The production image has never been built. The model step is now in the Dockerfile (opt-in) and the settings in the template, but nothing is verified on Linux. Measured on this Windows PC only, below | P2 |
+| RC-07 | **Fixed** at `b77a7db`: the label and meal screens now say where the image is actually read (this server, the provider, or a PDF's own text), and tag values accordingly. Unit tests, `label-scan` (provider wording) and the new `label-local` suite (on-device wording, three browsers) | Closed |
+| RC-08 | `label-pdf` failed once in 4 runs at `b77a7db`: after two passing steps, the PDF's page view didn't appear within 30 s, with nothing else running. The same signature as RC-04's stalls, so RC-04's cause (CPU starvation) doesn't explain every case. Not reproduced in 3 reruns; no trace yet, as `label-pdf` doesn't record one. Open | P2 |
+
+**AI baselines, recorded 2026-11-07, for comparing any stronger approach on the same inputs.** Neither on-device feature is accurate for arbitrary labels or meals.
+
+| Feature | Input set | Baseline |
+|---|---|---|
+| Label reading (on-device OCR) | 21 real packet photos, Open Food Facts (`src/lib/server/labels/eval/off-photos.json`) | 9 recognized as nutrition labels; 5 values read; 0 wrong |
+| Label reading | 13 generated variations (`local-ocr.test.ts`) | 11 fully read; heavy blur and dim light nothing kept; 0 wrong |
+| Meal suggestions (CLIP ViT-B/32) | 35 single-food photos, Wikimedia Commons (`src/lib/server/meals/eval/commons-photos.json`) | right food first 23 (66%); among three 30 (86%); one main dish only |
+
+**Acceptance tests a stronger model must pass before it's adopted** (proposed thresholds, for the owner to confirm; measured on fixed, recorded sets, each photo checked by a person):
+
+| # | Test | Set | Must achieve |
+|---|---|---|---|
+| L1 | Real packets | The 21 Open Food Facts photos, plus 20 of the owner's own | At least 80% recognized as labels; at least 70% of printed calories, protein, carbohydrate and fat read; **0 values that differ from the label** |
+| L2 | Glossy packaging | 10 photos with glare | At least 60% of those values read; 0 wrong |
+| L3 | Curved labels | 10 photos of bottles, tubs, wrappers | At least 60% read; 0 wrong |
+| L4 | Low light | 10 photos in dim light | At least 50% read, the rest left empty with a reason; 0 wrong |
+| L5 | Multilingual and two-column labels | 10 European labels | The per-100 g and per-serving columns never mixed; 0 wrong |
+| M1 | Single dishes | The 35 Commons photos | Right food first at least 85%, among three at least 95% |
+| M2 | Multi-food plates | 20 plates of 2 to 5 foods, each food listed by a person | At least 80% of the foods found, at least 80% of suggestions correct, each food a separate item |
+| M3 | Mixed meals | 15 stews, salads, bowls, sandwiches | The dish named, and at least half the visible components offered as possible ingredients |
+| M4 | Low-light meals | 10 photos | At least 70% right among three, or "unknown"; never "likely" when wrong |
+| M5 | No food | 10 photos of documents, rooms, people | "No food" in at least 9 |
+| G1 | Every test | All of the above | Every output accepted by the schema; no amount, weight, calorie or nutrient anywhere; every value and item correctable by the person |
+| G2 | Speed and size | On the target server | Under 10 s per label and 5 s per meal photo at the 95th percentile; memory within the deployment budget |
+| G3 | Privacy | All | Local: no network request while reading. Provider: only the cleaned image sent, as the notice says |
+
+**Memory and time, measured on this PC only** (Windows 11, i9-14900K, Node 24.21.0; `node scripts/measure-recognition.cjs --port=3003 --account=<review-tester-1.local.md>` on a freshly started candidate; Linux unmeasured):
+
+| Step | Request ms | Memory MB | Peak MB |
+|---|---|---|---|
+| Fresh server, before any request | | 181 | 336 |
+| After sign-in | 72 | 203 | 336 |
+| First label scan (loads the OCR) | 430 | 267 | 336 |
+| Second label scan | 274 | 260 | 336 |
+| First meal photo (loads the model) | 741 | 789 | 789 |
+| Second meal photo | 92 | 803 | 803 |
+
+With both loaded the server held about 0.8 GB. The image's 1.5 GB limit also has to hold an export, which peaked at about 700 MB earlier (S-13): **1.5 GB is likely too little with on-device meal recognition on; measure on Linux before choosing the limit.**
+
+**Production image readiness:** OCR language data is an npm dependency, installed by the runner's `npm ci`. Native modules (sharp, onnxruntime-node, argon2) come from npm's per-platform packages, never installed on Linux here. The meal model is now an opt-in Dockerfile step (`--build-arg WITH_MEAL_MODEL=1`), checked against its hashes. The new settings are in `deploy/production.env.example`. `.dockerignore` now keeps `*.local.md` (local passwords) and `.cache` (models, evaluation photos) out of every layer; before, the build stage's `COPY . .` would have taken them in. **No image has been built or run: no Docker daemon was available.**
 
 **Owner approvals needed, consolidated.** Each item is separate: approving one approves nothing else, and nothing here has been done. "You" is the owner; every command is for you to run, or to authorize by name.
 
@@ -409,7 +451,7 @@
 | 9. Verify | The message arrives at the approved mailbox; its link sets a new password once; a second use is refused; sign-in works |
 | 10. Rollback | Remove the three settings (mail stops, nothing else changes); revoke the key; remove the DNS records |
 
-### D. AI recognition provider (decide whether one is needed)
+### D. A stronger vision model: evaluate first, adopt only if it passes the acceptance tests above
 
 On-device reading now covers clean labels and the main dish of a meal, at no cost and with nothing leaving this PC. It doesn't read most real packets, or several foods on a plate. Two ways to close that, or neither:
 
@@ -422,7 +464,7 @@ On-device reading now covers clean labels and the main dish of a meal, at no cos
 | 5. Security | A local listener (loopback only) | An API key, kept out of Git |
 | 6. Privacy | Photos never leave this PC | **Photos are sent to Anthropic.** The notice and data inventory say so |
 | 7. Downtime | None | None |
-| 8. Procedure | After approval: install, pull the model, measure accuracy on the same 35 meal photos and 21 label photos, then integrate | After approval: set the values with a spending limit; measure on the same photos |
+| 8. Procedure | After approval: install, pull the model, run the acceptance tests above beside the baselines, then integrate only if they pass | After approval: set the values with a spending limit; run the same acceptance tests |
 | 9. Verify | The same benchmarks, beside today's numbers | The same benchmarks |
 | 10. Rollback | Uninstall; the on-device features stay | Remove the settings; on-device features take over |
 
