@@ -6,16 +6,21 @@ import { createStableReader, productCode } from "@/lib/barcode";
 import { getBarcodeDetector, detectInImage } from "@/lib/client/barcode-detect";
 import { hasNoNutrition, missingText, recordOrigin } from "@/lib/food-provenance";
 import { fmtG, fmtKcal } from "@/lib/nutrition";
-import type { FoodDto } from "@/lib/server/foods/service";
+import type { FoodDto, SearchResponse } from "@/lib/server/foods/service";
+import { localTestNotice, MIN_EXTERNAL_QUERY_LENGTH, searchPath } from "@/lib/food-search-view";
+import { packageQuery, rankCandidates, type Candidate } from "@/lib/package-match";
 import { Button, Card, ErrorText, Field, Input, Select } from "@/components/ui";
+
+type Matches = { state: "searching" } | { state: "done"; query: string; items: Candidate[]; testNotice: string | null; errors: string[] };
 
 type Phase =
   | { kind: "camera" }
   | { kind: "looking"; code: string }
-  | { kind: "found"; code: string; food: FoodDto }
+  | { kind: "found"; code: string; food: FoodDto; fromWords?: string[] }
   | { kind: "unknown"; code: string }
   | { kind: "reading" }
   | { kind: "words"; lines: string[] }
+  | { kind: "resolving"; lines: string[]; name: string }
   | { kind: "manual" };
 
 const CAMERA_HELP: Record<string, string> = {
@@ -30,8 +35,11 @@ const CAMERA_HELP: Record<string, string> = {
  * existing barcode lookup, and show what was found for the person to confirm. Frames never leave the device; only
  * the digits are sent. Nothing is logged here: a confirmed product goes to the usual amount-and-meal sheet.
  *
- * Phase 4: a photo of a package with no readable barcode is read for its words, on this app's server, and the person
- * chooses or edits what to search for; only then is the usual food search run. Its words never become values.
+ * Phase 4: a photo of a package with no readable barcode is read for its words, on this app's server. Those words
+ * (brand and name) are then searched once with the usual food search, Open Food Facts, USDA and the person's own foods,
+ * and the closest records are offered, each with its source. Nothing is logged until the person confirms one and
+ * chooses an amount. Its words never become values: a record's nutrition is the provider's, as it came. The person can
+ * edit the words and search again, open the full search, scan the label, or create a food.
  */
 export function BarcodeScan({ onConfirm, onCreate, onSearch, onClose }: { onConfirm: (food: FoodDto) => void; onCreate: (code: string) => void; onSearch: (query: string) => void; onClose: () => void }) {
   const video = useRef<HTMLVideoElement>(null);
@@ -43,6 +51,8 @@ export function BarcodeScan({ onConfirm, onCreate, onSearch, onClose }: { onConf
   const [typed, setTyped] = useState("");
   const [query, setQuery] = useState("");
   const [engine, setEngine] = useState<string | null>(null);
+  const [matches, setMatches] = useState<Matches | null>(null);
+  const searchId = useRef(0);
 
   const stop = () => { stream.current?.getTracks().forEach((t) => t.stop()); stream.current = null; };
 
@@ -100,6 +110,34 @@ export function BarcodeScan({ onConfirm, onCreate, onSearch, onClose }: { onConf
 
   useEffect(() => () => stop(), []);
 
+  /** One search of the approved sources, for words the person can see; a later search replaces an earlier one. */
+  async function findMatches(q: string, lines: string[]) {
+    const id = ++searchId.current;
+    if (q.trim().length < MIN_EXTERNAL_QUERY_LENGTH) { setMatches(null); return; }
+    setMatches({ state: "searching" });
+    try {
+      const r = await api<SearchResponse>("GET", searchPath(q, "ALL"));
+      if (id === searchId.current) setMatches({ state: "done", query: q.trim(), items: rankCandidates(r, lines), testNotice: localTestNotice(r.localTestSources ?? []), errors: r.errors.map((e) => e.message) });
+    } catch (e) {
+      if (id === searchId.current) setMatches({ state: "done", query: q.trim(), items: [], testNotice: null, errors: [e instanceof ApiError ? e.message : "The search failed. Try again."] });
+    }
+  }
+
+  /** The record behind a candidate, cached as structured food, for the person to confirm. Nothing is logged here. */
+  async function choose(c: Candidate, lines: string[]) {
+    setMessage(null);
+    setPhase({ kind: "resolving", lines, name: c.name });
+    try {
+      const { food } = c.foodId && c.source === "CUSTOM"
+        ? await api<{ food: FoodDto }>("GET", `/api/foods/${c.foodId}`)
+        : await api<{ food: FoodDto }>("POST", "/api/foods/resolve", { source: c.source, sourceId: c.sourceId });
+      setPhase({ kind: "found", code: "", food, fromWords: lines });
+    } catch (e) {
+      setMessage(e instanceof ApiError ? e.message : "That record couldn't be loaded. Choose another, or search by name.");
+      setPhase({ kind: "words", lines });
+    }
+  }
+
   async function fromPhoto(file: File | undefined) {
     if (!file) return;
     setMessage(null);
@@ -113,8 +151,10 @@ export function BarcodeScan({ onConfirm, onCreate, onSearch, onClose }: { onConf
       const body = await res.json().catch(() => ({}));
       if (!res.ok) { setMessage(body.error ?? "The photo couldn't be read. Search by name instead."); setPhase({ kind: "manual" }); return; }
       const lines: string[] = Array.isArray(body.lines) ? body.lines : [];
-      setQuery(lines.slice(0, 2).join(" ").slice(0, 60));
+      const first = packageQuery(lines);
+      setQuery(first);
       setPhase({ kind: "words", lines });
+      if (lines.length) await findMatches(first, lines);
     } catch {
       setMessage("That photo couldn't be read. Try another, or type the barcode.");
       setPhase({ kind: "manual" });
@@ -152,7 +192,7 @@ export function BarcodeScan({ onConfirm, onCreate, onSearch, onClose }: { onConf
 
       {phase.kind === "found" && (
         <Card className="space-y-2 p-4" data-testid="barcode-found">
-          <p className="text-sm text-muted">Is this your product? Barcode {phase.code}</p>
+          <p className="text-sm text-muted" data-testid="found-how">{phase.fromWords ? "Is this your product? Matched by the words on your photo: check it against the package." : `Is this your product? Barcode ${phase.code}`}</p>
           <p className="text-lg font-semibold">{phase.food.name}</p>
           {phase.food.brand && <p className="text-sm">{phase.food.brand}</p>}
           <p className="text-[11px] text-muted" data-testid="barcode-source">{recordOrigin(phase.food).badge}</p>
@@ -162,7 +202,9 @@ export function BarcodeScan({ onConfirm, onCreate, onSearch, onClose }: { onConf
             ? <p className="text-sm text-down" data-testid="barcode-no-nutrition">This record has no nutrition values, so it can&apos;t be logged. You can create your own food with this barcode.</p>
             : <Button onClick={() => onConfirm(phase.food)} data-testid="barcode-confirm">Yes, choose an amount</Button>}
           <div className="flex flex-wrap gap-2">
-            <Button variant="secondary" size="sm" onClick={() => setPhase({ kind: "camera" })}>No, scan again</Button>
+            {phase.fromWords
+              ? <Button variant="secondary" size="sm" onClick={() => setPhase({ kind: "words", lines: phase.fromWords! })} data-testid="found-back">No, show the other matches</Button>
+              : <Button variant="secondary" size="sm" onClick={() => setPhase({ kind: "camera" })}>No, scan again</Button>}
             <Button variant="ghost" size="sm" onClick={() => onCreate(phase.code)}>Create my own food</Button>
           </div>
         </Card>
@@ -180,6 +222,7 @@ export function BarcodeScan({ onConfirm, onCreate, onSearch, onClose }: { onConf
       )}
 
       {phase.kind === "reading" && <p role="status" data-testid="package-reading">Reading the words on the package…</p>}
+      {phase.kind === "resolving" && <p role="status" data-testid="package-resolving">Loading {phase.name}…</p>}
 
       {phase.kind === "words" && (
         <Card className="space-y-3 p-4" data-testid="package-words">
@@ -187,7 +230,7 @@ export function BarcodeScan({ onConfirm, onCreate, onSearch, onClose }: { onConf
             <p className="text-sm">No barcode and no clear words could be read from that photo. Search by name, scan the nutrition label, or create your own food.</p>
           ) : (
             <>
-              <p className="text-sm text-muted">No barcode was found. These words were read from the package: tap the ones that name it, then search. Nothing is looked up until you do.</p>
+              <p className="text-sm text-muted">No barcode was found. These words were read from the package. They were searched for below; tap others to change the search.</p>
               <div className="flex flex-wrap gap-1.5">
                 {phase.lines.map((l) => (
                   <button key={l} type="button" className="rounded-full bg-surface-2 px-3 py-1 text-sm" data-testid="package-word"
@@ -199,8 +242,32 @@ export function BarcodeScan({ onConfirm, onCreate, onSearch, onClose }: { onConf
           <Field label="Search for">
             <Input value={query} maxLength={60} onChange={(e) => setQuery(e.target.value)} data-testid="package-query" />
           </Field>
+          {matches?.state === "searching" && <p role="status" className="text-sm" data-testid="package-searching">Searching for matching products…</p>}
+          {matches?.state === "done" && (
+            <div className="space-y-1.5" data-testid="package-matches">
+              {matches.testNotice && <p className="rounded-lg bg-surface-2 px-3 py-2 text-xs" data-testid="package-test-notice">{matches.testNotice}</p>}
+              {matches.errors.map((e) => <p key={e} className="text-xs text-down">{e}</p>)}
+              {matches.items.length === 0
+                ? <p className="text-sm" data-testid="package-no-match">No product matched “{matches.query}”. Change the words, scan the nutrition label, or create your own food.</p>
+                : <p className="text-sm font-medium">Possible matches for “{matches.query}”. Choose yours to check it:</p>}
+              <ul className="space-y-1.5">
+                {matches.items.map((c) => (
+                  <li key={c.key}>
+                    <button type="button" disabled={!c.hasNutrition} onClick={() => choose(c, phase.lines)} data-testid="package-candidate" data-source={c.source}
+                      className="w-full rounded-xl border border-line px-3 py-2 text-left disabled:opacity-60">
+                      <span className="block font-medium">{c.name}</span>
+                      {c.brand && <span className="block text-xs">{c.brand}</span>}
+                      <span className="block text-[11px] text-muted">{recordOrigin(c).badge}{c.hasNutrition ? "" : " · no nutrition data, so it can't be logged"}</span>
+                      {c.hasNutrition && <span className="num block text-xs text-muted">per 100 {c.basisUnit === "ML" ? "ml" : "g"}: {fmtKcal(c.per100.kcal)} kcal · P {fmtG(c.per100.protein)} · C {fmtG(c.per100.carbs)} · F {fmtG(c.per100.fat)}</span>}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
           <div className="flex flex-wrap gap-2">
-            <Button size="sm" disabled={query.trim().length < 2} onClick={() => onSearch(query.trim())} data-testid="package-search">Search</Button>
+            <Button size="sm" disabled={query.trim().length < MIN_EXTERNAL_QUERY_LENGTH || matches?.state === "searching"} onClick={() => findMatches(query, phase.lines)} data-testid="package-search">Search</Button>
+            <Button variant="secondary" size="sm" disabled={query.trim().length < 2} onClick={() => onSearch(query.trim())} data-testid="package-full-search">Open in food search</Button>
             <a className="inline-flex h-8 items-center rounded-lg bg-surface-2 px-3 text-sm font-medium" href="/nutrition/scan" data-testid="package-label-scan">Scan the nutrition label</a>
             <Button variant="ghost" size="sm" onClick={() => onCreate("")} data-testid="package-create">Create my own food</Button>
           </div>

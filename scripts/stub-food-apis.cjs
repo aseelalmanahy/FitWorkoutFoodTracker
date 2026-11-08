@@ -101,7 +101,8 @@ function handle(req, res, body = {}) {
     }
   }
   if (url.pathname === "/off/search") {
-    const hits = offProducts.filter((p) => p.product_name.toLowerCase().includes(q)).map((p) => ({ ...p, brands: p.brands ? [p.brands] : [], nutriments: p.previewOnly ? undefined : p.nutriments }));
+    // Like Search-a-licious, every word may match the name or the brand.
+    const hits = offProducts.filter((p) => q.split(/\s+/).every((w) => `${p.product_name} ${p.brands ?? ""}`.toLowerCase().includes(w))).map((p) => ({ ...p, brands: p.brands ? [p.brands] : [], nutriments: p.previewOnly ? undefined : p.nutriments }));
     return send(res, 200, { hits, count: hits.length, page: 1, page_size: 20, page_count: 1, took: 1, timed_out: false, is_count_exact: true, debug: { query: {} } });
   }
   if (url.pathname === "/off/cgi/search.pl") {

@@ -178,17 +178,32 @@ async function packagePhoto() {
     const words = await page.getByTestId("package-word").allInnerTexts();
     assert.ok(words.some((w) => /greek yogurt/i.test(w)), `the name was read: ${words}`);
     assert.ok(words.every((w) => !/kcal|protein|\d/i.test(w)), `no value or claim offered: ${words}`);
+    // The words (brand and name, never the claim or the value) are searched once, automatically, with the usual search.
+    await page.getByTestId("package-matches").waitFor({ timeout: 30000 });
     const uploads = sent.filter((r) => r.method === "POST");
-    assert.deepEqual(uploads.map((r) => new URL(r.url).pathname), ["/api/foods/photo-text"], "the photo went once, to be read for words");
-    assert.ok(!sent.some((r) => new URL(r.url).pathname.startsWith("/api/foods/search")), "nothing is searched before the person chooses");
-    step("chromium: a package photo with no barcode is read for its words; the name is offered, its claim and value aren't; nothing searched yet");
-    await page.getByTestId("package-query").fill("Greek Yogurt");
-    await page.getByTestId("package-search").click();
-    await page.getByTestId("barcode-scan").waitFor({ state: "detached" });
-    assert.equal(await page.getByLabel("Search foods").inputValue(), "Greek Yogurt");
-    const result = page.getByRole("button", { name: /Greek Yogurt 2% Fat/ }).first();
-    await result.waitFor({ timeout: 15000 });
-    await result.click();
+    assert.deepEqual(uploads.map((r) => new URL(r.url).pathname), ["/api/foods/photo-text"], "the photo went once, to be read for words, and nothing was saved");
+    const searches = sent.filter((r) => new URL(r.url).pathname === "/api/foods/search");
+    assert.equal(searches.length, 1, "one search for the photo, not one per word");
+    const q = new URL(searches[0].url).searchParams.get("q");
+    assert.match(q, /greek yogurt/i, `searched for the words read: ${q}`);
+    assert.doesNotMatch(q, /kcal|protein|\d/i, "never for a claim or a value");
+    assert.match(await page.getByTestId("package-test-notice").innerText(), /Test data: .*local test sample/, "the stand-in providers are said to be test data, not the real catalog");
+    const candidates = page.getByTestId("package-candidate");
+    const offered = await candidates.allInnerTexts();
+    assert.ok(offered.length >= 1 && offered.length <= 5, `a short list: ${offered.length}`);
+    assert.match(offered[0], /Greek Yogurt 2% Fat[\s\S]*Hillside[\s\S]*Open Food Facts[\s\S]*73 kcal/, "the closest record first, with its brand, source and the provider's own values");
+    assert.equal(await prisma.foodEntry.count({ where: { userId: user.id } }), 0, "nothing logged before the person confirms");
+    step("chromium: a package photo with no barcode is read for its words, searched once by brand and name, and the closest provider records offered with their sources, marked as test data here");
+
+    // Confirm one: its record is cached as structured food, then the usual amount sheet logs it.
+    await candidates.first().click();
+    await page.getByTestId("barcode-found").waitFor({ timeout: 15000 });
+    assert.match(await page.getByTestId("found-how").innerText(), /Matched by the words on your photo: check it against the package/);
+    assert.match(await page.getByTestId("barcode-source").innerText(), /Open Food Facts/);
+    await page.getByTestId("found-back").click();
+    await page.getByTestId("package-candidate").first().waitFor();
+    await page.getByTestId("package-candidate").first().click();
+    await page.getByTestId("barcode-confirm").click();
     const dialog = page.getByRole("dialog");
     await dialog.getByTestId("food-provenance").waitFor();
     assert.match(await dialog.innerText(), /Open Food Facts · 8800000000103/);
@@ -196,7 +211,21 @@ async function packagePhoto() {
     await dialog.waitFor({ state: "detached", timeout: 15000 });
     const entry = await prisma.foodEntry.findFirst({ where: { userId: user.id }, include: { food: true } });
     assert.deepEqual([entry.food.source, entry.food.sourceId], ["OPEN_FOOD_FACTS", "8800000000103"], "logged from the provider's record, with its values, never the photo's");
-    step("chromium: the chosen words search the providers as usual; the person picks a record with its source, and it's logged from that record");
+    assert.equal(Number(entry.food.kcalPer100), 73);
+    step("chromium: the person confirms a candidate (or goes back to the others); the provider's record is cached and logged with its own values");
+
+    // Changing the words searches again, in the sheet; the full search is still there.
+    await openScanner(page);
+    await page.getByTestId("barcode-photo").setInputFiles({ name: "front.jpg", mimeType: "image/jpeg", buffer: await packageFront() });
+    await page.getByTestId("package-matches").waitFor({ timeout: 60000 });
+    await page.getByTestId("package-query").fill("Nothing Like This");
+    await page.getByTestId("package-search").click();
+    await page.getByTestId("package-no-match").waitFor({ timeout: 15000 });
+    await page.getByTestId("package-query").fill("Greek Yogurt");
+    await page.getByTestId("package-full-search").click();
+    await page.getByTestId("barcode-scan").waitFor({ state: "detached" });
+    assert.equal(await page.getByLabel("Search foods").inputValue(), "Greek Yogurt");
+    step("chromium: no match says so and offers the fallbacks; the words can be edited and searched again, or opened in the full food search");
 
     await openScanner(page);
     const blank = await sharp({ create: { width: 640, height: 480, channels: 3, background: "#f4f4f4" } }).jpeg().toBuffer();
