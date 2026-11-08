@@ -192,6 +192,8 @@ async function packagePhoto() {
     const offered = await candidates.allInnerTexts();
     assert.ok(offered.length >= 1 && offered.length <= 5, `a short list: ${offered.length}`);
     assert.match(offered[0], /Greek Yogurt 2% Fat[\s\S]*Hillside[\s\S]*Open Food Facts[\s\S]*73 kcal/, "the closest record first, with its brand, source and the provider's own values");
+    assert.match(await candidates.first().getByTestId("package-candidate-why").innerText(), /^Shares: .*greek.*yogurt|^Shares: .*yogurt.*greek/i, "each says which of the package's words it shares");
+    assert.ok(offered.every((t) => !/Butter|Cola/i.test(t)), "nothing sharing only the brand, or nothing at all");
     assert.equal(await prisma.foodEntry.count({ where: { userId: user.id } }), 0, "nothing logged before the person confirms");
     step("chromium: a package photo with no barcode is read for its words, searched once by brand and name, and the closest provider records offered with their sources, marked as test data here");
 

@@ -8,7 +8,7 @@ import { hasNoNutrition, missingText, recordOrigin } from "@/lib/food-provenance
 import { fmtG, fmtKcal } from "@/lib/nutrition";
 import type { FoodDto, SearchResponse } from "@/lib/server/foods/service";
 import { localTestNotice, MIN_EXTERNAL_QUERY_LENGTH, searchPath } from "@/lib/food-search-view";
-import { packageQuery, rankCandidates, type Candidate } from "@/lib/package-match";
+import { isSameRecord, packageQuery, rankCandidates, type Candidate } from "@/lib/package-match";
 import { Button, Card, ErrorText, Field, Input, Select } from "@/components/ui";
 
 type Matches = { state: "searching" } | { state: "done"; query: string; items: Candidate[]; testNotice: string | null; errors: string[] };
@@ -53,6 +53,7 @@ export function BarcodeScan({ onConfirm, onCreate, onSearch, onClose }: { onConf
   const [engine, setEngine] = useState<string | null>(null);
   const [matches, setMatches] = useState<Matches | null>(null);
   const searchId = useRef(0);
+  const choosing = useRef(false);
 
   const stop = () => { stream.current?.getTracks().forEach((t) => t.stop()); stream.current = null; };
 
@@ -117,7 +118,7 @@ export function BarcodeScan({ onConfirm, onCreate, onSearch, onClose }: { onConf
     setMatches({ state: "searching" });
     try {
       const r = await api<SearchResponse>("GET", searchPath(q, "ALL"));
-      if (id === searchId.current) setMatches({ state: "done", query: q.trim(), items: rankCandidates(r, lines), testNotice: localTestNotice(r.localTestSources ?? []), errors: r.errors.map((e) => e.message) });
+      if (id === searchId.current) setMatches({ state: "done", query: q.trim(), items: rankCandidates(r, lines, q), testNotice: localTestNotice(r.localTestSources ?? []), errors: r.errors.map((e) => e.message) });
     } catch (e) {
       if (id === searchId.current) setMatches({ state: "done", query: q.trim(), items: [], testNotice: null, errors: [e instanceof ApiError ? e.message : "The search failed. Try again."] });
     }
@@ -125,16 +126,22 @@ export function BarcodeScan({ onConfirm, onCreate, onSearch, onClose }: { onConf
 
   /** The record behind a candidate, cached as structured food, for the person to confirm. Nothing is logged here. */
   async function choose(c: Candidate, lines: string[]) {
+    // One choice at a time: a second tap while the first loads is ignored, so the product shown is the one tapped.
+    if (choosing.current) return;
+    choosing.current = true;
     setMessage(null);
     setPhase({ kind: "resolving", lines, name: c.name });
     try {
       const { food } = c.foodId && c.source === "CUSTOM"
         ? await api<{ food: FoodDto }>("GET", `/api/foods/${c.foodId}`)
         : await api<{ food: FoodDto }>("POST", "/api/foods/resolve", { source: c.source, sourceId: c.sourceId });
+      if (!isSameRecord(c, food)) throw new Error("mismatch");
       setPhase({ kind: "found", code: "", food, fromWords: lines });
     } catch (e) {
       setMessage(e instanceof ApiError ? e.message : "That record couldn't be loaded. Choose another, or search by name.");
       setPhase({ kind: "words", lines });
+    } finally {
+      choosing.current = false;
     }
   }
 
@@ -259,6 +266,8 @@ export function BarcodeScan({ onConfirm, onCreate, onSearch, onClose }: { onConf
                       {c.brand && <span className="block text-xs">{c.brand}</span>}
                       <span className="block text-[11px] text-muted">{recordOrigin(c).badge}{c.hasNutrition ? "" : " · no nutrition data, so it can't be logged"}</span>
                       {c.hasNutrition && <span className="num block text-xs text-muted">per 100 {c.basisUnit === "ML" ? "ml" : "g"}: {fmtKcal(c.per100.kcal)} kcal · P {fmtG(c.per100.protein)} · C {fmtG(c.per100.carbs)} · F {fmtG(c.per100.fat)}</span>}
+                      {c.hasNutrition && missingText(c.per100) && <span className="block text-[11px] text-down" data-testid="package-candidate-missing">{missingText(c.per100)}</span>}
+                      <span className="block text-[11px] text-muted" data-testid="package-candidate-why">{c.partial ? "Partial match: check it against the package. " : ""}Shares: {c.matched.join(", ")}</span>
                     </button>
                   </li>
                 ))}
