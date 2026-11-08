@@ -16,7 +16,18 @@ const REVIEW_MARKER = "fitworkoutfoodtracker:review-database:v1:fitdb_review";
 const LOCAL_DATABASES = Object.freeze({
   fitdb_review: Object.freeze({ envFile: ".env.review", marker: REVIEW_MARKER }),
   fitdb_test_isolated: Object.freeze({ envFile: ".env.isolated", marker: `${TEST_DB_MARKER_PREFIX}fitdb_test_isolated` }),
+  // B1: the isolated database's companion. Its address is .env.isolated's, with only the name changed (see companionUrl).
+  fitdb_test_isolated_other: Object.freeze({ envFile: ".env.isolated", companionOf: "fitdb_test_isolated", marker: `${TEST_DB_MARKER_PREFIX}fitdb_test_isolated_other` }),
 });
+
+/** A companion's address: its parent's verified local address with only the database name changed. Null if not one. */
+function companionUrl(parentUrl, name) {
+  const parent = LOCAL_DATABASES[name]?.companionOf;
+  if (!parent || localDatabaseProblem(parentUrl, parent)) return null;
+  const u = new URL(parentUrl);
+  u.pathname = `/${name}`;
+  return u.toString();
+}
 const LOOPBACK = new Set(["localhost", "127.0.0.1", "[::1]", "::1"]);
 
 /** Null when `url` is exactly the named local database on this machine. Otherwise why not, with no secret in it. */
@@ -61,4 +72,4 @@ async function readLocalIdentity(client, name) {
 
 const scrubber = (url) => { const secrets = urlSecrets(url); return (s) => redact(String(s), secrets).replace(/postgres(?:ql)?:\/\/\S+/g, "<database address>"); };
 
-module.exports = { REVIEW_MARKER, LOCAL_DATABASES, localDatabaseProblem, envFileProblem, maintenanceUrl, readLocalIdentity, scrubber };
+module.exports = { REVIEW_MARKER, LOCAL_DATABASES, companionUrl, localDatabaseProblem, envFileProblem, maintenanceUrl, readLocalIdentity, scrubber };

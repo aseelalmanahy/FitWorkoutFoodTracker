@@ -9,17 +9,24 @@
 // Reads only, through SAFETY_DB_URL (validated as a local test database first):
 //   SAFETY_DB_URL='postgresql://USER:PASSWORD@localhost:5432/fitdb_test' node --test scripts/test-db-guard.test.cjs
 // Optional: GUARD_DEV_DB_NAME (default "fitdb"), the dev database the tests try, and must fail, to mark.
-// Optional: GUARD_SNAPSHOT_SCOPE=designated reads markers for fitdb_test and fitdb_test_other only, so the
-// dev database's comment isn't read. The before-and-after comparison then doesn't cover other databases.
+// Optional: GUARD_SNAPSHOT_SCOPE=designated reads markers for the target and its companion only (GUARD_SNAPSHOT_DATABASES,
+// default fitdb_test,fitdb_test_other), so the dev database's comment isn't read. The before-and-after comparison then
+// doesn't cover other databases. Every name in it must be a designated test database.
+// B1: the target can be fitdb_test_isolated, whose companion is fitdb_test_isolated_other.
 "use strict";
 const { test, before, after } = require("node:test");
 const assert = require("node:assert/strict");
 const path = require("node:path");
 const { validateTargetUrl, assertConnectedTarget, redact, urlSecrets } = require("./lib/test-db-guard.cjs");
 const { ROOT, runNode } = require("./lib/test-servers.cjs");
+const { DESIGNATED_TEST_DATABASES, COMPANION_TEST_DATABASES } = require("./lib/test-target-guard.cjs");
 
 const READ_URL = process.env.SAFETY_DB_URL;
 const DEV_DB = process.env.GUARD_DEV_DB_NAME || "fitdb";
+const NAME = READ_URL ? decodeURIComponent(new URL(READ_URL).pathname.slice(1)) : "fitdb_test";
+const COMPANION = COMPANION_TEST_DATABASES[NAME] ?? "fitdb_test_other";
+const SCOPE = (process.env.GUARD_SNAPSHOT_DATABASES || "fitdb_test,fitdb_test_other").split(",");
+if (!SCOPE.every((n) => DESIGNATED_TEST_DATABASES.includes(n))) throw new Error("GUARD_SNAPSHOT_DATABASES may name designated test databases only.");
 const MARK = path.join(ROOT, "scripts", "mark-test-database.cjs");
 const SAFETY = path.join(ROOT, "scripts", "live-provider-check.safety.test.cjs");
 let reader = null;
@@ -33,7 +40,7 @@ const noPassword = (out, label) => {
 /** Markers on every database in the cluster, plus user counts in the test databases. */
 async function clusterSnapshot() {
   const comments = await reader.$queryRawUnsafe(
-    `SELECT datname, shobj_description(oid, 'pg_database') AS marker FROM pg_database WHERE NOT datistemplate ${process.env.GUARD_SNAPSHOT_SCOPE === "designated" ? "AND datname IN ('fitdb_test', 'fitdb_test_other') " : ""}ORDER BY datname`);
+    `SELECT datname, shobj_description(oid, 'pg_database') AS marker FROM pg_database WHERE NOT datistemplate ${process.env.GUARD_SNAPSHOT_SCOPE === "designated" ? `AND datname IN (${SCOPE.map((n) => `'${n}'`).join(", ")}) ` : ""}ORDER BY datname`);
   const { PrismaClient } = require("@prisma/client");
   const users = {};
   for (const { datname } of comments) {
@@ -104,12 +111,12 @@ test("redact removes both encoded and decoded URL passwords", () => {
 test("mark-test-database.cjs refuses every unsafe configuration; markers and rows unchanged everywhere", { timeout: 120_000 }, async () => {
   const before = await clusterSnapshot();
   const cases = [
-    ["remote host", withHost(READ_URL, "db.example.invalid"), ["--confirm", "fitdb_test"], /not local/],
-    ["remote IP", withHost(READ_URL, "10.255.255.1"), ["--confirm", "fitdb_test"], /not local/],
-    ["host= override", `${READ_URL}${READ_URL.includes("?") ? "&" : "?"}host=db.example.invalid`, ["--confirm", "fitdb_test"], /host=/],
+    ["remote host", withHost(READ_URL, "db.example.invalid"), ["--confirm", NAME], /not local/],
+    ["remote IP", withHost(READ_URL, "10.255.255.1"), ["--confirm", NAME], /not local/],
+    ["host= override", `${READ_URL}${READ_URL.includes("?") ? "&" : "?"}host=db.example.invalid`, ["--confirm", NAME], /host=/],
     ["dev database (non-test name)", withDb(READ_URL, DEV_DB), ["--confirm", DEV_DB], /doesn't contain "test"/],
     ["dev database, remove", withDb(READ_URL, DEV_DB), ["--remove", "--confirm", DEV_DB], /doesn't contain "test"/],
-    ["mismatched confirmation", READ_URL, ["--confirm", "fitdb_test_other"], /doesn't match/],
+    ["mismatched confirmation", READ_URL, ["--confirm", COMPANION], /doesn't match/],
     ["missing confirmation", READ_URL, [], /no confirmation/],
     ["confirmation flag without value", READ_URL, ["--confirm"], /no confirmation/],
     ["missing confirmation, remove", READ_URL, ["--remove"], /no confirmation/],
@@ -130,14 +137,14 @@ test("mark-test-database.cjs refuses every unsafe configuration; markers and row
 
 test("the safety suite refuses unsafe configurations before any database change", { timeout: 300_000 }, async () => {
   const before = await clusterSnapshot();
-  const other = withDb(READ_URL, "fitdb_test_other");
+  const other = withDb(READ_URL, COMPANION);
   const cases = [
     ["dev database as SAFETY_DB_URL", { SAFETY_DB_URL: withDb(READ_URL, DEV_DB), SAFETY_DB_CONFIRM: DEV_DB, SAFETY_OTHER_DB_URL: other }, /doesn't contain "test"/],
-    ["remote host", { SAFETY_DB_URL: withHost(READ_URL, "db.example.invalid"), SAFETY_DB_CONFIRM: "fitdb_test", SAFETY_OTHER_DB_URL: other }, /not local/],
+    ["remote host", { SAFETY_DB_URL: withHost(READ_URL, "db.example.invalid"), SAFETY_DB_CONFIRM: NAME, SAFETY_OTHER_DB_URL: other }, /not local/],
     ["missing confirmation", { SAFETY_DB_URL: READ_URL, SAFETY_DB_CONFIRM: "", SAFETY_OTHER_DB_URL: other }, /no confirmation/],
-    ["mismatched confirmation", { SAFETY_DB_URL: READ_URL, SAFETY_DB_CONFIRM: "fitdb_test_other", SAFETY_OTHER_DB_URL: other }, /doesn't match/],
-    ["other DB is the same DB", { SAFETY_DB_URL: READ_URL, SAFETY_DB_CONFIRM: "fitdb_test", SAFETY_OTHER_DB_URL: READ_URL }, /different database/],
-    ["other DB is the dev DB", { SAFETY_DB_URL: READ_URL, SAFETY_DB_CONFIRM: "fitdb_test", SAFETY_OTHER_DB_URL: withDb(READ_URL, DEV_DB) }, /SAFETY_OTHER_DB_URL: database name/],
+    ["mismatched confirmation", { SAFETY_DB_URL: READ_URL, SAFETY_DB_CONFIRM: COMPANION, SAFETY_OTHER_DB_URL: other }, /doesn't match/],
+    ["other DB is the same DB", { SAFETY_DB_URL: READ_URL, SAFETY_DB_CONFIRM: NAME, SAFETY_OTHER_DB_URL: READ_URL }, /different database/],
+    ["other DB is the dev DB", { SAFETY_DB_URL: READ_URL, SAFETY_DB_CONFIRM: NAME, SAFETY_OTHER_DB_URL: withDb(READ_URL, DEV_DB) }, /SAFETY_OTHER_DB_URL: database name/],
     ["no configuration at all", { SAFETY_DB_URL: "", SAFETY_DB_CONFIRM: "", SAFETY_OTHER_DB_URL: "" }, /no database URL/],
   ];
   for (const [label, env, re] of cases) {

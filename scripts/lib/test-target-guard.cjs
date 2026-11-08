@@ -31,7 +31,11 @@ const net = require("node:net");
 const { validateTargetUrl, assertConnectedTarget, redact, urlSecrets, TEST_DB_MARKER_PREFIX } = require("./test-db-guard.cjs");
 
 // fitdb_test_isolated: a separate, disposable database for the regression suites, so they never touch fitdb_test's demo and QA data.
-const DESIGNATED_TEST_DATABASES = Object.freeze(["fitdb_test", "fitdb_test_other", "fitdb_test_isolated"]);
+// fitdb_test_isolated_other (B1): its companion, the second database the two cross-database suites compare it with, so
+// they no longer need fitdb_test and fitdb_test_other. The app itself is never started on it, so the app's list omits it.
+const DESIGNATED_TEST_DATABASES = Object.freeze(["fitdb_test", "fitdb_test_other", "fitdb_test_isolated", "fitdb_test_isolated_other"]);
+/** Each runnable test database and the one companion the cross-database suites compare it with. */
+const COMPANION_TEST_DATABASES = Object.freeze({ fitdb_test: "fitdb_test_other", fitdb_test_isolated: "fitdb_test_isolated_other" });
 const LOOPBACK_HOSTNAMES = Object.freeze(["localhost", "127.0.0.1", "[::1]"]);
 // The exact accepted spelling. URL parsers rewrite forms such as http://127.1, http://2130706433,
 // HTTP://LOCALHOST and http:\\localhost into something that looks fine, so the raw text is matched too.
@@ -444,7 +448,7 @@ function requireSafeTarget({ env = process.env, exit = process.exit, deps = {}, 
 }
 
 module.exports = {
-  DESIGNATED_TEST_DATABASES, LOOPBACK_HOSTNAMES, DB_IDENTITY_SQL, EXIT_REFUSED, TargetRefused,
+  DESIGNATED_TEST_DATABASES, COMPANION_TEST_DATABASES, LOOPBACK_HOSTNAMES, DB_IDENTITY_SQL, EXIT_REFUSED, TargetRefused,
   DESTINATION, PROVIDER_STUB_IDENTITY, isLoopbackHttpUrl, baseUrlProblem, databaseUrlProblem, environmentProblems,
   stubUrlProblem, checkTarget, createDestinationPolicy, readDatabaseIdentity, verifyServerIdentity, verifyProviderStub,
   createFetchGuard, browserRequestAllowed, guardBrowserContext, startGuardProxy, browserLaunchOptions, requireSafeTarget,

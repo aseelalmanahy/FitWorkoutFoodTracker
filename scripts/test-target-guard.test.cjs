@@ -121,10 +121,13 @@ test("control 12: non-test databases are refused, and only the designated names 
     assert.equal(reasonOf(p), "database_invalid", url);
     assert.doesNotMatch(p.message, /SECRETPW/);
   }
-  for (const name of ["fitdb_test", "fitdb_test_other", "fitdb_test_isolated"]) assert.equal(databaseUrlProblem(`postgresql://u:p@localhost:5432/${name}`), null, name);
-  assert.deepEqual([...guard.DESIGNATED_TEST_DATABASES], ["fitdb_test", "fitdb_test_other", "fitdb_test_isolated"]);
+  for (const name of ["fitdb_test", "fitdb_test_other", "fitdb_test_isolated", "fitdb_test_isolated_other"]) assert.equal(databaseUrlProblem(`postgresql://u:p@localhost:5432/${name}`), null, name);
+  assert.deepEqual([...guard.DESIGNATED_TEST_DATABASES], ["fitdb_test", "fitdb_test_other", "fitdb_test_isolated", "fitdb_test_isolated_other"]);
+  // B1: each runnable database has exactly one companion, itself designated, and never the other pair's.
+  assert.deepEqual({ ...guard.COMPANION_TEST_DATABASES }, { fitdb_test: "fitdb_test_other", fitdb_test_isolated: "fitdb_test_isolated_other" });
+  assert.throws(() => { guard.COMPANION_TEST_DATABASES.fitdb_test_isolated = "fitdb_test_other"; }, TypeError);
   // Exactly that name: near misses, the review database and the development database stay refused.
-  for (const name of ["fitdb_test_isolated2", "fitdb_test_isolate", "fitdb_review", "fitdb", "fitdb_testisolated"]) {
+  for (const name of ["fitdb_test_isolated2", "fitdb_test_isolate", "fitdb_review", "fitdb", "fitdb_testisolated", "fitdb_test_isolated_other2", "fitdb_test_isolated_othe", "fitdb_restore_check", "fitdb_test_other_isolated"]) {
     assert.equal(reasonOf(databaseUrlProblem(`postgresql://u:p@localhost:5432/${name}`)), name.includes("test") ? "database_not_designated" : "database_invalid", name);
   }
   assert.equal(reasonOf(databaseUrlProblem("postgresql://u:p@db.example.invalid:5432/fitdb_test_isolated")), "database_invalid", "not on another host");
@@ -906,4 +909,58 @@ test("the guard proxy doesn't forward hop-by-hop headers, so a browser can keep 
     await proxy.close();
     await new Promise((r) => app.close(r));
   }
+});
+
+// ─── B1: the isolated database's companion ──────────────────────────────────
+
+test("the companion's address is its parent's verified local address with only the name changed, or nothing", () => {
+  const { companionUrl, LOCAL_DATABASES } = require("./lib/local-databases.cjs");
+  assert.equal(LOCAL_DATABASES.fitdb_test_isolated_other.envFile, ".env.isolated");
+  assert.equal(LOCAL_DATABASES.fitdb_test_isolated_other.marker, `${TEST_DB_MARKER_PREFIX}fitdb_test_isolated_other`);
+  assert.equal(companionUrl("postgresql://u:p@localhost:5432/fitdb_test_isolated", "fitdb_test_isolated_other"), "postgresql://u:p@localhost:5432/fitdb_test_isolated_other");
+  for (const [parent, name] of [
+    ["postgresql://u:p@db.example.invalid:5432/fitdb_test_isolated", "fitdb_test_isolated_other"], // not this machine
+    ["postgresql://u:p@localhost:5432/fitdb_review", "fitdb_test_isolated_other"], // not its parent
+    ["postgresql://u:p@localhost:5432/fitdb_test_isolated?host=db.example.invalid", "fitdb_test_isolated_other"], // a redirect
+    ["postgresql://u:p@localhost:5432/fitdb_test_isolated", "fitdb_test_isolated"], // not a companion
+    ["postgresql://u:p@localhost:5432/fitdb_test_isolated", "fitdb_review"],
+  ]) assert.equal(companionUrl(parent, name), null, `${parent} -> ${name}`);
+});
+
+test("local-db.cjs refuses to prepare the companion from anything but the isolated database's own settings, before connecting", () => {
+  const { spawnSync } = require("node:child_process");
+  const os = require("node:os");
+  const run = (url, args) => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fit-companion-"));
+    fs.writeFileSync(path.join(dir, ".env.isolated"), `DATABASE_URL=${url}\n`);
+    const env = { ...process.env };
+    delete env.DATABASE_URL;
+    try {
+      const r = spawnSync(process.execPath, ["--env-file=.env.isolated", path.join(SCRIPTS, "local-db.cjs"), ...args], { cwd: dir, env, encoding: "utf8", timeout: 30_000 });
+      return { code: r.status, text: `${r.stdout}${r.stderr}` };
+    } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  };
+  for (const [label, url, re] of [
+    ["the review database's address", "postgresql://none:SECRETPW@127.0.0.1:1/fitdb_review", /derived from fitdb_test_isolated's settings: DATABASE_URL names "fitdb_review"/],
+    ["another machine", "postgresql://none:SECRETPW@db.example.invalid:5432/fitdb_test_isolated", /derived from fitdb_test_isolated's settings: the database host isn't this machine/],
+    ["the companion named directly", "postgresql://none:SECRETPW@127.0.0.1:1/fitdb_test_isolated_other", /derived from fitdb_test_isolated's settings/],
+    ["fitdb_test", "postgresql://none:SECRETPW@127.0.0.1:1/fitdb_test", /derived from fitdb_test_isolated's settings/],
+  ]) {
+    const r = run(url, ["--init", "--confirm=fitdb_test_isolated_other"]);
+    assert.equal(r.code, 4, `${label}: ${r.text}`);
+    assert.match(r.text, /REFUSED \(nothing was changed\)/, label);
+    assert.match(r.text, re, label);
+    assert.doesNotMatch(r.text, /SECRETPW/, label);
+  }
+  assert.equal(run("postgresql://none:SECRETPW@127.0.0.1:1/fitdb_test_isolated", ["--init", "--confirm=fitdb_test_isolated_others"]).code, 4, "only the exact name");
+});
+
+test("the runner pairs each target with its own companion, and runs the cross-database suites only where it's prepared", () => {
+  const source = fs.readFileSync(path.join(SCRIPTS, "run-guarded-suites.cjs"), "utf8");
+  assert.match(source, /const OTHER_NAME = COMPANION_TEST_DATABASES\[TARGET\];/);
+  assert.match(source, /otherUrl\.pathname = `\/\$\{OTHER_NAME\}`;/);
+  assert.doesNotMatch(source, /pathname = "\/fitdb_test_other"/, "no fixed companion");
+  assert.match(source, /rows\[0\]\.marker === `fitworkoutfoodtracker:test-database:v1:\$\{OTHER_NAME\}`/, "the companion must carry exactly its own marker");
+  assert.match(source, /GUARD_SNAPSHOT_DATABASES: `\$\{TARGET\},\$\{OTHER_NAME\}`/);
+  assert.match(source, /if \(needsOther\.length\) throw new Error/);
 });

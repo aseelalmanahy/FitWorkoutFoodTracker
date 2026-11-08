@@ -1,12 +1,13 @@
 // Runs the integration and E2E suites against local test databases, with stub providers.
 // See docs/PHASE_4_0_0A_TEST_TARGET_GUARD.md. Needs a production build.
 //   node --env-file=.env.test scripts/run-guarded-suites.cjs [suite names...]
-// DATABASE_URL must name fitdb_test or fitdb_test_isolated, exactly. fitdb_test_other is derived from fitdb_test only. Prints no credentials.
+// DATABASE_URL must name fitdb_test or fitdb_test_isolated, exactly. Each has one companion, derived from it by name only
+// (fitdb_test_other, fitdb_test_isolated_other), which the two cross-database suites compare it with. Prints no credentials.
 "use strict";
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
-const { databaseUrlProblem, environmentProblems, verifyServerIdentity } = require("./lib/test-target-guard.cjs");
+const { databaseUrlProblem, environmentProblems, verifyServerIdentity, COMPANION_TEST_DATABASES } = require("./lib/test-target-guard.cjs");
 const { urlSecrets } = require("./lib/test-db-guard.cjs");
 const { ROOT, NEXT_BIN, LOOPBACK_HOST, startStub, freePort, spawnNode, waitForChild, killTree, killAll, runNode: runNodeRaw } = require("./lib/test-servers.cjs");
 
@@ -20,8 +21,9 @@ if (unsafe.length) {
   console.error(`REFUSING to run (no database was touched):\n  - ${unsafe.map((p) => p.message).join("\n  - ")}`);
   process.exit(4);
 }
+const OTHER_NAME = COMPANION_TEST_DATABASES[TARGET];
 const otherUrl = new URL(DB);
-otherUrl.pathname = "/fitdb_test_other";
+otherUrl.pathname = `/${OTHER_NAME}`;
 const OTHER = otherUrl.toString();
 // Only stubs and fake keys from here on, including in every child process.
 for (const k of ["FDC_API_KEY", "ANTHROPIC_API_KEY", "ANTHROPIC_BASE_URL", "BASE_URL", "LABEL_STUB_URL", "NODE_TEST_CONTEXT", "MAIL_STUB_DIR"]) delete process.env[k];
@@ -100,8 +102,17 @@ const unconfigured = (name, file, appEnv) => () => withApp(name, { appEnv }, ({ 
 const LABEL = { LABEL_EXTRACTION_MODEL: "stub-model" };
 const MEAL = { MEAL_IDENTIFICATION_MODEL: "stub-meal-model" };
 const SAFETY_ENV = { SAFETY_DB_URL: DB, SAFETY_DB_CONFIRM: TARGET, SAFETY_OTHER_DB_URL: OTHER };
-// These two compare fitdb_test with fitdb_test_other, so they only make sense there.
+// These two compare the target with its companion, so they run only where the companion exists and carries its marker.
 const NEEDS_OTHER = new Set(["safety-no-marker", "db-guard-scoped"]);
+/** Read only: whether the companion exists here with exactly its own test marker. */
+async function companionReady() {
+  const { PrismaClient } = require("@prisma/client");
+  const db = new PrismaClient({ datasources: { db: { url: DB } } });
+  try {
+    const rows = await db.$queryRawUnsafe("SELECT shobj_description(oid, 'pg_database') AS marker FROM pg_database WHERE datname = $1", OTHER_NAME);
+    return rows.length === 1 && rows[0].marker === `fitworkoutfoodtracker:test-database:v1:${OTHER_NAME}`;
+  } finally { await db.$disconnect(); }
+}
 
 /** Fails if the marker's catalog row was rewritten, not only if its text changed. */
 async function markerRow() {
@@ -183,7 +194,7 @@ const SUITES = {
   "label-local": () => withApp("label-local", { appEnv: { LABEL_OCR: "local", MEAL_RECOGNITION: "local" } }, ({ url }) => runNode([script("e2e-label-scan.cjs")], { BASE_URL: url, EXPECT_LOCAL: "1", SHOTS_DIR: LOGS }, 300_000)),
   "usda-missing-nutrients": () => runNode(nodeTest("usda-missing-nutrients.test.cjs"), { SAFETY_DB_URL: DB, SAFETY_DB_CONFIRM: TARGET }, 420_000),
   "safety-no-marker": () => withoutMarkerWrite(() => runNode(nodeTest("live-provider-check.safety.test.cjs", "--test-skip-pattern=MISSING marker|INVALID marker"), SAFETY_ENV, 900_000)),
-  "db-guard-scoped": () => withoutMarkerWrite(() => runNode(nodeTest("test-db-guard.test.cjs"), { SAFETY_DB_URL: DB, GUARD_SNAPSHOT_SCOPE: "designated" }, 600_000)),
+  "db-guard-scoped": () => withoutMarkerWrite(() => runNode(nodeTest("test-db-guard.test.cjs"), { SAFETY_DB_URL: DB, GUARD_SNAPSHOT_SCOPE: "designated", GUARD_SNAPSHOT_DATABASES: `${TARGET},${OTHER_NAME}` }, 600_000)),
 };
 
 function report(name, r, ms) {
@@ -200,13 +211,15 @@ function report(name, r, ms) {
   const asked = process.argv.slice(2);
   const unknown = asked.filter((n) => !SUITES[n]);
   if (unknown.length) throw new Error(`unknown suite: ${unknown.join(", ")}. Known: ${Object.keys(SUITES).join(", ")}`);
-  // fitdb_test_other belongs with fitdb_test. On the isolated database, the suites needing it are refused, and never run.
-  const needsOther = TARGET !== "fitdb_test" ? asked.filter((n) => NEEDS_OTHER.has(n)) : [];
-  if (needsOther.length) throw new Error(`${needsOther.join(", ")} compare fitdb_test with fitdb_test_other, so they don't run on ${TARGET}.`);
+  // Each target has its own companion. Where it isn't prepared yet, the suites needing it are refused if asked for, and
+  // otherwise listed as not run; they're never pointed at another database instead.
+  const withOther = await companionReady();
+  const needsOther = withOther ? [] : asked.filter((n) => NEEDS_OTHER.has(n));
+  if (needsOther.length) throw new Error(`${needsOther.join(", ")} compare ${TARGET} with ${OTHER_NAME}, which doesn't exist here with its marker, so they don't run.`);
   if (TARGET !== "fitdb_test" && asked.includes("demo-account-e2e")) throw new Error("demo-account-e2e needs the demo account, which exists only in fitdb_test.");
   let ok = true;
-  const defaults = Object.keys(SUITES).filter((n) => !ON_DEMAND.has(n) && (TARGET === "fitdb_test" || !NEEDS_OTHER.has(n)));
-  if (!asked.length && TARGET !== "fitdb_test") console.log(`On ${TARGET}: not run here, as they need fitdb_test_other: ${[...NEEDS_OTHER].join(", ")}.`);
+  const defaults = Object.keys(SUITES).filter((n) => !ON_DEMAND.has(n) && (withOther || !NEEDS_OTHER.has(n)));
+  if (!asked.length && !withOther) console.log(`On ${TARGET}: not run here, as they need ${OTHER_NAME}, which isn't prepared: ${[...NEEDS_OTHER].join(", ")}.`);
   for (const name of asked.length ? asked : defaults) {
     const t0 = Date.now();
     try { ok = report(name, await SUITES[name](), Date.now() - t0) && ok; } catch (e) {

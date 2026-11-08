@@ -1,6 +1,9 @@
 // Creates and prepares one of the two named local databases, by hand, or reports on it:
 //   node --env-file=.env.review   scripts/local-db.cjs --init   --confirm=fitdb_review
 //   node --env-file=.env.isolated scripts/local-db.cjs --init   --confirm=fitdb_test_isolated
+//   node --env-file=.env.isolated scripts/local-db.cjs --init   --confirm=fitdb_test_isolated_other   (B1b, with approval)
+// A companion (fitdb_test_isolated_other) uses its parent's settings file: its address is the parent's verified local
+// address with only the name changed, so it can't point anywhere else.
 //   node --env-file=.env.review   scripts/local-db.cjs --status --confirm=fitdb_review
 // --init creates the database if it doesn't exist, applies the existing migrations with `prisma migrate deploy`, adds
 // the built-in exercise library with the existing seed, and marks it. It never drops, resets or overwrites anything:
@@ -9,7 +12,7 @@
 "use strict";
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
-const { LOCAL_DATABASES, localDatabaseProblem, envFileProblem, maintenanceUrl, readLocalIdentity, scrubber } = require("./lib/local-databases.cjs");
+const { LOCAL_DATABASES, companionUrl, localDatabaseProblem, envFileProblem, maintenanceUrl, readLocalIdentity, scrubber } = require("./lib/local-databases.cjs");
 
 const ROOT = path.join(__dirname, "..");
 const refuse = (m) => { console.error(`REFUSED (nothing was changed): ${m}`); process.exit(4); };
@@ -20,7 +23,9 @@ const name = (args[1] ?? "").startsWith("--confirm=") ? args[1].slice("--confirm
 if (args.length !== 2 || !["--init", "--status"].includes(mode) || !Object.hasOwn(LOCAL_DATABASES, name)) refuse(`use --init or --status, then --confirm=${Object.keys(LOCAL_DATABASES).join(" or --confirm=")}.`);
 const fileProblem = envFileProblem(name);
 if (fileProblem) refuse(fileProblem);
-const DB = process.env.DATABASE_URL;
+const PARENT = LOCAL_DATABASES[name].companionOf;
+if (PARENT) { const p = localDatabaseProblem(process.env.DATABASE_URL, PARENT); if (p) refuse(`${name} is derived from ${PARENT}'s settings: ${p}`); }
+const DB = PARENT ? companionUrl(process.env.DATABASE_URL, name) : process.env.DATABASE_URL;
 const urlProblem = localDatabaseProblem(DB, name);
 if (urlProblem) refuse(urlProblem);
 if (!/^[a-z_]+$/.test(name)) refuse("unexpected database name.");
