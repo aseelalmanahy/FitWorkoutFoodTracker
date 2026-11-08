@@ -1004,3 +1004,37 @@ test("restore-check.cjs refuses unexpected targets, settings and backups before 
     }
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+// ─── C2: one review account at a real address, for one real reset email ─────
+
+test("review-account.cjs --mail-tester refuses unusable addresses and other forms before connecting, and stores no password", () => {
+  const { spawnSync } = require("node:child_process");
+  const os = require("node:os");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fit-mail-tester-"));
+  fs.writeFileSync(path.join(dir, ".env.review"), "DATABASE_URL=postgresql://none:SECRETPW@127.0.0.1:1/fitdb_review\n");
+  const env = { ...process.env };
+  delete env.DATABASE_URL;
+  const run = (args) => { const r = spawnSync(process.execPath, ["--env-file=.env.review", path.join(SCRIPTS, "review-account.cjs"), ...args], { cwd: dir, env, encoding: "utf8", timeout: 30_000 }); return { code: r.status, text: `${r.stdout}${r.stderr}` }; };
+  try {
+    for (const [label, args, re] of [
+      ["no address", ["--mail-tester", "--confirm=fitdb_review"], /--mail-tester --email=<address>/],
+      ["no confirmation", ["--mail-tester", "--email=me@example.com"], /--mail-tester --email=<address>/],
+      ["another database", ["--mail-tester", "--email=me@example.com", "--confirm=fitdb_test"], /--mail-tester --email=<address>/],
+      ["not an address", ["--mail-tester", "--email=not-an-address", "--confirm=fitdb_review"], /isn't an email address/],
+      ["two addresses", ["--mail-tester", "--email=a@example.com,b@example.com", "--confirm=fitdb_review"], /isn't an email address/],
+      ["a .local address", ["--mail-tester", "--email=owner@review.local", "--confirm=fitdb_review"], /can't receive mail/],
+      ["a reserved domain", ["--mail-tester", "--email=me@mail.invalid", "--confirm=fitdb_review"], /can't receive mail/],
+    ]) {
+      const r = run(args);
+      assert.equal(r.code, 4, `${label}: ${r.text}`);
+      assert.match(r.text, /REFUSED \(nothing was written\)/, label);
+      assert.match(r.text, re, label);
+      assert.doesNotMatch(r.text, /SECRETPW/, label);
+    }
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  const code = fs.readFileSync(path.join(SCRIPTS, "review-account.cjs"), "utf8");
+  const fn = code.slice(code.indexOf("async function createMailTester"), code.indexOf("async function status"));
+  assert.doesNotMatch(fn, /writeFileSync|console\.log\(`[^`]*\$\{password/, "no password file and no password shown");
+  assert.match(fn, /hash\(randomBytes\(32\)/, "a random password, hashed and forgotten");
+  assert.match(fn, /already has an account\. It isn't changed/, "an existing account is never changed");
+});

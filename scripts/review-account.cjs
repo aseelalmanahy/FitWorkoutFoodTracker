@@ -20,7 +20,16 @@ const refuse = (m) => { console.error(`REFUSED (nothing was written): ${m}`); pr
 const args = process.argv.slice(2);
 const what = args[0] ?? "";
 const tester = /^--tester=([1-9])$/.exec(what)?.[1];
-if (args.length !== 2 || args[1] !== `--confirm=${NAME}` || !(what === "--owner" || what === "--status" || tester)) refuse(`use --owner, --tester=<1-9> or --status, then --confirm=${NAME}.`);
+// C2, with the owner's approval: one account at a real address the owner controls, for one real password-reset email.
+//   node --env-file=.env.review scripts/review-account.cjs --mail-tester --email=<address> --confirm=fitdb_review
+// It has no usable password: none is generated into a file or shown. The owner sets one through the emailed link.
+const mailArg = what === "--mail-tester" ? args[1] ?? "" : "";
+const mailAddress = mailArg.startsWith("--email=") ? mailArg.slice("--email=".length).trim().toLowerCase() : "";
+if (what === "--mail-tester") {
+  if (args.length !== 3 || args[2] !== `--confirm=${NAME}` || !mailAddress) refuse(`use --mail-tester --email=<address> --confirm=${NAME}.`);
+  if (!/^[^\s@"<>,;]+@[a-z0-9-]+(\.[a-z0-9-]+)+$/.test(mailAddress) || mailAddress.length > 254) refuse("that isn't an email address this can use.");
+  if (/\.(local|invalid|test|example|localhost)$/.test(mailAddress)) refuse("that address can't receive mail; use one you control.");
+} else if (args.length !== 2 || args[1] !== `--confirm=${NAME}` || !(what === "--owner" || what === "--status" || tester)) refuse(`use --owner, --tester=<1-9>, --status or --mail-tester --email=<address>, then --confirm=${NAME}.`);
 const fileProblem = envFileProblem(NAME);
 if (fileProblem) refuse(fileProblem);
 const DB = process.env.DATABASE_URL;
@@ -76,6 +85,20 @@ No email is sent from it, so a forgotten password can't be reset by email: ask f
   console.log(`Created ${account.email}. Its password is in ${account.file}, which Git ignores.`);
 }
 
+/** C2: made with a random password that's hashed and immediately forgotten, so only the emailed reset link opens it. */
+async function createMailTester(email) {
+  await verified();
+  if (await db.user.findUnique({ where: { email }, select: { id: true } })) throw new Error("that address already has an account. It isn't changed.");
+  const { hash } = require("@node-rs/argon2");
+  const passwordHash = await hash(randomBytes(32).toString("base64url"), ARGON);
+  await db.$transaction(async (tx) => {
+    const [row] = await tx.$queryRawUnsafe("SELECT current_database() AS name");
+    if (row.name !== NAME) throw new Error("the writing connection isn't fitdb_review.");
+    await tx.user.create({ data: { email, passwordHash } });
+  });
+  console.log(`Created the mail test account (${email.replace(/^(.).*(@.*)$/, "$1…$2")}). It has no known password: use "Forgot password" on the review server to receive the reset email.`);
+}
+
 async function status() {
   await verified();
   for (const a of [OWNER, ...[1, 2, 3].map(testerAccount)]) {
@@ -86,6 +109,6 @@ async function status() {
   }
 }
 
-(what === "--status" ? status() : create(tester ? testerAccount(tester) : OWNER))
+(what === "--status" ? status() : what === "--mail-tester" ? createMailTester(mailAddress) : create(tester ? testerAccount(tester) : OWNER))
   .then(() => db.$disconnect())
   .catch(async (e) => { console.error(`STOPPED: ${scrub(e.message).slice(0, 300)}`); await db.$disconnect().catch(() => {}); process.exit(1); });
