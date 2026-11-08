@@ -28,6 +28,7 @@ services:
       MAIL_FROM: ${MAIL_FROM:-}
       LABEL_OCR: ${LABEL_OCR:-}
       MEAL_RECOGNITION: ${MEAL_RECOGNITION:-}
+      ADMIN_USER_IDS: ${ADMIN_USER_IDS:-}
     # Reached only by the proxy. Never published on the host.
     expose:
       - "3000"

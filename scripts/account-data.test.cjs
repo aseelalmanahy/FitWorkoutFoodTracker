@@ -96,6 +96,7 @@ async function seed({ user, tag }) {
   await target("2026-01-04", { kcal: null, proteinG: null, carbsG: null, fatG: null });
   await addSession(prisma, id);
   await prisma.bodyMetric.create({ data: { userId: id, date: dbDate("2026-01-01"), value: 70.5 } });
+  await prisma.feedback.create({ data: { userId: id, category: "BUG", description: `Feedback ${tag}`, route: "/dashboard", status: "TRIAGED", severity: "LOW", decisionNote: `Note ${tag}` } });
   // A pending reset link, and a sign-up link for the same address, which only the address ties to this person.
   const later = new Date(Date.now() + 3_600_000);
   const tokenId = () => require("node:crypto").randomBytes(32).toString("hex");
@@ -125,6 +126,7 @@ async function ownedIds(id) {
     FoodEntry: await ids(prisma.foodEntry, { userId: id }),
     NutritionTarget: await ids(prisma.nutritionTarget, { userId: id }),
     BodyMetric: await ids(prisma.bodyMetric, { userId: id }),
+    Feedback: await ids(prisma.feedback, { userId: id }),
   };
 }
 const ID_FIELD = { Profile: "userId" };

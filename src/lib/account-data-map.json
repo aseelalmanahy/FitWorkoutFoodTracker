@@ -78,5 +78,10 @@
     "deletion": "Own rows deleted",
     "export": ["id", "kind", "date", "value", "createdAt", "updatedAt"],
     "excluded": { "userId": "the owner" }
+  },
+  "Feedback": {
+    "deletion": "Own rows deleted. A report marked as repeating one of them keeps its own text, with the link cleared",
+    "export": ["id", "category", "description", "route", "status", "createdAt", "updatedAt"],
+    "excluded": { "userId": "the owner", "severity": "an administrator's triage of the report", "priority": "an administrator's triage of the report", "duplicateOfId": "an administrator's triage, and can name another person's report", "decisionNote": "an administrator's working note", "taskLink": "an administrator's link to a development task" }
   }
 }

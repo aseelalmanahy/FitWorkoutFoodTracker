@@ -578,7 +578,7 @@ test("the guard has no import-time side effects", () => {
 
 const GUARDED = [
   "e2e-demo-account.cjs",
-  "workout-sets.test.cjs", "e2e-readiness.cjs", "readiness-performance.test.cjs",
+  "workout-sets.test.cjs", "feedback-api.test.cjs", "e2e-readiness.cjs", "readiness-performance.test.cjs",
   "account-data.test.cjs", "account-tokens.test.cjs", "privacy-consent.test.cjs", "e2e-privacy.cjs", "e2e-privacy-cleanup.test.cjs", "e2e-account-data.cjs", "e2e-eligibility.cjs", "e2e-production-security.cjs", "e2e-hardening.cjs", "e2e-label-pdf.cjs", "e2e-label-scan.cjs", "e2e-meal.cjs", "e2e-nutrition-targets.cjs", "e2e-nutrition.cjs", "e2e-profile-minimization.cjs", "e2e-smoke.cjs",
   "nutrition-api.test.cjs", "nutrition-target-migration-check.cjs", "nutrition-targets.test.cjs", "production-security.test.cjs", "profile-migration-check.cjs", "profile-minimization.test.cjs", "profile-nulls.test.cjs", "provider-config.test.cjs", "provider-malformed.test.cjs", "provider-protection.test.cjs", "release-workflow.test.cjs",
   "weight-progress.test.cjs", "e2e-weight.cjs", "e2e-responsive.cjs",
@@ -600,6 +600,7 @@ const OTHER_WRITE_CAPABLE = {
   "local-db-roles.cjs": { must: ["--confirm=A4", "ADMIN_DATABASE_URL isn't this machine", "rolsuper", "never printed", "fs.copyFileSync(f.path", "matrixProblems("], reason: "by hand, only with the owner's A4 approval: changes local database roles and owners, after backing up every env file and the state to restore; --verify reads the catalog only" },
   "local-db-roles.rehearsal.cjs": { must: ["mkdtempSync(path.join(os.tmpdir(), \"fit-a4-rehearsal-\")", "listen_addresses=127.0.0.1", "FIT_ROLES_DESKTOP: desktop"], reason: "creates its own throwaway cluster in a temporary folder, rehearses A4 on it, and deletes it; never connects to the machine's PostgreSQL service" },
   "g1-image-check.cjs": { must: ["--approval=G1", "Docker isn't running. Starting Docker Desktop is part of the G1 approval", "fit_g1_rehearsal", "127.0.0.1:${PORT}:3000", "rm\", \"-f\", \"-v\""], reason: "only with the owner's G1 approval and Docker already running: builds the image and checks it against its own throwaway database container; never touches this machine's PostgreSQL, databases or env files, and removes what it started" },
+  "disposable-db.cjs": { must: ["fit-disposable-db-", "listen_addresses=127.0.0.1", "check-ignore", "Disposable cluster stopped and deleted"], reason: "creates its own throwaway cluster in a temporary folder for a branch whose schema is ahead, and writes .env.isolated pointing only at it; never connects to this machine's PostgreSQL service" },
   "measure-recognition.cjs": { must: ["review-tester-", "listeningPid(", "[3002, 3003]"], reason: "by hand: signs in as a review tester on the local review server only, sends generated images that aren't stored, and reads the server process's memory (RC-06)" },
 };
 const NOT_GUARDED = {

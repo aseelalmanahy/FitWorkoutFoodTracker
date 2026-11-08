@@ -99,6 +99,7 @@ export async function buildExport(userId: string, verifiedHash: string, now = ne
       tx.foodEntry.count({ where: { userId } }),
       tx.nutritionTarget.count({ where: { userId } }),
       tx.bodyMetric.count({ where: { userId } }),
+      tx.feedback.count({ where: { userId } }),
     ]);
     if (counts.reduce((a, b) => a + b, 0) > MAX_EXPORT_ROWS) throw new HttpError(413, TOO_LARGE);
 
@@ -134,6 +135,7 @@ export async function buildExport(userId: string, verifiedHash: string, now = ne
     const targets = await tx.nutritionTarget.findMany({ where: { userId }, select: fields("NutritionTarget"), orderBy: { effectiveFrom: "asc" } }) as Row[];
 
     const weightLog = await tx.bodyMetric.findMany({ where: { userId }, select: fields("BodyMetric"), orderBy: { date: "asc" } }) as Row[];
+    const feedback = await tx.feedback.findMany({ where: { userId }, select: fields("Feedback"), orderBy: { createdAt: "asc" } }) as Row[];
 
     const exportedSessions = sessions.map((s) => ({
       ...exportRow("WorkoutSession", s),
@@ -179,6 +181,7 @@ export async function buildExport(userId: string, verifiedHash: string, now = ne
       }),
       nutritionTargets: targets.map((t) => exportRow("NutritionTarget", t)),
       weightLog: weightLog.map((w) => exportRow("BodyMetric", w)),
+      feedback: feedback.map((f) => exportRow("Feedback", f)),
     };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, maxWait: 10_000, timeout: 120_000 });
 

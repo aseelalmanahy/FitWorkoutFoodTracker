@@ -163,6 +163,8 @@ const SUITES = {
   "profile-migration-snapshot": () => withApp("profile-migration-snapshot", {}, ({ url }) => runNode([script("profile-migration-check.cjs"), "snapshot"], { BASE_URL: url }, 60_000)),
   "profile-migration-verify": () => withApp("profile-migration-verify", {}, ({ url }) => runNode([script("profile-migration-check.cjs"), "verify"], { BASE_URL: url }, 60_000)),
   "account-data": () => withApp("account-data", {}, ({ url }) => runNode(nodeTest("account-data.test.cjs"), { BASE_URL: url }, 590_000)),
+  // Phase 5: one administrator per run, a fresh ID the app is started with and the suite then creates.
+  "feedback-api": () => { const id = `c${require("node:crypto").randomBytes(12).toString("hex")}`; return withApp("feedback-api", { appEnv: { ADMIN_USER_IDS: id } }, ({ url }) => runNode(nodeTest("feedback-api.test.cjs"), { BASE_URL: url, FEEDBACK_ADMIN_ID: id }, 300_000)); },
   // TRUST_PROXY_HOPS lets each request in the suite name its own client in X-Forwarded-For, so the 10-per-15-minutes limits on sign-up and
   // on redeeming a link apply per case and not to the whole suite. Nothing is loosened: every case stays under the limit.
   "account-tokens": () => withApp("account-tokens", { appEnv: { TRUST_PROXY_HOPS: "1" } }, ({ url, serverLog }) => runNode(nodeTest("account-tokens.test.cjs"), { BASE_URL: url, SERVER_LOG_FILE: serverLog }, 590_000)),

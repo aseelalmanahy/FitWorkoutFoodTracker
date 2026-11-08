@@ -6,6 +6,7 @@ import { accessStateFor } from "@/lib/eligibility";
 import { getCurrentUser, type AuthUser } from "./auth";
 import { prisma } from "./db";
 import { trustedProxyHops } from "./login-throttle";
+import { isAdmin } from "./admins";
 import { logServerError } from "./safe-log";
 
 export class HttpError extends Error {
@@ -112,6 +113,24 @@ export function route<P = Record<string, never>>(handler: Handler<P>) {
 /** Signed in, without the access gate, for what a restricted person must still reach. Named exceptions only. */
 export function accountRoute<P = Record<string, never>>(handler: Handler<P>) {
   return authenticated(handler, false);
+}
+
+/**
+ * Administrators only (ADMIN_USER_IDS, server side). Anyone else, signed in or not, gets the same 404 as a page that
+ * doesn't exist, so the route doesn't even confirm it's there. No access gate: an administrator is checked by ID.
+ */
+export function adminRoute<P = Record<string, never>>(handler: Handler<P>) {
+  return async (req: NextRequest, ctx: Ctx<P>): Promise<Response> => {
+    try {
+      if (!checkOrigin(req)) return jsonError(403, "Invalid origin");
+      const user = await getCurrentUser();
+      if (!user || !isAdmin(user.id)) return jsonError(404, "Not found");
+      const result = await handler(req, { params: await ctx.params, user });
+      return result instanceof Response ? result : NextResponse.json(result ?? { ok: true });
+    } catch (err) {
+      return handleError(err);
+    }
+  };
 }
 
 export function publicRoute(handler: (req: NextRequest) => Promise<Response | unknown>) {

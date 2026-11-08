@@ -36,6 +36,7 @@ model User {
   foods            Food[]
   foodEntries      FoodEntry[]
   nutritionTargets NutritionTarget[]
+  feedback         Feedback[]
 }
 
 /// Server-side session. `id` is the SHA-256 hash of the random cookie token,
@@ -451,4 +452,66 @@ model NutritionTarget {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, effectiveFrom])
+}
+
+/// Beta feedback (phase 5). Private to the person who wrote it, and to administrators named by user ID in the server
+/// setting ADMIN_USER_IDS. Deleted with the account. No attachments, screenshots or device details are stored.
+model Feedback {
+  id            String            @id @default(cuid())
+  userId        String
+  category      FeedbackCategory
+  /// What the person wrote, at most 2,000 characters. It can contain personal details, so it's only ever exported for
+  /// review in redacted form, under a pseudonym.
+  description   String
+  /// The app page it was sent from, such as "/nutrition", with no query or fragment.
+  route         String?
+  status        FeedbackStatus    @default(NEW)
+  severity      FeedbackSeverity?
+  priority      FeedbackPriority?
+  /// Another report this one repeats. Cleared if that report is deleted.
+  duplicateOfId String?
+  /// An administrator's decision, and a link to the approved development task. Administrators only.
+  decisionNote  String?
+  taskLink      String?
+  createdAt     DateTime          @default(now())
+  updatedAt     DateTime          @updatedAt
+
+  user        User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  duplicateOf Feedback?  @relation("FeedbackDuplicate", fields: [duplicateOfId], references: [id], onDelete: SetNull)
+  duplicates  Feedback[] @relation("FeedbackDuplicate")
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
+}
+
+enum FeedbackCategory {
+  BUG
+  FEATURE
+  IMPROVEMENT
+  UX
+  GENERAL
+}
+
+enum FeedbackStatus {
+  NEW
+  TRIAGED
+  PLANNED
+  IN_PROGRESS
+  DONE
+  DECLINED
+  DUPLICATE
+}
+
+enum FeedbackSeverity {
+  CRITICAL
+  HIGH
+  MEDIUM
+  LOW
+}
+
+enum FeedbackPriority {
+  P0
+  P1
+  P2
+  P3
 }
