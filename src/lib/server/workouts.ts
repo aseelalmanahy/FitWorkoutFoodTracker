@@ -5,6 +5,7 @@ import { limitLockWait } from "./auth";
 import { idempotencyConflict, idempotentId, isUniqueViolation } from "./idempotency";
 import type { Prisma, SetEntry } from "@prisma/client";
 import type { SessionPerformance } from "@/lib/overload";
+import { contextKey } from "@/lib/movement-patterns";
 
 export interface PreviousPerformance {
   sessionId: string;
@@ -140,9 +141,13 @@ export const sessionDetailInclude = {
     include: {
       exercise: true,
       sets: { orderBy: { setNumber: "asc" as const } },
+      machine: { select: { id: true, name: true, kind: true, gymId: true } },
+      plannedExercise: { select: { id: true, name: true } },
+      substitutedBy: { select: { id: true } },
     },
   },
   template: { include: { exercises: true } },
+  gym: { select: { id: true, name: true } },
 };
 
 export async function getSessionDetail(userId: string, sessionId: string) {
@@ -150,19 +155,27 @@ export async function getSessionDetail(userId: string, sessionId: string) {
 }
 
 /**
- * Most recent completed performance of each exercise, excluding a session.
- * Returns exerciseId → performance.
+ * Multi-gym: a set's history belongs to its exercise and, if one was chosen, the specific machine. Sets with no machine
+ * (free weights, and every workout from before gyms existed) share one history per exercise, as before; a machine's
+ * sets are compared only with that machine's, as different machines aren't mechanically equivalent.
+ */
+export type HistoryContext = { exerciseId: string; gymEquipmentId: string | null };
+
+/**
+ * Most recent completed performance in each context, excluding a session. Returns contextKey → performance.
+ * Given plain exercise IDs, the context is "no machine", which is every set logged before machines existed.
  */
 export async function getPreviousPerformances(
   userId: string,
-  exerciseIds: string[],
+  exercises: (string | HistoryContext)[],
   opts: { excludeSessionId?: string; before?: Date } = {},
 ): Promise<Map<string, PreviousPerformance>> {
   const result = new Map<string, PreviousPerformance>();
-  if (!exerciseIds.length) return result;
+  const contexts = exercises.map((e) => (typeof e === "string" ? { exerciseId: e, gymEquipmentId: null } : e));
+  if (!contexts.length) return result;
   const rows = await prisma.sessionExercise.findMany({
     where: {
-      exerciseId: { in: exerciseIds },
+      OR: contexts.map((c) => ({ exerciseId: c.exerciseId, gymEquipmentId: c.gymEquipmentId })),
       sets: { some: { isWarmup: false } },
       session: {
         userId,
@@ -172,19 +185,25 @@ export async function getPreviousPerformances(
       },
     },
     orderBy: [{ session: { startedAt: "desc" } }, { position: "asc" }],
-    distinct: ["exerciseId"],
+    distinct: ["exerciseId", "gymEquipmentId"],
     include: { session: { select: { id: true, startedAt: true } }, sets: { orderBy: { setNumber: "asc" } } },
   });
   for (const r of rows) {
-    result.set(r.exerciseId, { sessionId: r.session.id, date: r.session.startedAt, sets: r.sets });
+    const value = { sessionId: r.session.id, date: r.session.startedAt, sets: r.sets };
+    result.set(contextKey(r.exerciseId, r.gymEquipmentId), value);
+    // Callers that ask by exercise ID alone read the "no machine" context under the plain ID too.
+    if (r.gymEquipmentId === null) result.set(r.exerciseId, value);
   }
   return result;
 }
 
-/** All completed sessions containing each exercise, oldest first (sets merged per session). */
-export async function getExerciseHistories(userId: string, exerciseIds: string[]): Promise<Map<string, SessionPerformance[]>> {
+/**
+ * All completed sessions containing each exercise, oldest first (sets merged per session), in one context: no machine
+ * by default (the shared history), or one machine.
+ */
+export async function getExerciseHistories(userId: string, exerciseIds: string[], { gymEquipmentId = null }: { gymEquipmentId?: string | null } = {}): Promise<Map<string, SessionPerformance[]>> {
   const rows = await prisma.sessionExercise.findMany({
-    where: { exerciseId: { in: exerciseIds }, session: { userId, status: "COMPLETED" } },
+    where: { exerciseId: { in: exerciseIds }, gymEquipmentId, session: { userId, status: "COMPLETED" } },
     include: { session: { select: { id: true, startedAt: true } }, sets: { orderBy: { setNumber: "asc" } } },
     orderBy: [{ session: { startedAt: "asc" } }, { position: "asc" }],
   });
@@ -199,8 +218,18 @@ export async function getExerciseHistories(userId: string, exerciseIds: string[]
   return new Map(exerciseIds.map((id) => [id, [...(out.get(id)?.values() ?? [])]]));
 }
 
-export async function getExerciseHistory(userId: string, exerciseId: string): Promise<SessionPerformance[]> {
-  return (await getExerciseHistories(userId, [exerciseId])).get(exerciseId) ?? [];
+export async function getExerciseHistory(userId: string, exerciseId: string, gymEquipmentId: string | null = null): Promise<SessionPerformance[]> {
+  return (await getExerciseHistories(userId, [exerciseId], { gymEquipmentId })).get(exerciseId) ?? [];
+}
+
+/** The machines this person has logged an exercise on, each with its gym, for separate histories and records. */
+export async function getMachinesUsedFor(userId: string, exerciseId: string) {
+  const rows = await prisma.sessionExercise.findMany({
+    where: { exerciseId, gymEquipmentId: { not: null }, session: { userId, status: "COMPLETED" } },
+    distinct: ["gymEquipmentId"],
+    select: { machine: { select: { id: true, name: true, kind: true, gym: { select: { name: true } } } } },
+  });
+  return rows.flatMap((r) => (r.machine ? [{ id: r.machine.id, name: r.machine.name ?? "", gym: r.machine.gym.name }] : []));
 }
 
 /** Next free position for a session exercise. */

@@ -2,7 +2,7 @@
   "categories": {
     "account": "Email address, password hash, sign-in sessions, emailed links, and which notice version was current at sign-up",
     "profile": "Name, date of birth, and the optional body and goal details the person chooses to store",
-    "training": "Custom exercises, plans, schedule, workouts, sets, repetitions and weights",
+    "training": "Custom exercises, plans, schedule, workouts, sets, repetitions and weights, and optional gym names, their equipment and named machines (no address or location)",
     "nutrition": "Custom foods, food diary entries, and nutrition targets",
     "feedback": "What a person writes as beta feedback, the page it was sent from, and its review state"
   },
@@ -19,6 +19,8 @@
     "WorkoutSession": "training",
     "SessionExercise": "training",
     "SetEntry": "training",
+    "GymLocation": "training",
+    "GymEquipment": "training",
     "Food": "nutrition",
     "FoodServing": "nutrition",
     "FoodEntry": "nutrition",

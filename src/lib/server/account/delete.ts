@@ -24,6 +24,9 @@ export async function deleteAccount(userId: string, verifiedHash: string): Promi
       if (!locked.length) return false;
       if (locked[0].passwordHash !== verifiedHash) throw new HttpError(409, "Your password was changed elsewhere just now, and nothing was deleted. Log in again and retry.");
       await tx.workoutSession.deleteMany({ where: { userId } });
+      // Multi-gym: machines and gyms, now that no session refers to them.
+      await tx.gymEquipment.deleteMany({ where: { userId } });
+      await tx.gymLocation.deleteMany({ where: { userId } });
       await tx.scheduleSlot.deleteMany({ where: { userId } });
       await tx.workoutTemplate.deleteMany({ where: { userId } });
       await tx.exercise.deleteMany({ where: { userId } });

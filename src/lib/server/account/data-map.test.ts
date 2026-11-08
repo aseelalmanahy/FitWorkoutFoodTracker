@@ -30,7 +30,7 @@ describe("every model and field is classified", () => {
   it("every relation to a user or a shared parent has a stated deletion rule", () => {
     for (const m of models) expect(map[m.name].deletion.length, m.name).toBeGreaterThan(0);
     const restricting = models.flatMap((m) => m.fields.filter((f) => f.relationOnDelete === "Restrict").map((f) => `${m.name}.${f.name}`));
-    expect(restricting.sort()).toEqual(["SessionExercise.exercise", "TemplateExercise.exercise"]);
+    expect(restricting.sort()).toEqual(["SessionExercise.exercise", "SessionExercise.machine", "SessionExercise.plannedExercise", "TemplateExercise.exercise"]);
     for (const m of ["TemplateExercise", "SessionExercise"]) expect(map[m].deletion).toMatch(/Restricts deleting its exercise/);
   });
   it("deletion names every model that holds a userId", () => {

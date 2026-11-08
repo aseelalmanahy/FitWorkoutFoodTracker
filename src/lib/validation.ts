@@ -95,10 +95,12 @@ export const scheduleSchema = z.object({
     .length(7, "Provide all 7 weekdays (Monday first)"),
 });
 
+// Multi-gym: any way of starting may name the gym; it can also be chosen or changed during the workout.
+const startAt = { gymLocationId: id.nullable().optional() };
 export const startSessionSchema = z.union([
-  z.object({ templateId: id }),
-  z.object({ fromSessionId: id }),
-  z.object({ name: z.string().trim().min(1).max(80) }),
+  z.object({ templateId: id, ...startAt }),
+  z.object({ fromSessionId: id, ...startAt }),
+  z.object({ name: z.string().trim().min(1).max(80), ...startAt }),
 ]);
 
 export const updateSessionSchema = z.object({

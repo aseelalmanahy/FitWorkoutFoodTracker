@@ -1,6 +1,7 @@
 import { route, parseBody, HttpError, notFound } from "@/lib/server/api";
 import { startSessionSchema } from "@/lib/validation";
 import { prisma } from "@/lib/server/db";
+import { getOwnedGym } from "@/lib/server/gyms";
 
 export const GET = route(async (req, { user }) => {
   const take = Math.min(Number(req.nextUrl.searchParams.get("limit") ?? 20) || 20, 100);
@@ -24,6 +25,8 @@ export const POST = route(async (req, { user }) => {
   const input = await parseBody(req, startSessionSchema);
   const active = await prisma.workoutSession.findFirst({ where: { userId: user.id, status: "IN_PROGRESS" } });
   if (active) throw new HttpError(409, "Finish or discard your current workout first", { sessionId: active.id });
+  const gymLocationId = input.gymLocationId ?? null;
+  if (gymLocationId) await getOwnedGym(user.id, gymLocationId); // someone else's gym is "not found"
 
   if ("templateId" in input) {
     const t = await prisma.workoutTemplate.findFirst({
@@ -34,6 +37,7 @@ export const POST = route(async (req, { user }) => {
     const session = await prisma.workoutSession.create({
       data: {
         userId: user.id,
+        gymLocationId,
         templateId: t.id,
         name: t.name,
         exercises: {
@@ -58,6 +62,7 @@ export const POST = route(async (req, { user }) => {
     const session = await prisma.workoutSession.create({
       data: {
         userId: user.id,
+        gymLocationId,
         templateId: src.templateId,
         name: src.name,
         exercises: {
@@ -68,6 +73,6 @@ export const POST = route(async (req, { user }) => {
     return { session };
   }
 
-  const session = await prisma.workoutSession.create({ data: { userId: user.id, name: input.name } });
+  const session = await prisma.workoutSession.create({ data: { userId: user.id, name: input.name, gymLocationId } });
   return { session };
 });

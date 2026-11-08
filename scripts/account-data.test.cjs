@@ -80,7 +80,12 @@ async function seed({ user, tag }) {
       { exerciseId: builtIn.id, position: 2, sets: { create: { setNumber: 1, reps: 5, weightKg: 30 } } },
     ] } },
   });
-  const open = await prisma.workoutSession.create({ data: { userId: id, name: `Open ${tag}`, exercises: { create: { exerciseId: inProgress.id, position: 0, sets: { create: { setNumber: 1, reps: 3, weightKg: 12 } } } } } });
+  const open = await prisma.workoutSession.create({ data: { userId: id, name: `Open ${tag}`, exercises: { create: { exerciseId: inProgress.id, position: 0, sets: { create: { setNumber: 1, reps: 3, weightKg: 12 } } } } }, include: { exercises: true } });
+  // Multi-gym: a gym with a kind of equipment and a named machine, and the open workout at it, swapped partway onto the machine.
+  const gym = await prisma.gymLocation.create({ data: { userId: id, name: `Gym ${tag}`, equipment: { create: [{ userId: id, kind: "BARBELL" }, { userId: id, kind: "MACHINE", name: `Machine ${tag}`, exerciseId: inSession.id }] } }, include: { equipment: true } });
+  const machine = gym.equipment.find((e) => e.name);
+  await prisma.workoutSession.update({ where: { id: open.id }, data: { gymLocationId: gym.id } });
+  await prisma.sessionExercise.create({ data: { sessionId: open.id, exerciseId: inBoth.id, position: 1, gymEquipmentId: machine.id, substitutesId: open.exercises[0].id, plannedExerciseId: inProgress.id, sets: { create: { setNumber: 1, reps: 6, weightKg: 45 } } } });
   const food = await prisma.food.create({
     data: { source: "CUSTOM", sourceId: `custom-${tag}`, userId: id, name: `Custom food ${tag}`, brand: `Brand ${tag}`, barcode: `bar${tag}`, dataType: "Custom", basisUnit: "ML", kcalPer100: "50.125", proteinPer100: "0", carbsPer100: "1.5", fatPer100: "2.5", fiberPer100: "0.5", fetchedAt: new Date("2026-01-01T00:00:00Z"), origin: `origin ${tag}`, servings: { create: { label: `Glass ${tag}`, amount: "250", isDefault: true, position: 3 } } },
     include: { servings: true },
@@ -102,7 +107,7 @@ async function seed({ user, tag }) {
   const tokenId = () => require("node:crypto").randomBytes(32).toString("hex");
   await prisma.accountToken.create({ data: { id: tokenId(), purpose: "PASSWORD_RESET", email: user.email, userId: id, expiresAt: later } });
   await prisma.accountToken.create({ data: { id: tokenId(), purpose: "SIGNUP", email: user.email, expiresAt: later } });
-  return { unused, inPlan, inSession, inBoth, inProgress, template, slot, done, open, food };
+  return { unused, inPlan, inSession, inBoth, inProgress, template, slot, done, open, food, gym, machine };
 }
 
 /** Everything that belongs to this person, by model, through every relation. Each list must be non-empty after seeding. */
@@ -127,6 +132,8 @@ async function ownedIds(id) {
     NutritionTarget: await ids(prisma.nutritionTarget, { userId: id }),
     BodyMetric: await ids(prisma.bodyMetric, { userId: id }),
     Feedback: await ids(prisma.feedback, { userId: id }),
+    GymLocation: await ids(prisma.gymLocation, { userId: id }),
+    GymEquipment: await ids(prisma.gymEquipment, { userId: id }),
   };
 }
 const ID_FIELD = { Profile: "userId" };
@@ -519,6 +526,14 @@ test("workouts come out nested, with what a built-in exercise was, and progress 
   assert.deepEqual(done.exercises[2].exercise, { name: builtIn.name, primaryMuscle: builtIn.primaryMuscle, equipment: builtIn.equipment, builtIn: true });
   assert.equal(done.exercises[0].exercise.builtIn, false);
   assert.ok(doc.workoutSessions.some((s) => s.status === "IN_PROGRESS"), "a session in progress is included");
+  // Multi-gym: the gym, its equipment and machine, and which machine and swap each exercise had, all exported as stored.
+  const gym = doc.gyms.find((g) => g.id === seeded.gym.id);
+  assert.deepEqual(gym.equipment.map((e) => [e.kind, e.name, e.exerciseId]).sort(), [["BARBELL", null, null], ["MACHINE", seeded.machine.name, seeded.inSession.id]]);
+  assert.equal(gym.userId, undefined, "the owner id is not exported");
+  const open = doc.workoutSessions.find((s) => s.id === seeded.open.id);
+  assert.equal(open.gymLocationId, seeded.gym.id);
+  assert.deepEqual(open.exercises.map((e) => [e.exerciseId, e.gymEquipmentId, e.plannedExerciseId, e.substitutesId === open.exercises[0].id]), [[seeded.inProgress.id, null, null, false], [seeded.inBoth.id, seeded.machine.id, seeded.inProgress.id, true]]);
+  assert.equal(done.gymLocationId, null, "a workout with no gym says so, and none is made up");
   assert.equal(doc.schedule[0].templateId, seeded.template.id);
   const p = doc.progress.find((x) => x.exerciseId === seeded.inSession.id);
   assert.deepEqual([p.completedSessions, p.workingSets, p.heaviestWorkingSetKg], [1, 1, 62.5], "warm-ups don't count");

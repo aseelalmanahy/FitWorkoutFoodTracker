@@ -99,6 +99,8 @@ export async function buildExport(userId: string, verifiedHash: string, now = ne
       tx.foodEntry.count({ where: { userId } }),
       tx.nutritionTarget.count({ where: { userId } }),
       tx.bodyMetric.count({ where: { userId } }),
+      tx.gymLocation.count({ where: { userId } }),
+      tx.gymEquipment.count({ where: { userId } }),
       tx.feedback.count({ where: { userId } }),
     ]);
     if (counts.reduce((a, b) => a + b, 0) > MAX_EXPORT_ROWS) throw new HttpError(413, TOO_LARGE);
@@ -134,6 +136,7 @@ export async function buildExport(userId: string, verifiedHash: string, now = ne
     }) as unknown as Row[];
     const targets = await tx.nutritionTarget.findMany({ where: { userId }, select: fields("NutritionTarget"), orderBy: { effectiveFrom: "asc" } }) as Row[];
 
+    const gyms = await tx.gymLocation.findMany({ where: { userId }, select: { ...fields("GymLocation"), equipment: { select: fields("GymEquipment"), orderBy: { createdAt: "asc" } } }, orderBy: { createdAt: "asc" } }) as unknown as Row[];
     const weightLog = await tx.bodyMetric.findMany({ where: { userId }, select: fields("BodyMetric"), orderBy: { date: "asc" } }) as Row[];
     const feedback = await tx.feedback.findMany({ where: { userId }, select: fields("Feedback"), orderBy: { createdAt: "asc" } }) as Row[];
 
@@ -181,6 +184,7 @@ export async function buildExport(userId: string, verifiedHash: string, now = ne
       }),
       nutritionTargets: targets.map((t) => exportRow("NutritionTarget", t)),
       weightLog: weightLog.map((w) => exportRow("BodyMetric", w)),
+      gyms: gyms.map((g) => ({ ...exportRow("GymLocation", g), equipment: (g.equipment as Row[]).map((e) => exportRow("GymEquipment", e)) })),
       feedback: feedback.map((f) => exportRow("Feedback", f)),
     };
   }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead, maxWait: 10_000, timeout: 120_000 });
