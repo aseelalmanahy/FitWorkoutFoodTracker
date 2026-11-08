@@ -228,6 +228,8 @@ function report(name, r, ms) {
   if (!asked.length && !withOther) console.log(`On ${TARGET}: not run here, as they need ${OTHER_NAME}, which isn't prepared: ${[...NEEDS_OTHER].join(", ")}.`);
   for (const name of asked.length ? asked : defaults) {
     const t0 = Date.now();
+    // RC-08: each suite's guard proxy traces its connections to this run's log folder (no headers or bodies).
+    process.env.FIT_GUARD_PROXY_TRACE = path.join(LOGS, `${name}.proxy.jsonl`);
     try { ok = report(name, await SUITES[name](), Date.now() - t0) && ok; } catch (e) {
       ok = false;
       console.log(`FAIL  ${name.padEnd(24)} ${scrub(e.message).slice(0, 240)}`);

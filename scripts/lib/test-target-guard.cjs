@@ -26,6 +26,7 @@
 "use strict";
 const { createHash } = require("node:crypto");
 const dns = require("node:dns");
+const fs = require("node:fs");
 const http = require("node:http");
 const net = require("node:net");
 const { validateTargetUrl, assertConnectedTarget, redact, urlSecrets, TEST_DB_MARKER_PREFIX } = require("./test-db-guard.cjs");
@@ -335,8 +336,27 @@ function withoutHopByHop(headers) {
   return out;
 }
 
+/**
+ * RC-08: with FIT_GUARD_PROXY_TRACE set to a file, every connection, request, response, parser error, upstream error
+ * and close is appended to it as one JSON line: event names, paths, statuses and error codes only, never headers,
+ * bodies or query strings. Off otherwise.
+ */
+function proxyTracer(file = process.env.FIT_GUARD_PROXY_TRACE) {
+  if (!file) return null;
+  const t0 = Date.now();
+  return (ev, fields = {}) => { try { fs.appendFileSync(file, JSON.stringify({ t: Date.now() - t0, ev, ...fields }) + "\n"); } catch { /* tracing never breaks the proxy */ } };
+}
+
 function startGuardProxy(policy, onBlocked = () => {}) {
+  const trace = proxyTracer();
+  let connections = 0;
   const server = http.createServer((req, res) => {
+    const conn = req.socket.__traceId;
+    let path = "?";
+    try { path = new URL(req.url).pathname; } catch { /* traced as ? */ }
+    trace?.("request", { conn, method: req.method, path });
+    if (trace) res.on("finish", () => trace("response", { conn, path, status: res.statusCode }));
+    if (trace) res.on("close", () => { if (!res.writableFinished) trace("response-aborted", { conn, path, headersSent: res.headersSent }); });
     let target;
     try { target = new URL(req.url); } catch { res.writeHead(400, { Connection: "close" }); return res.end(); }
     if (policy.classify(target) === DESTINATION.FORBIDDEN) {
@@ -353,7 +373,7 @@ function startGuardProxy(policy, onBlocked = () => {}) {
       res.writeHead(answer.statusCode, withoutHopByHop(answer.headers));
       answer.pipe(res);
     });
-    upstream.on("error", () => { if (res.headersSent) res.destroy(); else { res.writeHead(502, { Connection: "close" }); res.end(); } });
+    upstream.on("error", (e) => { trace?.("upstream-error", { conn, path, code: e.code ?? e.message }); if (res.headersSent) res.destroy(); else { res.writeHead(502, { Connection: "close" }); res.end(); } });
     res.on("close", () => upstream.destroy());
     req.on("error", () => upstream.destroy());
     req.pipe(upstream);
@@ -376,7 +396,17 @@ function startGuardProxy(policy, onBlocked = () => {}) {
     socket.on("error", () => upstream.destroy());
   });
   server.on("upgrade", refuseTunnel);
-  server.on("clientError", (_e, socket) => socket.destroy());
+  server.on("clientError", (e, socket) => { trace?.("client-error", { conn: socket.__traceId, code: e.code ?? e.message, bytes: socket.bytesRead }); socket.destroy(); });
+  if (trace) {
+    server.on("connection", (socket) => {
+      const id = ++connections;
+      socket.__traceId = id;
+      trace("connection", { conn: id, from: socket.remotePort });
+      socket.on("error", (e) => trace("socket-error", { conn: id, code: e.code ?? e.message }));
+      socket.on("close", (hadError) => trace("close", { conn: id, hadError, bytesRead: socket.bytesRead, bytesWritten: socket.bytesWritten }));
+    });
+    server.on("error", (e) => trace("server-error", { code: e.code ?? e.message }));
+  }
   server.requestTimeout = 0;
   server.keepAliveTimeout = 120_000;
   return new Promise((resolve, reject) => {
