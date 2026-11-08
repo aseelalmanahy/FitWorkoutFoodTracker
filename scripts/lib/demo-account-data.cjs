@@ -72,6 +72,61 @@ const LUNCHES = [[["chicken", 1], ["rice", 1], ["broccoli", 1]], [["chicken", 1.
 const DINNERS = [[["salmon", 1], ["potato", 1], ["broccoli", 1], ["oil", 1]], [["chicken", 1], ["rice", 1.5], ["broccoli", 1]]];
 const SNACKS = [[["almonds", 1], ["apple", 1]], [["banana", 1], ["yogurt", 1]]];
 
+// ─── Gyms (multi-gym) ────────────────────────────────────────────────────────
+
+// Only on a database with the multi-gym migration. Workouts from this date are at a gym: Upper Body B at home, the rest
+// at City Gym, where the lat pulldown and leg press are named machines with their own history. Earlier workouts have no
+// gym, as real ones from before gyms existed don't. The first Upper Body A from this date has a swap partway: two bench
+// sets, then dumbbell bench press for the rest.
+const GYMS_FROM = "2026-10-19";
+const GYMS = [
+  { id: "demo-gym-city", name: "City Gym", kinds: ["BARBELL", "DUMBBELL", "MACHINE", "CABLE", "BODYWEIGHT"] },
+  { id: "demo-gym-home", name: "Home gym", kinds: ["DUMBBELL", "CABLE", "BODYWEIGHT", "BAND"] },
+];
+const MACHINES = [
+  { id: "demo-machine-pulldown", gymId: "demo-gym-city", kind: "CABLE", name: "Lat pulldown station", exercise: "Lat Pulldown" },
+  { id: "demo-machine-legpress", gymId: "demo-gym-city", kind: "MACHINE", name: "Plate-loaded leg press", exercise: "Leg Press" },
+];
+const SWAP = { plan: "demo-plan-ua", planned: "Barbell Bench Press", actual: "Dumbbell Bench Press", keptWorkingSets: 2 };
+
+function gymRows(workouts, exerciseIdByName) {
+  const missing = [SWAP.actual, ...MACHINES.map((m) => m.exercise)].filter((n) => !exerciseIdByName[n]);
+  if (missing.length) throw new Error(`these exercises aren't on this database: ${missing.join(", ")}`);
+  const gymLocation = GYMS.map((g) => ({ id: g.id, userId: DEMO_USER_ID, name: g.name }));
+  const gymEquipment = [
+    ...GYMS.flatMap((g) => g.kinds.map((kind) => ({ id: `${g.id}-kind-${kind}`, userId: DEMO_USER_ID, gymId: g.id, kind, name: null, exerciseId: null }))),
+    ...MACHINES.map((m) => ({ id: m.id, userId: DEMO_USER_ID, gymId: m.gymId, kind: m.kind, name: m.name, exerciseId: exerciseIdByName[m.exercise] })),
+  ];
+  const dateOf = (sessionId) => sessionId.slice("demo-s-".length);
+  const sessions = workouts.sessions.map((s) => (dateOf(s.id) < GYMS_FROM ? { ...s, gymLocationId: null } : { ...s, gymLocationId: s.templateId === "demo-plan-ub" ? "demo-gym-home" : "demo-gym-city" }));
+  const gymOf = new Map(sessions.map((s) => [s.id, s.gymLocationId]));
+  const machineFor = (se) => MACHINES.find((m) => exerciseIdByName[m.exercise] === se.exerciseId && m.gymId === gymOf.get(se.sessionId))?.id ?? null;
+  let sessionExercises = workouts.sessionExercises.map((se) => ({ ...se, gymEquipmentId: machineFor(se), substitutesId: null, plannedExerciseId: null }));
+  let sets = workouts.sets;
+
+  const swapped = sessions.find((s) => s.gymLocationId && s.templateId === SWAP.plan);
+  if (swapped) {
+    const date = dateOf(swapped.id);
+    const planned = sessionExercises.find((se) => se.sessionId === swapped.id && se.exerciseId === exerciseIdByName[SWAP.planned]);
+    const own = sets.filter((x) => x.sessionExerciseId === planned.id);
+    const working = own.filter((x) => !x.isWarmup);
+    const moved = working.slice(SWAP.keptWorkingSets);
+    const replacementId = `demo-se-${date}-swap`;
+    sessionExercises = sessionExercises.flatMap((se) => {
+      if (se.sessionId !== swapped.id) return [se];
+      if (se.id !== planned.id) return [se.position > planned.position ? { ...se, position: se.position + 1 } : se];
+      return [se, { id: replacementId, sessionId: swapped.id, exerciseId: exerciseIdByName[SWAP.actual], position: planned.position + 1, restSeconds: se.restSeconds, gymEquipmentId: null, substitutesId: planned.id, plannedExerciseId: planned.exerciseId }];
+    });
+    // Dumbbells per hand, rounded to a rack's 5 lb steps. Synthetic, for showing the app.
+    const perHand = (kg) => toKg(Math.max(5, Math.round((kg / LB) * 0.35 / 5) * 5));
+    sets = [
+      ...sets.filter((x) => !moved.includes(x)),
+      ...moved.map((x, i) => ({ ...x, id: `demo-set-${date}-swap-${i + 1}`, sessionExerciseId: replacementId, setNumber: i + 1, weightKg: perHand(x.weightKg), reps: Math.min(12, x.reps + 2) })),
+    ];
+  }
+  return { gymLocation, gymEquipment, sessions, sessionExercises, sets };
+}
+
 // ─── Building the rows ───────────────────────────────────────────────────────
 
 const pick = (list, key) => list[Math.floor(hash01(key) * list.length)];
@@ -185,8 +240,11 @@ const TARGETS = [
   { id: "demo-target-2", userId: DEMO_USER_ID, effectiveFrom: dbDate(NUTRITION_FROM), kcal: 2150, proteinG: 170, carbsG: 221, fatG: 65, source: "MANUAL" },
 ];
 
-/** Every row the account should hold as of `now`. `exerciseIdByName` maps the built-in exercises. */
-function buildDemoRows({ now, exerciseIdByName: builtIn }) {
+/**
+ * Every row the account should hold as of `now`. `exerciseIdByName` maps the built-in exercises. `gyms` adds the
+ * multi-gym rows, for a database whose schema has them.
+ */
+function buildDemoRows({ now, exerciseIdByName: builtIn, gyms = false }) {
   const today = localToday(now);
   const exerciseIdByName = { ...builtIn, [FARMERS_CARRY]: "demo-ex-carry" };
   const missing = PLANS.flatMap((p) => p.exercises.map((e) => e[0])).filter((name) => !exerciseIdByName[name]);
@@ -196,7 +254,8 @@ function buildDemoRows({ now, exerciseIdByName: builtIn }) {
     id: `demo-te-${p.key}-${position}`, templateId: `demo-plan-${p.key}`, exerciseId: exerciseIdByName[name], position, targetSets, targetRepsMin, targetRepsMax, targetWeightKg: lb > 0 ? toKg(lb) : null, restSeconds: position === 0 ? 150 : 90,
   })));
   const scheduleSlots = Object.entries(SCHEDULE).map(([weekday, key]) => ({ id: `demo-slot-${weekday}`, userId: DEMO_USER_ID, weekday: Number(weekday), templateId: `demo-plan-${key}`, position: 0 }));
-  const { sessions, sessionExercises, sets } = workoutRows(today, exerciseIdByName);
+  const workouts = workoutRows(today, exerciseIdByName);
+  const { sessions, sessionExercises, sets, gymLocation, gymEquipment } = gyms ? gymRows(workouts, exerciseIdByName) : workouts;
   const { foods, servings } = foodRows();
   return {
     today,
@@ -210,6 +269,7 @@ function buildDemoRows({ now, exerciseIdByName: builtIn }) {
       food: foods,
       foodServing: servings,
       foodEntry: entryRows(today),
+      ...(gyms ? { gymLocation, gymEquipment } : {}),
       workoutSession: sessions,
       sessionExercise: sessionExercises,
       setEntry: sets,
@@ -218,4 +278,4 @@ function buildDemoRows({ now, exerciseIdByName: builtIn }) {
   };
 }
 
-module.exports = { DEMO_NAME, DEMO_EMAIL, DEMO_USER_ID, TIME_ZONE, HISTORY_FROM, NUTRITION_FROM, PLANS, SCHEDULE, FOODS, FARMERS_CARRY, addDays, localToday, buildDemoRows };
+module.exports = { DEMO_NAME, DEMO_EMAIL, DEMO_USER_ID, TIME_ZONE, HISTORY_FROM, NUTRITION_FROM, GYMS_FROM, GYMS, MACHINES, SWAP, PLANS, SCHEDULE, FOODS, FARMERS_CARRY, addDays, localToday, buildDemoRows };

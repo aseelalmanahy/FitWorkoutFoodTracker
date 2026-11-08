@@ -52,6 +52,7 @@ node --env-file=.env.test scripts/demo-account.cjs --populate --confirm=fitdb_te
 | Workouts | Finished workouts from September 12, 2026, with weights rising. Now and then a workout is missed |
 | Nutrition | Most days from October 24, 2026, with two targets. Today has breakfast and lunch only |
 | Weight | Most days from September 12, 2026, trending from about 190 lb to 183 lb |
+| Gyms (only with the multi-gym migration) | City Gym (barbells, dumbbells, machines, cables, bodyweight; named machines "Lat pulldown station" and "Plate-loaded leg press") and Home gym (dumbbells, cables, bodyweight, bands). Workouts from October 19, 2026 are at a gym: Upper Body B at home, the rest at City Gym. The first Upper Body A from then has a swap: two bench sets, then dumbbell bench press. Earlier workouts have no gym |
 
 All of it is made up for demonstration. **The foods aren't a nutrition reference.** Their names end in "(demo)".
 
@@ -246,6 +247,30 @@ Browser emulation on this computer (WebKit at phone size through a local HTTPS s
 **Please don't use Delete my account on the demo account.** It works, and removes everything. Populating again would rebuild the demo data from the same password, but your own additions would be gone.
 
 **Not available here:** signing up a new account (registration stays closed while the notice is a draft, and no real email is sent), and password-reset emails.
+
+## Multi-gym, exercise swaps and package photos
+
+**On `feature/multi-gym-exercise-alternatives`. This build needs two migrations the owner hasn't approved yet:** `20261108120000_feedback` (MIG-FB) and `20261109120000_multi_gym` (MIG-GYM). `fitdb_test` has neither. Without them, the workout pages of this build fail there. Until you approve applying them to `fitdb_test`, use the preview on the disposable test database described in the session report, which has both. After they're applied, `demo-account.cjs --populate` adds the gyms. It says `Multi-gym rows skipped` when the migration isn't there.
+
+| # | Where | Do this | What should happen |
+|---|---|---|---|
+| G.1 | Workouts → Gyms (under "Training at") | Add "Hotel gym". Then add "hotel GYM" | The first is added. The second is refused: you already have a gym with that name |
+| G.2 | Gyms | Rename Hotel gym, and tick Dumbbells and Bodyweight | The name changes. Each box changes as you tap it, and stays after a reload |
+| G.3 | Gyms → Hotel gym | Add a machine "Smith machine", type Machines | It's listed under Machines. Remove it: it goes. A machine that workouts used can't be removed |
+| G.4 | Workouts | Choose "Training at: City Gym", then Start Upper Body A | The workout's header shows City Gym. You can change it there during the workout |
+| G.5 | The workout | Log two sets of Barbell Bench Press, then Swap exercise | A list of the same movement (Dumbbell Bench Press, Machine Chest Press, Push-Up), each marked by what City Gym has. Never Cable Fly, a different movement for the same muscle |
+| G.6 | Swap sheet | Choose Dumbbell Bench Press, leave "Also change my plan" off, and swap | The bench press says "Swapped out; its sets are kept", with your two sets. Dumbbell Bench Press follows it, "Swapped in for Barbell Bench Press" |
+| G.7 | The workout | On Lat Pulldown, before logging, choose the machine "Lat pulldown station" | It says it's compared with this machine only, and "Previous" shows only that machine's sets |
+| G.8 | Finish the workout | Look at the summary | "At City Gym", the swap on both exercises, and the machine. Comparisons and PRs are per machine |
+| G.9 | Workouts → Plans → Upper Body A | Look at it | Still Barbell Bench Press: the plan didn't change. Swapping with "Also change my plan" ticked changes that entry only |
+| G.10 | History | Tap City Gym, then Home gym | Only the workouts at that gym. Workouts from before gyms are under All only |
+| G.11 | Progress → Lat Pulldown | Look, then tap "Lat pulldown station" | First the history with no specific machine, then the machine's own sessions and records, each labelled |
+| G.12 | Today → Add food → Scan a barcode → Use a photo | Choose a photo of a package front with no barcode | Its words are read, searched once, and up to five possible products shown with their source. Here, they're marked as test data |
+| G.13 | Package matches | Tap one, then "No, show the other matches", then tap one and "Yes, choose an amount" | Nothing is logged until you choose an amount. The logged values are the product record's, not the photo's |
+| G.14 | Package matches | Change the words and Search, or "Open in food search" | It searches again in the sheet, or opens the usual search with those words. Scan the label and Create my own food stay there |
+| G.15 | Side bar (wide window), welcome page, emails | Look at the name | FitWorkoutFoodTracker everywhere. No "Forge" |
+
+**Not here:** GPS or locations (by design), a shared gym list, and AI suggestions for swaps (alternatives are reviewed movement patterns and your own earlier swaps only).
 
 ## Known limitations
 

@@ -21,7 +21,11 @@ const CREDENTIALS_NAME = "demo-account.local.md";
 const CREDENTIALS = path.join(ROOT, CREDENTIALS_NAME);
 const NOTICE_VERSION = /version: "([^"]+)"/.exec(fs.readFileSync(path.join(ROOT, "src", "lib", "legal", "notice.ts"), "utf8"))[1];
 const ARGON = { memoryCost: 19456, timeCost: 2, parallelism: 1 }; // as src/lib/server/auth.ts
-const WRITE_ORDER = ["profile", "exercise", "workoutTemplate", "templateExercise", "scheduleSlot", "nutritionTarget", "food", "foodServing", "foodEntry", "workoutSession", "sessionExercise", "setEntry", "bodyMetric"];
+const BASE_ORDER = ["profile", "exercise", "workoutTemplate", "templateExercise", "scheduleSlot", "nutritionTarget", "food", "foodServing", "foodEntry", "workoutSession", "sessionExercise", "setEntry", "bodyMetric"];
+// Multi-gym rows go before the workouts that name them, and only on a database with that migration (MIG-GYM).
+const GYM_MIGRATION = "20261109120000_multi_gym";
+let WRITE_ORDER = BASE_ORDER;
+const withGyms = () => { WRITE_ORDER = [...BASE_ORDER.slice(0, BASE_ORDER.indexOf("workoutSession")), "gymLocation", "gymEquipment", ...BASE_ORDER.slice(BASE_ORDER.indexOf("workoutSession"))]; };
 
 const refuse = (message) => { console.error(`REFUSED (nothing was written): ${message}`); process.exit(4); };
 
@@ -92,6 +96,10 @@ async function verifyTarget() {
   const [mig] = await prisma.$queryRawUnsafe(`SELECT count(*)::int AS n FROM _prisma_migrations WHERE migration_name = '20261106150000_body_metrics' AND finished_at IS NOT NULL AND rolled_back_at IS NULL`);
   if (mig.n !== 1) throw new Stop("this database doesn't have MIG-04, which the weight log needs.");
   console.log(`Target verified: ${TARGET}, this machine, marker matches, MIG-04 applied.`);
+  const [gym] = await prisma.$queryRawUnsafe(`SELECT count(*)::int AS n FROM _prisma_migrations WHERE migration_name = '${GYM_MIGRATION}' AND finished_at IS NOT NULL AND rolled_back_at IS NULL`);
+  if (gym.n === 1) { withGyms(); console.log("Multi-gym migration applied: gyms, machines and a swap are included."); }
+  else console.log(`Multi-gym rows skipped: ${GYM_MIGRATION} isn't applied here (MIG-GYM, the owner's approval).`);
+  return gym.n === 1;
 }
 const counts = async (client) => {
   const out = {};
@@ -119,7 +127,7 @@ async function status() {
 
 async function populate() {
   if (spawnSync("git", ["check-ignore", "-q", CREDENTIALS_NAME], { cwd: ROOT }).status !== 0) throw new Stop(`${CREDENTIALS_NAME} isn't ignored by Git.`);
-  await verifyTarget();
+  const gyms = await verifyTarget();
   const existing = await prisma.user.findUnique({ where: { email: DEMO_EMAIL }, select: { id: true, passwordHash: true } });
   let password = readPassword();
   if (existing && existing.id !== DEMO_USER_ID) throw new Stop("that address belongs to some other account.");
@@ -136,7 +144,7 @@ async function populate() {
   const builtIn = await prisma.exercise.findMany({ where: { userId: null }, select: { id: true, name: true }, orderBy: { id: "asc" } });
   const exerciseIdByName = {};
   for (const e of builtIn) exerciseIdByName[e.name] ??= e.id;
-  const { today, rows } = buildDemoRows({ now: new Date(), exerciseIdByName });
+  const { today, rows } = buildDemoRows({ now: new Date(), exerciseIdByName, gyms });
   const passwordHash = existing ? null : await hash(password, ARGON);
   try {
     await prisma.$transaction(async (tx) => {

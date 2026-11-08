@@ -122,6 +122,37 @@ test("weight stays in range, trends down, and has gaps", () => {
   assert.ok(w.length < 57 && w.length > 40, "not every day");
 });
 
+test("multi-gym rows: only when asked, at the account's own gyms, from their start date, with one swap that keeps its sets", () => {
+  const ids = { ...exerciseIdByName, "Dumbbell Bench Press": "ex-Dumbbell Bench Press", "Lat Pulldown": "ex-Lat Pulldown", "Leg Press": "ex-Leg Press" };
+  const plain = data.buildDemoRows({ now: new Date("2026-11-07T17:00:00Z"), exerciseIdByName: ids });
+  assert.equal(plain.rows.gymLocation, undefined, "none without the migration");
+  assert.ok(plain.rows.workoutSession.every((s) => !("gymLocationId" in s)), "and no column the database doesn't have");
+  const g = data.buildDemoRows({ now: new Date("2026-11-07T17:00:00Z"), exerciseIdByName: ids, gyms: true });
+  assert.deepEqual(g, data.buildDemoRows({ now: new Date("2026-11-07T17:00:00Z"), exerciseIdByName: ids, gyms: true }), "the same every time");
+  assert.deepEqual(g.rows.gymLocation.map((r) => r.name), ["City Gym", "Home gym"]);
+  assert.ok([...g.rows.gymLocation, ...g.rows.gymEquipment].every((r) => r.userId === data.DEMO_USER_ID));
+  for (const s of g.rows.workoutSession) assert.equal(s.gymLocationId === null, iso(s.startedAt) < data.GYMS_FROM, `${s.id}: a gym only from ${data.GYMS_FROM}`);
+  const machines = g.rows.sessionExercise.filter((e) => e.gymEquipmentId);
+  assert.ok(machines.length > 0 && machines.every((e) => g.rows.workoutSession.find((s) => s.id === e.sessionId).gymLocationId === "demo-gym-city"), "machines only at their own gym");
+  const swaps = g.rows.sessionExercise.filter((e) => e.substitutesId);
+  assert.equal(swaps.length, 1);
+  const [swap] = swaps;
+  const planned = g.rows.sessionExercise.find((e) => e.id === swap.substitutesId);
+  assert.deepEqual([planned.exerciseId, swap.exerciseId, swap.plannedExerciseId, swap.position], [ids["Barbell Bench Press"], ids["Dumbbell Bench Press"], ids["Barbell Bench Press"], planned.position + 1]);
+  const setsOf = (id) => g.rows.setEntry.filter((x) => x.sessionExerciseId === id);
+  assert.equal(setsOf(planned.id).filter((x) => !x.isWarmup).length, data.SWAP.keptWorkingSets, "the planned exercise keeps the sets done before the swap");
+  assert.ok(setsOf(swap.id).length > 0);
+  const positions = g.rows.sessionExercise.filter((e) => e.sessionId === swap.sessionId).map((e) => e.position);
+  assert.equal(new Set(positions).size, positions.length, "positions stay distinct");
+  assert.equal(new Set(g.rows.setEntry.map((x) => x.id)).size, g.rows.setEntry.length, "every set has its own id");
+  const later = data.buildDemoRows({ now: new Date("2026-11-21T17:00:00Z"), exerciseIdByName: ids, gyms: true });
+  for (const model of ["gymLocation", "gymEquipment", "workoutSession", "sessionExercise", "setEntry"]) {
+    const byId = new Map(later.rows[model].map((r) => [r.id, r]));
+    for (const row of g.rows[model]) assert.deepEqual(byId.get(row.id), row, `${model} ${row.id} stays as it was`);
+  }
+  assert.throws(() => data.buildDemoRows({ now: new Date("2026-11-07T17:00:00Z"), exerciseIdByName, gyms: true }), /aren't on this database: Dumbbell Bench Press/);
+});
+
 test("an exercise missing from the database stops it, rather than inventing one", () => {
   const { ["Back Squat"]: _gone, ...rest } = exerciseIdByName;
   assert.throws(() => data.buildDemoRows({ now: new Date(), exerciseIdByName: rest }), /Back Squat/);
