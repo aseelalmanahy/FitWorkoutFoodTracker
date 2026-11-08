@@ -247,6 +247,7 @@ for (const [label, value] of [
 async function delayingProxy(appUrl, delayMs) {
   const target = new URL(appUrl);
   const port = await freePort();
+  const completions = [];
   const server = http.createServer((req, res) => {
     const chunks = [];
     req.on("data", (c) => chunks.push(c));
@@ -254,6 +255,7 @@ async function delayingProxy(appUrl, delayMs) {
       const body = Buffer.concat(chunks);
       const forward = () => {
         const up = http.request({ host: "127.0.0.1", port: target.port, path: req.url, method: req.method, headers: req.headers }, (ur) => {
+          if (req.url === "/api/auth/register/complete") completions.push(ur.statusCode);
           if (res.writableEnded || res.destroyed) { ur.resume(); return; } // client already gone; the write still happened
           res.writeHead(ur.statusCode, ur.headers);
           ur.pipe(res);
@@ -266,18 +268,39 @@ async function delayingProxy(appUrl, delayMs) {
     });
   });
   await new Promise((r) => server.listen(port, "127.0.0.1", r));
-  return { url: `http://localhost:${port}`, close: () => new Promise((r) => { server.closeAllConnections?.(); server.close(r); }) };
+  return { url: `http://localhost:${port}`, completions, close: () => new Promise((r) => { server.closeAllConnections?.(); server.close(r); }) };
 }
 
-test("request TIMEOUT: a sign-up that lands after the client gave up is removed by the second sweep", { timeout: 180_000 }, async () => {
+// QA-05: a sign-up completion that lands after the client gave up. The first sweep deletes the run's pending sign-up
+// links, so a completion arriving after it is refused and creates nothing: that is checked first. The second sweep is
+// for the narrower race, a completion that passed its link check before the first sweep but commits after it; that
+// late account is put in place here, between the two sweeps, exactly as such a commit would leave it, and the second
+// sweep must remove it. Nothing of the run may remain.
+test("request TIMEOUT: a sign-up that lands after the client gave up creates nothing, and a late account is removed by the second sweep", { timeout: 180_000 }, async () => {
   const app = await startApp(appEnv({ EXPOSE_DB_IDENTITY: "1" }));
   const proxy = await delayingProxy(app.url, 2_500);
   try {
     const before = await snapshot();
-    const r = await runScript({ BASE_URL: proxy.url, DATABASE_URL: DB, LIVE_CHECK_REQUEST_TIMEOUT_MS: "1000", LIVE_CHECK_CLEANUP_GRACE_MS: "5000" });
+    const running = runScript({ BASE_URL: proxy.url, DATABASE_URL: DB, LIVE_CHECK_REQUEST_TIMEOUT_MS: "1000", LIVE_CHECK_CLEANUP_GRACE_MS: "5000" });
+    // The run's address, from its pending sign-up link; then the moment the first sweep deletes that link.
+    let email = null;
+    const deadline = Date.now() + 30_000;
+    while (!email && Date.now() < deadline) {
+      email = (await dbs.server.accountToken.findFirst({ where: { email: { startsWith: "live-check" }, purpose: "SIGNUP" }, select: { email: true } }))?.email ?? null;
+      if (!email) await new Promise((r) => setTimeout(r, 25));
+    }
+    assert.ok(email, "the run asked for a sign-up link");
+    while (await dbs.server.accountToken.count({ where: { email } })) {
+      assert.ok(Date.now() < deadline, "the first sweep deleted the pending link");
+      await new Promise((r) => setTimeout(r, 25));
+    }
+    const late = await dbs.server.user.create({ data: { email, passwordHash: "late-commit" } });
+    const r = await running;
     assert.match(r.out, /request timed out after 1000 ms/);
+    assert.deepEqual(proxy.completions, [400], "the delayed completion reached the app after the first sweep and was refused: its link was gone");
     assert.match(r.out, /second sweep removed 1 late-created test user/);
-    assert.match(r.out, /remaining → users 0, entries 0, custom foods 0, targets 0/);
+    assert.equal(await dbs.server.user.count({ where: { id: late.id } }), 0, "the late account is gone");
+    assert.match(r.out, /remaining → users 0, entries 0, custom foods 0, targets 0, links 0/);
     assert.equal(r.code, 1, r.out); // stopped early → INCOMPLETE, cleanup succeeded
     assert.deepEqual(await snapshot(), before, "no rows left behind");
   } finally { await proxy.close(); await killTree(app.child); }
