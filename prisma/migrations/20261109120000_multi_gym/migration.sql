@@ -4,7 +4,8 @@ ALTER TABLE "WorkoutSession" ADD COLUMN     "gymLocationId" TEXT;
 -- AlterTable
 ALTER TABLE "SessionExercise" ADD COLUMN     "gymEquipmentId" TEXT,
 ADD COLUMN     "plannedExerciseId" TEXT,
-ADD COLUMN     "substitutesId" TEXT;
+ADD COLUMN     "substitutesId" TEXT,
+ADD COLUMN     "templateExerciseId" TEXT;
 
 -- CreateTable
 CREATE TABLE "GymLocation" (
@@ -55,6 +56,9 @@ CREATE INDEX "SessionExercise_exerciseId_gymEquipmentId_idx" ON "SessionExercise
 -- CreateIndex
 CREATE INDEX "SessionExercise_substitutesId_idx" ON "SessionExercise"("substitutesId");
 
+-- CreateIndex
+CREATE INDEX "SessionExercise_templateExerciseId_idx" ON "SessionExercise"("templateExerciseId");
+
 -- AddForeignKey
 ALTER TABLE "WorkoutSession" ADD CONSTRAINT "WorkoutSession_gymLocationId_fkey" FOREIGN KEY ("gymLocationId") REFERENCES "GymLocation"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
@@ -66,6 +70,9 @@ ALTER TABLE "SessionExercise" ADD CONSTRAINT "SessionExercise_substitutesId_fkey
 
 -- AddForeignKey
 ALTER TABLE "SessionExercise" ADD CONSTRAINT "SessionExercise_plannedExerciseId_fkey" FOREIGN KEY ("plannedExerciseId") REFERENCES "Exercise"("id") ON DELETE RESTRICT ON UPDATE CASCADE;
+
+-- AddForeignKey
+ALTER TABLE "SessionExercise" ADD CONSTRAINT "SessionExercise_templateExerciseId_fkey" FOREIGN KEY ("templateExerciseId") REFERENCES "TemplateExercise"("id") ON DELETE SET NULL ON UPDATE CASCADE;
 
 -- AddForeignKey
 ALTER TABLE "GymLocation" ADD CONSTRAINT "GymLocation_userId_fkey" FOREIGN KEY ("userId") REFERENCES "User"("id") ON DELETE CASCADE ON UPDATE CASCADE;

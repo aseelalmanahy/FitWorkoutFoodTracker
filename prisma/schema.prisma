@@ -233,8 +233,9 @@ model TemplateExercise {
   restSeconds    Int?
   notes          String?
 
-  template WorkoutTemplate @relation(fields: [templateId], references: [id], onDelete: Cascade)
-  exercise Exercise        @relation(fields: [exerciseId], references: [id], onDelete: Restrict)
+  template         WorkoutTemplate   @relation(fields: [templateId], references: [id], onDelete: Cascade)
+  exercise         Exercise          @relation(fields: [exerciseId], references: [id], onDelete: Restrict)
+  sessionExercises SessionExercise[]
 
   @@index([templateId, position])
 }
@@ -284,30 +285,36 @@ model WorkoutSession {
 }
 
 model SessionExercise {
-  id                String            @id @default(cuid())
-  sessionId         String
-  exerciseId        String
-  position          Int
-  restSeconds       Int?
-  notes             String?
+  id                 String            @id @default(cuid())
+  sessionId          String
+  exerciseId         String
+  position           Int
+  restSeconds        Int?
+  notes              String?
   /// The specific machine it was done on, if the person chose one. Its history is kept apart from other machines'
   /// and from sets with no machine, as different machines aren't mechanically equivalent. Null otherwise.
-  gymEquipmentId    String?
+  gymEquipmentId     String?
   /// For a swap: the planned exercise's row in this workout, which keeps its own sets. Its exercise is plannedExerciseId.
-  substitutesId     String?
-  plannedExerciseId String?
-  session           WorkoutSession    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  exercise          Exercise          @relation(fields: [exerciseId], references: [id], onDelete: Restrict)
-  machine           GymEquipment?     @relation(fields: [gymEquipmentId], references: [id], onDelete: Restrict)
-  substitutes       SessionExercise?  @relation("Substitution", fields: [substitutesId], references: [id], onDelete: SetNull)
-  substitutedBy     SessionExercise[] @relation("Substitution")
-  plannedExercise   Exercise?         @relation("PlannedExercise", fields: [plannedExerciseId], references: [id], onDelete: Restrict)
-  sets              SetEntry[]
+  substitutesId      String?
+  plannedExerciseId  String?
+  /// The plan entry this row was started from, so "also change my plan" changes that entry and no other, even when the
+  /// plan has the same exercise twice. Cleared when the entry goes (saving a plan replaces its entries), and then the
+  /// plan isn't changed from this workout. Null for exercises added during the workout.
+  templateExerciseId String?
+  session            WorkoutSession    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  exercise           Exercise          @relation(fields: [exerciseId], references: [id], onDelete: Restrict)
+  machine            GymEquipment?     @relation(fields: [gymEquipmentId], references: [id], onDelete: Restrict)
+  substitutes        SessionExercise?  @relation("Substitution", fields: [substitutesId], references: [id], onDelete: SetNull)
+  substitutedBy      SessionExercise[] @relation("Substitution")
+  plannedExercise    Exercise?         @relation("PlannedExercise", fields: [plannedExerciseId], references: [id], onDelete: Restrict)
+  templateExercise   TemplateExercise? @relation(fields: [templateExerciseId], references: [id], onDelete: SetNull)
+  sets               SetEntry[]
 
   @@index([sessionId, position])
   @@index([exerciseId])
   @@index([exerciseId, gymEquipmentId])
   @@index([substitutesId])
+  @@index([templateExerciseId])
 }
 
 model SetEntry {

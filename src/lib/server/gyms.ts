@@ -5,7 +5,7 @@ import { prisma } from "./db";
 import { limitLockWait } from "./auth";
 import { visibleExercises } from "./workouts";
 import { findAlternatives } from "@/lib/movement-patterns";
-import { MAX_GYMS, MAX_MACHINES_PER_GYM } from "@/lib/gyms";
+import { MAX_GYMS, MAX_MACHINES_PER_GYM, nameKey } from "@/lib/gyms";
 
 /**
  * Multi-gym, server side. Every read and write is scoped to the person: a gym, machine or workout of someone else's
@@ -30,11 +30,22 @@ async function lockPerson(tx: Prisma.TransactionClient, userId: string) {
 }
 const SHORT = { maxWait: 5_000, timeout: 15_000 };
 
+/**
+ * Another of the person's gyms with the same name, compared by nameKey (Unicode-normalised and case-folded), so
+ * "Café", "CAFÉ" and "Cafe\u0301" are one name. Read with the person's row held, so two saves can't both pass.
+ * At most MAX_GYMS rows, compared here rather than by the database's collation.
+ */
+async function sameName(tx: Prisma.TransactionClient, userId: string, name: string, exceptId?: string) {
+  const key = nameKey(name);
+  const rows = await tx.gymLocation.findMany({ where: { userId, ...(exceptId ? { id: { not: exceptId } } : {}) }, select: { name: true } });
+  return rows.some((r) => nameKey(r.name) === key);
+}
+
 export async function createGym(userId: string, name: string) {
   return prisma.$transaction(async (tx) => {
     await lockPerson(tx, userId);
     if ((await tx.gymLocation.count({ where: { userId } })) >= MAX_GYMS) throw new HttpError(409, `You can have up to ${MAX_GYMS} gyms.`);
-    if (await tx.gymLocation.findFirst({ where: { userId, name: { equals: name, mode: "insensitive" } } })) throw duplicateName();
+    if (await sameName(tx, userId, name)) throw duplicateName();
     return tx.gymLocation.create({ data: { userId, name }, include: gymInclude });
   }, SHORT);
 }
@@ -43,7 +54,7 @@ export async function renameGym(userId: string, gymId: string, name: string) {
   await getOwnedGym(userId, gymId);
   return prisma.$transaction(async (tx) => {
     await lockPerson(tx, userId);
-    if (await tx.gymLocation.findFirst({ where: { userId, id: { not: gymId }, name: { equals: name, mode: "insensitive" } } })) throw duplicateName();
+    if (await sameName(tx, userId, name, gymId)) throw duplicateName();
     return tx.gymLocation.update({ where: { id: gymId }, data: { name }, include: gymInclude });
   }, SHORT);
 }
@@ -72,17 +83,26 @@ export async function addMachine(userId: string, gymId: string, input: { kind: E
     await tx.$queryRaw`SELECT id FROM "GymLocation" WHERE id = ${gymId} FOR UPDATE`;
     const named = await tx.gymEquipment.findMany({ where: { gymId, name: { not: null } }, select: { name: true, kind: true } });
     if (named.length >= MAX_MACHINES_PER_GYM) throw new HttpError(409, `A gym can have up to ${MAX_MACHINES_PER_GYM} machines.`);
-    if (named.some((e) => e.name!.toLowerCase() === input.name.toLowerCase() && e.kind === input.kind)) throw new HttpError(409, "That machine is already listed at this gym.");
+    if (named.some((e) => nameKey(e.name!) === nameKey(input.name) && e.kind === input.kind)) throw new HttpError(409, "That machine is already listed at this gym.");
     return tx.gymEquipment.create({ data: { userId, gymId, kind: input.kind, name: input.name, exerciseId: input.exerciseId ?? null } });
   }, SHORT);
 }
 
-/** A machine with history can't be removed: its sets would lose the machine they were done on. */
+const machineInUse = () => new HttpError(409, "This machine is used in a workout, so it's kept with it.");
+
+/**
+ * A machine used in any workout can't be removed: its sets would lose the machine they were done on. The machine's row
+ * is held for update while it's counted and deleted, and choosing a machine holds it for share (usableMachine), so the
+ * two take turns: a choice that commits first is counted here, and one that waits finds the machine gone (404).
+ */
 export async function removeMachine(userId: string, gymId: string, machineId: string) {
-  const m = await prisma.gymEquipment.findFirst({ where: { id: machineId, gymId, userId }, include: { _count: { select: { sessionExercises: true } } } });
-  if (!m) throw notFound("Machine");
-  if (m._count.sessionExercises > 0) throw new HttpError(409, "This machine has workouts logged on it, so it's kept with them.");
-  await prisma.gymEquipment.delete({ where: { id: m.id } });
+  await prisma.$transaction(async (tx) => {
+    await limitLockWait(tx);
+    const rows = await tx.$queryRaw<{ id: string }[]>`SELECT id FROM "GymEquipment" WHERE id = ${machineId} AND "gymId" = ${gymId} AND "userId" = ${userId} FOR UPDATE`;
+    if (!rows.length) throw notFound("Machine");
+    if (await tx.sessionExercise.count({ where: { gymEquipmentId: machineId } })) throw machineInUse();
+    await tx.gymEquipment.delete({ where: { id: machineId } });
+  }, SHORT);
 }
 
 /**
@@ -99,6 +119,8 @@ async function lockInProgress(tx: Prisma.TransactionClient, userId: string, sess
 
 /** A machine for an exercise: this person's, named, at the workout's gym as it is now, and not set up for another exercise. */
 async function usableMachine(tx: Prisma.TransactionClient, userId: string, machineId: string, gymLocationId: string | null, exerciseId: string) {
+  // Held for share until this choice commits, so the machine can't be removed in between (removeMachine).
+  await tx.$queryRaw`SELECT id FROM "GymEquipment" WHERE id = ${machineId} AND "userId" = ${userId} FOR SHARE`;
   const m = await tx.gymEquipment.findFirst({ where: { id: machineId, userId, name: { not: null } } });
   if (!m) throw notFound("Machine");
   if (m.gymId !== gymLocationId) throw new HttpError(409, "That machine is at another gym. Choose this workout's gym first.");
@@ -159,9 +181,31 @@ export async function alternativesFor(userId: string, sessionId: string, seId: s
   };
 }
 
+const planUnchangeable = (why: string) => new HttpError(409, `${why} Nothing was swapped. Swap without changing the plan, or edit the plan itself.`);
+
+/**
+ * The plan entry this workout row was started from, held for update, if it still names the exercise being replaced
+ * (or, for a retry, already names the replacement). Refuses rather than guess: a plan with the same exercise twice has
+ * two entries, and only the row's own templateExerciseId says which one this is.
+ */
+async function intendedEntry(tx: Prisma.TransactionClient, userId: string, templateId: string | null, se: { templateExerciseId: string | null; exerciseId: string }, replacementExerciseId: string) {
+  if (!templateId) throw planUnchangeable("This workout didn't come from a plan, so there's no plan to change.");
+  if (!se.templateExerciseId) throw planUnchangeable("This exercise isn't in the plan as it is now (the plan was edited, or the exercise was added during the workout).");
+  const rows = await tx.$queryRaw<{ id: string; exerciseId: string }[]>`SELECT te.id, te."exerciseId" FROM "TemplateExercise" te JOIN "WorkoutTemplate" t ON t.id = te."templateId" WHERE te.id = ${se.templateExerciseId} AND te."templateId" = ${templateId} AND t."userId" = ${userId} FOR UPDATE OF te`;
+  const entry = rows[0];
+  if (!entry) throw planUnchangeable("This exercise's entry is no longer in the plan.");
+  if (entry.exerciseId !== se.exerciseId && entry.exerciseId !== replacementExerciseId) throw planUnchangeable("The plan's entry for this exercise was changed since the workout started.");
+  return entry;
+}
+
 /**
  * Swaps an exercise in a workout: the planned row stays, with every set already logged on it, and a new row for the
- * actual exercise follows it, linked to it. The plan is changed only when the person asks, and only that one entry.
+ * actual exercise follows it, linked to it. The plan is changed only when the person asks, and then only the entry this
+ * row came from; if that can't be done, nothing is swapped and the reason is given. All of it happens or none of it.
+ *
+ * Sent again with the same exercise and machine (a retry after a lost answer), it returns the replacement it made, and
+ * a plan update asked for in the retry is made then, not dropped. A retry without updatePlan never undoes one. A
+ * different second swap of the same row is refused.
  */
 export async function substitute(userId: string, sessionId: string, seId: string, input: { exerciseId: string; gymEquipmentId?: string | null; updatePlan?: boolean }) {
   const s = await ownedInProgress(userId, sessionId);
@@ -175,21 +219,19 @@ export async function substitute(userId: string, sessionId: string, seId: string
     const now = await lockInProgress(tx, userId, sessionId);
     if (gymEquipmentId) await usableMachine(tx, userId, gymEquipmentId, now.gymLocationId, input.exerciseId);
     const earlier = await tx.sessionExercise.findFirst({ where: { substitutesId: se.id }, include: { exercise: true, sets: true } });
-    if (earlier) {
-      // The same swap sent again (a retry after a lost answer) gets the replacement it made; a different one is refused.
-      if (earlier.exerciseId === input.exerciseId && earlier.gymEquipmentId === gymEquipmentId) return { sessionExercise: earlier, planUpdated: false };
-      throw new HttpError(409, "This exercise was already swapped. Swap the replacement instead.");
-    }
-    await tx.sessionExercise.updateMany({ where: { sessionId, position: { gt: se.position } }, data: { position: { increment: 1 } } });
-    const replacement = await tx.sessionExercise.create({
-      data: { sessionId, exerciseId: input.exerciseId, position: se.position + 1, restSeconds: se.restSeconds, notes: se.notes, gymEquipmentId, substitutesId: se.id, plannedExerciseId: se.plannedExerciseId ?? se.exerciseId },
-      include: { exercise: true, sets: true },
-    });
-    let planUpdated = false;
-    if (input.updatePlan && s.templateId) {
-      const entry = await tx.templateExercise.findFirst({ where: { templateId: s.templateId, exerciseId: se.exerciseId, template: { userId } }, orderBy: { position: "asc" } });
-      if (entry) { await tx.templateExercise.update({ where: { id: entry.id }, data: { exerciseId: input.exerciseId } }); planUpdated = true; }
-    }
+    if (earlier && (earlier.exerciseId !== input.exerciseId || earlier.gymEquipmentId !== gymEquipmentId)) throw new HttpError(409, "This exercise was already swapped. Swap the replacement instead.");
+    // Before anything is written: if the plan can't be changed as asked, nothing is.
+    const entry = input.updatePlan ? await intendedEntry(tx, userId, s.templateId, se, input.exerciseId) : null;
+    const replacement = earlier ?? await (async () => {
+      await tx.sessionExercise.updateMany({ where: { sessionId, position: { gt: se.position } }, data: { position: { increment: 1 } } });
+      return tx.sessionExercise.create({
+        data: { sessionId, exerciseId: input.exerciseId, position: se.position + 1, restSeconds: se.restSeconds, notes: se.notes, gymEquipmentId, substitutesId: se.id, plannedExerciseId: se.plannedExerciseId ?? se.exerciseId, templateExerciseId: se.templateExerciseId },
+        include: { exercise: true, sets: true },
+      });
+    })();
+    if (entry && entry.exerciseId !== input.exerciseId) await tx.templateExercise.update({ where: { id: entry.id }, data: { exerciseId: input.exerciseId } });
+    // True when the plan's entry now names the replacement, whether this request or the one it repeats changed it.
+    const planUpdated = entry !== null || (earlier !== null && se.templateExerciseId !== null && (await tx.templateExercise.count({ where: { id: se.templateExerciseId, exerciseId: input.exerciseId } })) > 0);
     return { sessionExercise: replacement, planUpdated };
   }, { maxWait: 5_000, timeout: 15_000 });
 }

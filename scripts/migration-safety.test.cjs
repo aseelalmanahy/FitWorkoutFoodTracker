@@ -54,7 +54,9 @@ test("the multi-gym migration only adds: nullable columns on existing tables, ne
   const statements = sql.replace(/ON (DELETE|UPDATE) (SET NULL|CASCADE|RESTRICT|NO ACTION)/g, "");
   assert.doesNotMatch(statements, /\bDROP\b|\bTRUNCATE\b|\bDELETE\b|\bUPDATE\s+"|\bRENAME\b|ALTER COLUMN|SET NOT NULL|SET DEFAULT/i);
   const added = [...sql.matchAll(/ADD COLUMN\s+"(\w+)"\s+([^,;\n]+)/g)].map((m) => [m[1], m[2].trim()]);
-  assert.deepEqual(added.map(([c]) => c).sort(), ["gymEquipmentId", "gymLocationId", "plannedExerciseId", "substitutesId"]);
+  assert.deepEqual(added.map(([c]) => c).sort(), ["gymEquipmentId", "gymLocationId", "plannedExerciseId", "substitutesId", "templateExerciseId"]);
+  // Saving a plan replaces its entries: a workout row's link to its entry is cleared, never the row or its sets.
+  assert.match(sql, /"SessionExercise_templateExerciseId_fkey"[^;]+REFERENCES "TemplateExercise"\("id"\) ON DELETE SET NULL/);
   for (const [c, type] of added) assert.equal(type, "TEXT", `${c} is nullable with no default, so every existing workout has no gym and no machine`);
   assert.deepEqual([...sql.matchAll(/CREATE TABLE "(\w+)"/g)].map((m) => m[1]).sort(), ["GymEquipment", "GymLocation"]);
   // Deleting a gym clears a workout's gym; a machine or planned exercise that sets were done on can't be deleted from under them.
@@ -98,4 +100,17 @@ test("every approved migration has its hash recorded, and npm run db:deploy goes
   const pkg = JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8"));
   assert.equal(pkg.scripts["db:deploy"], "node scripts/migrate-approved.cjs");
   assert.ok(!Object.values(pkg.scripts).some((s) => /migrate deploy/.test(s)), "no script runs migrate deploy unguarded");
+});
+
+test("after a successful deploy, the migrate step takes away every other role's access to the migration history", () => {
+  const src = fs.readFileSync(path.join(__dirname, "migrate-approved.cjs"), "utf8");
+  const deploy = src.indexOf('prisma(["migrate", "deploy"])');
+  const stopOnFailure = src.indexOf("if (deployed.status !== 0) process.exit(");
+  const protect = src.indexOf("prisma([\"db\", \"execute\", \"--stdin\"");
+  assert.ok(deploy > 0 && stopOnFailure > deploy && protect > stopOnFailure, "deploy, stop if it failed, then protect the history");
+  assert.match(src, /REVOKE ALL ON TABLE "_prisma_migrations" FROM PUBLIC/);
+  assert.match(src, /format\('REVOKE ALL ON TABLE "_prisma_migrations" FROM %I', r\.grantee\)/, "every grantee, by name, quoted");
+  assert.match(src, /grantee <> current_user/, "never the migrator itself");
+  assert.doesNotMatch(/const PROTECT_HISTORY = `([^`]+)`/.exec(src)[1], /fit_app|fit_migrator/, "its SQL names no role");
+  assert.match(fs.readFileSync(path.join(ROOT, "deploy", "database-roles.sql"), "utf8"), /_prisma_migrations/, "the role template says why");
 });

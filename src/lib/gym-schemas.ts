@@ -1,8 +1,9 @@
 /** Multi-gym: what may be sent about gyms, their equipment, and swaps. Server side: route handlers parse with these. */
-import { z } from "zod";
-import { EQUIPMENT_KINDS } from "./gyms";
+import { z } from "@/lib/zod";
+import { EQUIPMENT_KINDS, cleanName } from "./gyms";
 
-const name = (max: number) => z.string().trim().min(1).max(max);
+// Cleaned first (see cleanName), so the limits and duplicate checks apply to the name as stored.
+const name = (max: number) => z.string().max(max * 4).transform(cleanName).pipe(z.string().min(1).max(max));
 const id = z.string().min(1).max(40);
 
 export const gymSchema = z.strictObject({ name: name(60) });

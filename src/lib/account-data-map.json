@@ -46,7 +46,7 @@
   },
   "SessionExercise": {
     "deletion": "Cascades from its session. Restricts deleting its exercise, its planned exercise and its machine, so sessions go first",
-    "export": ["id", "sessionId", "exerciseId", "position", "restSeconds", "notes", "gymEquipmentId", "substitutesId", "plannedExerciseId"],
+    "export": ["id", "sessionId", "exerciseId", "position", "restSeconds", "notes", "gymEquipmentId", "substitutesId", "plannedExerciseId", "templateExerciseId"],
     "excluded": {}
   },
   "SetEntry": {

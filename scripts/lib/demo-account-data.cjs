@@ -101,7 +101,9 @@ function gymRows(workouts, exerciseIdByName) {
   const sessions = workouts.sessions.map((s) => (dateOf(s.id) < GYMS_FROM ? { ...s, gymLocationId: null } : { ...s, gymLocationId: s.templateId === "demo-plan-ub" ? "demo-gym-home" : "demo-gym-city" }));
   const gymOf = new Map(sessions.map((s) => [s.id, s.gymLocationId]));
   const machineFor = (se) => MACHINES.find((m) => exerciseIdByName[m.exercise] === se.exerciseId && m.gymId === gymOf.get(se.sessionId))?.id ?? null;
-  let sessionExercises = workouts.sessionExercises.map((se) => ({ ...se, gymEquipmentId: machineFor(se), substitutesId: null, plannedExerciseId: null }));
+  // Each row names the plan entry it was started from, as a workout started from a plan does.
+  const templateOf = new Map(workouts.sessions.map((s) => [s.id, s.templateId.slice("demo-plan-".length)]));
+  let sessionExercises = workouts.sessionExercises.map((se) => ({ ...se, gymEquipmentId: machineFor(se), substitutesId: null, plannedExerciseId: null, templateExerciseId: `demo-te-${templateOf.get(se.sessionId)}-${se.position}` }));
   let sets = workouts.sets;
 
   const swapped = sessions.find((s) => s.gymLocationId && s.templateId === SWAP.plan);
@@ -115,7 +117,7 @@ function gymRows(workouts, exerciseIdByName) {
     sessionExercises = sessionExercises.flatMap((se) => {
       if (se.sessionId !== swapped.id) return [se];
       if (se.id !== planned.id) return [se.position > planned.position ? { ...se, position: se.position + 1 } : se];
-      return [se, { id: replacementId, sessionId: swapped.id, exerciseId: exerciseIdByName[SWAP.actual], position: planned.position + 1, restSeconds: se.restSeconds, gymEquipmentId: null, substitutesId: planned.id, plannedExerciseId: planned.exerciseId }];
+      return [se, { id: replacementId, sessionId: swapped.id, exerciseId: exerciseIdByName[SWAP.actual], position: planned.position + 1, restSeconds: se.restSeconds, gymEquipmentId: null, substitutesId: planned.id, plannedExerciseId: planned.exerciseId, templateExerciseId: planned.templateExerciseId }];
     });
     // Dumbbells per hand, rounded to a rack's 5 lb steps. Synthetic, for showing the app.
     const perHand = (kg) => toKg(Math.max(5, Math.round((kg / LB) * 0.35 / 5) * 5));

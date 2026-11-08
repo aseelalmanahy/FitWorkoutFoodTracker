@@ -46,6 +46,8 @@ export const POST = route(async (req, { user }) => {
             position,
             restSeconds: e.restSeconds,
             notes: e.notes,
+            // Which entry it came from, so a swap that updates the plan changes this entry only.
+            templateExerciseId: e.id,
           })),
         },
       },
@@ -66,7 +68,8 @@ export const POST = route(async (req, { user }) => {
         templateId: src.templateId,
         name: src.name,
         exercises: {
-          create: src.exercises.map((e, position) => ({ exerciseId: e.exerciseId, position, restSeconds: e.restSeconds })),
+          // Each keeps the plan entry it came from, if the plan still has it (saving a plan makes its entries new rows).
+          create: src.exercises.map((e, position) => ({ exerciseId: e.exerciseId, position, restSeconds: e.restSeconds, templateExerciseId: e.templateExerciseId })),
         },
       },
     });
