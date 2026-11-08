@@ -19,7 +19,8 @@ const COOLDOWN_MS = 60_000;
 const MAX_LIVE_PER_ADDRESS = 5;
 const MAX_CREATED_PER_HOUR = 200;
 
-const APP_NAME = "Forge";
+// The product's canonical name (FitBunny is deferred). Only this text changes; no internal identifier does.
+const APP_NAME = "FitWorkoutFoodTracker";
 const invalidLink = () => new HttpError(400, "This link isn't valid or has expired. Request a new one.");
 
 /** Evaluated when it's used, so the time spent hashing a password can't extend a token's life. */

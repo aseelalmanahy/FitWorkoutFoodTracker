@@ -54,7 +54,8 @@ export function SideNav() {
     <nav aria-label="Main" className="fixed inset-y-0 left-0 z-40 hidden w-60 flex-col border-r border-line bg-surface/70 px-3 py-6 backdrop-blur-xl lg:flex">
       <Link href="/dashboard" className="mb-8 flex items-center gap-2.5 px-3">
         <BrandMark className="h-8 w-8" />
-        <span className="text-lg font-semibold tracking-tight">Forge</span>
+        {/* The full name, which wraps between its words to fit the side bar. */}
+        <span className="min-w-0 text-base font-semibold leading-tight tracking-tight">FitWorkout<wbr />FoodTracker</span>
       </Link>
       <ul className="space-y-1">
         {ITEMS.map(({ href, label, Icon }) => {
