@@ -497,7 +497,7 @@ Earlier items keep their full rows in 2j; new items are marked **new**.
 | FOOD-GAP | VERIFIED — FUNCTIONAL (browsers) | A package photo with no barcode goes: words → one search of the approved sources → up to 5 candidates with their source and the provider's own values → confirmation → the usual resolve and cache → the amount sheet. Fixture results carry the "Test data" notice. The photo isn't kept, and the fallbacks remain (`c9697df`) | `package-match` unit 5; `barcode` suite: one search with no claim or value in it, candidates, confirming, going back, no match, the full search, logged with the record's own values | Real packaging photos; live providers (not called) | E1 |
 | BRAND | VERIFIED — FUNCTIONAL | The side bar, welcome pages and account emails say FitWorkoutFoodTracker. No "Forge" is left in `src`, `public` or `scripts`, and no internal identifier changed (`448e6db`) | Account unit 130; e2e suites | Final name and icons, FitBunny | Owner's branding decision |
 | PRIV-D | IMPLEMENTED | `PRIVACY_WORDING_DRAFTS.md`: wording for feedback, product and plan images, device versus server reading, gyms, third parties, export and deletion, and backups. Facts checked against the code (`81af4f8`) | Not applicable | Legal review | NOTICE-B |
-| DEMO-GYM | IMPLEMENTED — UNAPPLIED | Demo account: two gyms, two named machines, gyms on workouts from 2026-10-19, one swap. Added only where MIG-GYM is applied; otherwise the rows are skipped with a message. Guide steps G.1 to G.15 (`6c14a42`) | `demo-account` 33; the built rows inserted twice into the throwaway database (keys hold, and the second run adds 0) | On `fitdb_test`: needs MIG-FB and MIG-GYM there | Owner approval |
+| DEMO-GYM | IMPLEMENTED — UNAPPLIED | Demo account: two gyms, two named machines, gyms on workouts from 2026-10-19, one swap. Added only where MIG-GYM is applied; otherwise the rows are skipped with a message. Guide steps MG.1 to MG.15 (`6c14a42`) | `demo-account` 33; the built rows inserted twice into the throwaway database (keys hold, and the second run adds 0) | On `fitdb_test`: needs MIG-FB and MIG-GYM there | Owner approval |
 
 **RC-08 disposition: not reproduced; confined to test infrastructure; traced from now on.**
 
@@ -562,7 +562,7 @@ Earlier items keep their full rows in 2j; new items are marked **new**.
 | 4 | **MIG-GYM** (new) | `20261109120000_multi_gym` on the same databases, after MIG-FB (deploy applies both, in order). Then `demo-account.cjs --populate` adds the gyms | Approval, after a backup; then add both to `approved-migrations.json` with their hashes |
 | 5 | NOTICE-B | The notice names feedback, image reading and gyms (`PRIVACY_WORDING_DRAFTS.md`) | Owner and legal review |
 | 6 | UX-01 | The UX round's acceptance | Owner |
-| 7 | **GYM-ACCEPT** (new) | The owner's UI acceptance of this round (guide G.1 to G.15) | MIG-FB and MIG-GYM on `fitdb_test`, or the throwaway-cluster preview |
+| 7 | **GYM-ACCEPT** (new) | The owner's UI acceptance of this round (guide MG.1 to MG.15) | MIG-FB and MIG-GYM on `fitdb_test`, or the throwaway-cluster preview |
 | 8 | E1 | Phones, now including gym choice, swaps and package photos | Tailscale, both phones |
 | 9 | C1, C2 | Real email and reset | Domain, Resend |
 | 10 | G1 | Linux image build, now with both migrations and the guard | Docker Desktop started |
@@ -662,6 +662,38 @@ Also checked: the app role can't run `prisma migrate deploy`, and the app image 
 - **The migrate step (G1, G3) now refuses** unless the migrator owns the migration history and no other role can write it.
 
 **Verdict: NOT READY.** The branch is ready for independent review. Owner approvals A1–A4, B2/B1b, MIG-FB, MIG-GYM, NOTICE-B, UX-01, GYM-ACCEPT, E1, C1/C2, G1, G2–G7 and the security sign-off are still open.
+
+## 2n. Release candidate: technical remediation closed
+
+**Code frozen at `32c3914`** on `feature/multi-gym-exercise-alternatives` (documentation commits only after it). **Technical verdict: TECHNICALLY READY.** The owner's approvals, acceptances and physical-device tests remain, in `docs/RELEASE_ACCEPTANCE.md`, the one consolidated acceptance package.
+
+| Finding | Status | Fix commits | Evidence |
+|---|---|---|---|
+| 1. Machine removal vs choice | **FIXED, CLOSED** | `99c68f6`, `ebabcee` | `gyms-api` concurrency and forced lock orderings |
+| 2. Swap retry with `updatePlan` | **FIXED, CLOSED** | `99c68f6`, `ebabcee` | `gyms-api` retries |
+| 3. The intended plan entry | **FIXED, CLOSED** | `99c68f6`, `ebabcee`, `6e77cd8` | `gyms-api` duplicate entries, repeat workout, refusals |
+| 4. Gym-name uniqueness | **FIXED, CLOSED** | `99c68f6`, `ebabcee`, `6e77cd8` | `gyms-api` concurrent spellings; gyms unit 8 |
+| 5. Migration safeguards and roles | **FIXED, CLOSED** | `4926fb9`, `5c5d7d2`, `e35f76d`, `92a80f5` (with `47bc004`, `b11564c`) | `migration-safety` 8/8, `mig-04` 103/103, live S1–S9 |
+| 6. Food-photo matching | **FIXED, CLOSED** | `f468dd8` | `package-match` 11; `barcode` |
+| 7. CSP violations | **FIXED, CLOSED** | `a0fcb9e`, `60fbc0f` | `csp-e2e`, 3 engines, with a positive control |
+
+**Final verification at `32c3914`:**
+- the tree is clean, and local equals `origin`;
+- the seven fixes are present;
+- MIG-GYM regenerated from the base schema is identical to the committed file, and the migrated throwaway database has no drift from the schema;
+- the guard refuses on this checkout (exit 4);
+- no secrets, credentials or temporary files are tracked.
+
+**Regression evidence, preserved** in `FitWorkoutFoodTracker-backups\diagnostics\release-candidate-32c3914\`:
+- the full regression at `e35f76d`, 56/56 (summary and every suite's log);
+- the earlier full regression at `5c5d7d2`, 56/56;
+- the live verification scripts.
+
+**Known limitations** (non-blocking, not fixed; listed in `RELEASE_ACCEPTANCE.md` Part 1): R1, I-1, I-2, I-3, **FM-1 (new, low follow-up)**, K-04, OPS-1 and OPS-2.
+
+FM-1: food-photo de-duplication keeps the first of identical-looking records, so a person's own identical food is hidden from the photo's candidates; it's still in the full search.
+
+**Process change:** the manual guide's multi-gym steps are now **MG.1 to MG.15**, so they can't be confused with the email checklist G.1 to G.6.
 
 ## 3. Tests: run, failed, blocked
 
