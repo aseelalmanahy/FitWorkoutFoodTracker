@@ -462,7 +462,7 @@ With both loaded the server held about 0.8 GB. The image's 1.5 GB limit also has
 
 **Security review of this round.** New attack surface: four authenticated endpoints (feedback, admin review, two image-to-text readers) and three file parsers. Controls: the admin review is server-side by user ID, answers 404 to everyone else and is classified in the route audit; every input is schema-validated and size-bounded; feedback is rate-limited from the table and de-duplicated; images go through the existing upload validation, slots and the daily scan allowance, and only text comes back; document parsing runs in the person's own tab with limits on size, parts, declared and real decompressed size, rows and columns, and refuses encryption; nothing from a document is executed or rendered as markup (tested); the service worker stores no private data (tested with a negative control); frames and documents are never uploaded (tested by recording every request); `npm audit` 0. **Remaining risks, for owner acceptance:** (1) the scan allowance is in memory per process, as before; (2) local OCR is CPU-heavy, bounded only by the upload slots and allowance; (3) redaction can't find names or health details, so the owner reads every export; (4) administrators change only with a restart; (5) **the privacy notice must name feedback and the reading of plan and package images before the beta** (a versioned legal text: owner and legal review); (6) parsed plans and package words depend on layout and OCR quality, with the person checking every value.
 
-**Branding:** pages, the manifest and the home screen use "FitWorkoutFoodTracker" ("FitTracker" under the icon). The in-app wordmark and emails still say "Forge", and the icons are temporary: the owner's branding decision.
+**Branding:** pages, the manifest and the home screen use "FitWorkoutFoodTracker" ("FitTracker" under the icon). The in-app wordmark and emails still say "Forge", and the icons are temporary: the owner's branding decision. **Superseded in 2l:** the wordmark and emails now say FitWorkoutFoodTracker too.
 
 ### Beta launch gates and approvals, consolidated (dependency order)
 
@@ -481,6 +481,93 @@ Earlier items keep their full rows in 2j; new items are marked **new**.
 | 9 | G1 | Linux image build and memory (2j); now also with the feedback migration | Docker Desktop started | Low |
 | 10 | G2 | Hosting choice (`BETA_HOSTING.md`), domain, budget ceiling, retention and recovery targets, production access, `ADMIN_USER_IDS` | Owner's decisions | Sets cost |
 | 11 | G3–G7 | Rehearsal, HTTPS, restore on target, monitoring, invited rollout; merge of this branch | Each approved; UX-01 accepted; security sign-off | Medium |
+
+## 2l. Multi-gym, exercise swaps and the food-photo gap
+
+**On `feature/multi-gym-exercise-alternatives`, from `feature/beta-critical-capabilities` at `5b854f7`, in the same worktree (`FitWorkoutFoodTracker-beta`). Not merged, nothing deployed, no paid service or hosted AI used, no real database migrated or written.** The owner approved the multi-gym and exercise-alternatives feature in the directive of 2026-11-08. **Nothing here is OWNER ACCEPTED.** Tests ran on the throwaway cluster from `scripts/disposable-db.cjs` (127.0.0.1:55434), which has both pending migrations.
+
+| ID | Status | Implemented (commit) | Verified | Not verified | Blocked by |
+|---|---|---|---|---|---|
+| GYM-1 Gyms | VERIFIED — FUNCTIONAL (browsers) | Create and rename gyms, up to 20, with case-insensitive unique names; equipment kinds; named machines, optionally for one exercise, up to 100 per gym. Private, with no location. The gym can be chosen before or during a workout. History can be filtered by gym (`47bc004`, `4e42c85`, `3c811a8`, `57f8604`) | `gyms-api` 14: CRUD, duplicates, limits under 25 concurrent requests, isolation through 13 routes (404), kinds, machines, gym rules; `gyms-e2e` in Chromium | Real phones (E1) | MIG-GYM |
+| GYM-2 Machine contexts | VERIFIED — FUNCTIONAL | Previous performance, histories and PRs keyed by exercise plus machine. Sets with no machine, which covers every old workout, keep the shared history. `/previous` and `/history` accept `?machine=`. The progress page shows each context with a label | `gyms-api`: 100 kg on machine A, 40 kg on machine B and 60 kg with no machine, each kept apart; a new machine starts empty; `gyms-e2e` on the progress page | None | MIG-GYM |
+| GYM-3 Swap | VERIFIED — FUNCTIONAL (browsers) | Swap exercise: suggestions come from reviewed movement patterns (47 built-in exercises, 21 patterns), never from muscle alone, plus the person's own earlier swaps, each marked by what the gym has. The planned row keeps its sets. The replacement is linked by `substitutesId` and `plannedExerciseId`. The plan changes only on request, and only its first matching entry. The swap is locked, refused on a finished workout, and repeating the same swap is idempotent | `gyms-api`: sets byte-identical after the swap and after Finish, plan unchanged, `updatePlan`, five concurrent swaps make one, refusals; `gyms-e2e`: the whole flow in Chromium, and a swap with a plan update in Chromium, Firefox and WebKit; `movement-patterns` unit 6 | The pattern table needs owner review for coverage (custom exercises get only "used before" suggestions) | MIG-GYM |
+| GYM-4 Data handling | VERIFIED — FUNCTIONAL | Export covers gyms, equipment and every gym, machine and swap field. Deletion removes all of it, after sessions. The data map and inventory are classified | `account-data` 26, with gym rows seeded in every model; data-map tests | None | MIG-GYM |
+| MIG-GYM migration | IMPLEMENTED — UNAPPLIED | `20261109120000_multi_gym`: additive only. Every new column on an existing table is nullable with no default, so no old workout gets a gym or machine | `migration-safety` 6 (only additions, its keys' delete rules); applied only to the throwaway cluster | Not applied to `fitdb_test`, `fitdb_review` or production | **Owner approval** |
+| MIG-GUARD | VERIFIED — FUNCTIONAL | `prisma/approved-migrations.json`, with a SHA-256 per approved migration. `migrate-approved.cjs` is the Docker migrate step and `npm run db:deploy`. `local-db.cjs` and `mig-04.cjs` refuse any folder that hasn't been approved, whatever its name (`47bc004`, `b11564c`) | `migration-safety` 6; `mig-04` 103; image step and `fitdb_review` each refuse with exit 4, applying nothing | A Linux image build (G1) | None |
+| FOOD-GAP | VERIFIED — FUNCTIONAL (browsers) | A package photo with no barcode goes: words → one search of the approved sources → up to 5 candidates with their source and the provider's own values → confirmation → the usual resolve and cache → the amount sheet. Fixture results carry the "Test data" notice. The photo isn't kept, and the fallbacks remain (`c9697df`) | `package-match` unit 5; `barcode` suite: one search with no claim or value in it, candidates, confirming, going back, no match, the full search, logged with the record's own values | Real packaging photos; live providers (not called) | E1 |
+| BRAND | VERIFIED — FUNCTIONAL | The side bar, welcome pages and account emails say FitWorkoutFoodTracker. No "Forge" is left in `src`, `public` or `scripts`, and no internal identifier changed (`448e6db`) | Account unit 130; e2e suites | Final name and icons, FitBunny | Owner's branding decision |
+| PRIV-D | IMPLEMENTED | `PRIVACY_WORDING_DRAFTS.md`: wording for feedback, product and plan images, device versus server reading, gyms, third parties, export and deletion, and backups. Facts checked against the code (`81af4f8`) | Not applicable | Legal review | NOTICE-B |
+| DEMO-GYM | IMPLEMENTED — UNAPPLIED | Demo account: two gyms, two named machines, gyms on workouts from 2026-10-19, one swap. Added only where MIG-GYM is applied; otherwise the rows are skipped with a message. Guide steps G.1 to G.15 (`6c14a42`) | `demo-account` 33; the built rows inserted twice into the throwaway database (keys hold, and the second run adds 0) | On `fitdb_test`: needs MIG-FB and MIG-GYM there | Owner approval |
+
+**RC-08 disposition: not reproduced; confined to test infrastructure; traced from now on.**
+
+- **Evidence.** The recurrence logs show `ERR_PROXY_CONNECTION_FAILED` on the first `page.goto` of a suite. The app server's log is clean, so the request never reached the app.
+- **Tried, with tracing on:**
+  - 200 fresh Chromium loads, one at a time, of a page with 8 scripts through the real guard proxy;
+  - 900 loads with 6 browsers in parallel (5,400 connections, 8,100 requests, 8,100 responses, with no client or upstream error);
+  - 25 loops of `label-pdf-unconfigured` plus `profile-minimization-e2e`, 50 of 50 passed;
+  - earlier, 20,000 server-closed connections.
+- **Ruled out, as far as these runs reach:**
+  - **Server lifecycle:** the app log is clean and the request didn't reach it.
+  - **Service worker:** it's hidden in guarded contexts, and the probes had none.
+  - **Concurrent runs:** the RC-04 lock was held.
+  - **Proxy keep-alive timeout:** 120 s.
+- **Not excluded:** the browser's connection to the loopback proxy being refused or reset under full-regression load (resource exhaustion), before the proxy accepts it.
+- **Tracing from now on.** Commit `53b388e` gives every guarded suite a connection trace (paths and status codes only), so the next occurrence will show whether the connection reached the proxy.
+- **This round's full regression:** `label-pdf-unconfigured` passed and no suite logged `ERR_PROXY`.
+- **Only the test proxy is involved, never the app.** P2, and it stays open.
+
+**QA-05 disposition: no defect in the app; the test's assumption was outdated; fixed (`d6f94f3`).**
+
+- **What happened.** The delayed sign-up request did reach the app, after 2.5 s. It was answered 400 ("This link isn't valid or has expired"), because the first sweep had already deleted the run's sign-up token. No account was created, and none and no token remained.
+- **The fix.** The test now checks both protections: a late completion is refused, and a late-created account is removed by the second sweep.
+- **Negative control.** With the second sweep disabled, the test fails and a user is left behind.
+- **Result.** `safety-no-marker`: 7 passed, 1 skipped (SIGTERM, which is POSIX only). **No late account survives, so it doesn't block the release.**
+
+**Security review of this round (independent, read-only).**
+
+- **Critical, high, and cross-user access:** none.
+- **Medium (fixed, `b11564c`).** The migration guard looked only at timestamp-named folders and trusted an approved name without checking its file, and `db:deploy` was unguarded.
+- **Lows (fixed, `57f8604`):**
+  - the limits weren't checked under a lock (on the old code, 24 gyms were made against a limit of 20);
+  - the gym could be changed under a machine;
+  - the machine's gym was checked before the lock;
+  - a machine set up for one exercise could be used for another.
+- **Already safe.** Removing a machine at the same moment it's chosen answers 409 (P2003).
+- **Remaining, for the owner:**
+  1. Anyone who can run the migrate image with another command can still call Prisma directly (operational access, G3).
+  2. When the exercise appears twice in a plan, "update plan" changes only the first matching entry.
+  3. Finished workouts can still be edited by their owner (K-04, pre-existing).
+  4. Five earlier pages still ship zod's eval probe, which Firefox reports under the CSP (low; the probe is caught).
+  5. The remembered next gym is cleared on sign-out only, not when a session expires. It's an id, and it's ignored for anyone else.
+
+**Test results, at `6c14a42` (full regression) and `a0fcb9e` (affected suites), on the throwaway cluster, production builds:**
+
+- **Full regression: 55 suites ran, 52 passed, 3 failed. Excluded (on demand): 5:** `migration-snapshot`, `migration-verify`, `profile-migration-snapshot`, `profile-migration-verify`, `demo-account-e2e` (fitdb_test only). **Blocked: 0.** The 3 failures:
+  - **`mig-04-refusals`:** a tripwire listing the later migrations, which the new one correctly tripped. Updated, and the same name filter was hardened.
+  - **`gyms-api`, 2 of 14:** new tests run against the earlier build, as the build couldn't be replaced while suites were running. On that build they confirmed the race the reviewer found.
+  - **`readiness-e2e`:** Firefox reported zod's eval probe under the CSP on the workout page. Fixed (`a0fcb9e`).
+- **Rerun after the fixes:** `gyms-api` 14/14, `gyms-e2e`, `readiness-e2e`, `mig-04-refusals` 103/103, `guard` 60/60, `workout-sets` 25/25, `e2e-smoke`, `account-data` 26/26 and `barcode` all passed.
+- **Unit tests:** 69 files, **2,293 passed, 1 skipped**.
+- **Type check and audit:** type check clean; `npm audit` 0.
+- **Not done:** simulated phone widths are not physical devices, and no physical device was tested.
+
+### Gates and approvals, in dependency order (supersedes the list in 2k)
+
+| # | ID | What it allows | Needs |
+|---|---|---|---|
+| 1 | A1–A4 | Local servers, firewall, PostgreSQL listener, role isolation (2j) | As in 2j |
+| 2 | B2, B1b | Restore check; QA-04 suites on the real companion database | As in 2j |
+| 3 | MIG-FB | `20261108120000_feedback` on `fitdb_test` (demo), `fitdb_review`, and later production | Approval, after a backup |
+| 4 | **MIG-GYM** (new) | `20261109120000_multi_gym` on the same databases, after MIG-FB (deploy applies both, in order). Then `demo-account.cjs --populate` adds the gyms | Approval, after a backup; then add both to `approved-migrations.json` with their hashes |
+| 5 | NOTICE-B | The notice names feedback, image reading and gyms (`PRIVACY_WORDING_DRAFTS.md`) | Owner and legal review |
+| 6 | UX-01 | The UX round's acceptance | Owner |
+| 7 | **GYM-ACCEPT** (new) | The owner's UI acceptance of this round (guide G.1 to G.15) | MIG-FB and MIG-GYM on `fitdb_test`, or the throwaway-cluster preview |
+| 8 | E1 | Phones, now including gym choice, swaps and package photos | Tailscale, both phones |
+| 9 | C1, C2 | Real email and reset | Domain, Resend |
+| 10 | G1 | Linux image build, now with both migrations and the guard | Docker Desktop started |
+| 11 | G2–G7 | Hosting, budget, rehearsal, HTTPS, restore on target, monitoring, invited rollout; merges | Each approved; security sign-off; final regression |
+| 12 | BRAND | Final name and icons | Owner |
 
 ## 3. Tests: run, failed, blocked
 
