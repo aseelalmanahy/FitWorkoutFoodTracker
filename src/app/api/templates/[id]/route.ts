@@ -1,6 +1,7 @@
 import { route, parseBody, notFound } from "@/lib/server/api";
 import { templateSchema } from "@/lib/validation";
 import { prisma } from "@/lib/server/db";
+import { limitLockWait } from "@/lib/server/auth";
 import { assertExercisesVisible, templateInclude } from "@/lib/server/workouts";
 
 async function owned(userId: string, id: string) {
@@ -20,6 +21,8 @@ export const PUT = route<{ id: string }>(async (req, { user, params }) => {
   const input = await parseBody(req, templateSchema);
   await assertExercisesVisible(user.id, input.exercises.map((e) => e.exerciseId));
   const template = await prisma.$transaction(async (tx) => {
+    // A swap in a workout from this plan may hold one of its entries; waiting is bounded, so a stuck one answers 503.
+    await limitLockWait(tx);
     await tx.templateExercise.deleteMany({ where: { templateId: params.id } });
     return tx.workoutTemplate.update({
       where: { id: params.id },

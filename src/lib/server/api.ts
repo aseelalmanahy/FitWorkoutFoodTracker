@@ -61,8 +61,15 @@ type Ctx<P> = { params: Promise<P> };
 const isLockTimeout = (err: unknown) =>
   (err instanceof Prisma.PrismaClientKnownRequestError || err instanceof Prisma.PrismaClientUnknownRequestError) && /\b55P03\b|lock timeout/.test(err.message);
 
-/** No connection came free (P2024), or a transaction ran out of time and rolled back (P2028). */
-const isBusy = (err: unknown) => err instanceof Prisma.PrismaClientKnownRequestError && (err.code === "P2024" || err.code === "P2028");
+/**
+ * No connection came free (P2024), a transaction ran out of time and rolled back (P2028), or PostgreSQL broke a
+ * deadlock by rolling this transaction back (40P01: Prisma's P2034, or the raw code from a raw query). Each changed
+ * nothing, and is safe to retry.
+ */
+const DEADLOCK = /\b40P01\b|deadlock detected/;
+const isBusy = (err: unknown) =>
+  (err instanceof Prisma.PrismaClientKnownRequestError && (["P2024", "P2028", "P2034"].includes(err.code) || DEADLOCK.test(err.message)))
+  || (err instanceof Prisma.PrismaClientUnknownRequestError && DEADLOCK.test(err.message));
 
 function handleError(err: unknown) {
   if (err instanceof HttpError) return jsonError(err.status, err.message, err.details, err.headers);

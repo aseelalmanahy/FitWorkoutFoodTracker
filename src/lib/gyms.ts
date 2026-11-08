@@ -11,11 +11,12 @@ export const MAX_GYMS = 20;
 export const MAX_MACHINES_PER_GYM = 100;
 
 /**
- * A gym or machine name as stored: Unicode NFKC, invisible and direction-changing characters removed (they make two
- * different names look the same), runs of spaces made one, and trimmed.
+ * A gym or machine name as stored: Unicode NFKC; every control, format and default-ignorable character removed (zero
+ * widths, joiners, bidi embeddings, overrides and isolates, the soft hyphen, variation selectors, tags, Hangul fillers:
+ * they make two different names look the same, or reorder what's shown); runs of spaces made one; trimmed.
  */
 export const cleanName = (s: string) =>
-  s.normalize("NFKC").replace(/[\p{Cc}​-‏‪-‮⁠-⁤﻿]/gu, "").replace(/\s+/g, " ").trim();
+  s.normalize("NFKC").replace(/[\p{Cc}\p{Cf}\p{Default_Ignorable_Code_Point}]/gu, "").replace(/\s+/g, " ").trim();
 
-/** What two names are compared by: the cleaned name, case-folded, so "Café", "CAFÉ" and "Café" are one name. */
+/** What two names are compared by: the cleaned name, case-folded, so "Café", "CAFÉ" and "Cafe\u0301" are one name. */
 export const nameKey = (s: string) => cleanName(s).toUpperCase().toLowerCase();

@@ -117,9 +117,14 @@ describe("logging a set", () => {
     expect((await POST(post(SET), ctx(params))).status).toBe(404);
     expect(f.rows).toEqual([]);
   });
-  it.each([["ran out of time", "P2028"], ["found no free connection", "P2024"]])("a transaction that %s says to try again, with nothing saved", async (_name, code) => {
+  it.each([
+    ["ran out of time", "P2028", "busy"],
+    ["found no free connection", "P2024", "busy"],
+    ["was chosen as a deadlock's victim", "P2034", "Transaction failed due to a write conflict or a deadlock"],
+    ["hit a deadlock in a raw query", "P2010", "Raw query failed. Code: `40P01`. Message: `deadlock detected`"],
+  ])("a transaction that %s says to try again, with nothing saved", async (_name, code, message) => {
     const { POST } = await sets();
-    f.failure = new Prisma.PrismaClientKnownRequestError("busy", { code, clientVersion: "test" });
+    f.failure = new Prisma.PrismaClientKnownRequestError(message, { code, clientVersion: "test" });
     const res = await POST(post(SET, KEY), ctx(params));
     expect(res.status).toBe(503);
     expect(res.headers.get("Retry-After")).toBe("5");

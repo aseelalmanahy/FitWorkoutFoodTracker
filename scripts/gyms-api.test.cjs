@@ -469,7 +469,7 @@ test("a plan with the same exercise twice: the swap changes only the entry its r
 
 test("gym and machine names: one per person whatever the case, accent encoding, spacing or invisible characters, even at once", async () => {
   const { user, c } = await newUser("names");
-  const variants = ["Café", "CAFÉ", "Café", "  café  ", "café​", "Ca‮fé"];
+  const variants = ["Café", "CAFÉ", "Cafe\u0301", "  café  ", "café\u200B", "Ca\u202Efé"];
   const made = await Promise.all(variants.map((name) => c.post("/api/gyms", { name })));
   assert.equal(made.filter((r) => r.status === 200).length, 1, made.map((r) => `${r.status}`).join(","));
   assert.ok(made.every((r) => r.status === 200 || r.status === 409));
@@ -479,13 +479,13 @@ test("gym and machine names: one per person whatever the case, accent encoding, 
   assert.equal((await c.post("/api/gyms", { name: "Straße" })).status, 200);
   assert.equal((await c.post("/api/gyms", { name: "STRASSE" })).status, 409, "case folding, not just lower-casing");
   const { gym: other } = ok(await c.post("/api/gyms", { name: "Other" }));
-  assert.equal((await c.patch(`/api/gyms/${other.id}`, { name: "café" })).status, 409, "renaming onto another's name");
+  assert.equal((await c.patch(`/api/gyms/${other.id}`, { name: "cafe\u0301" })).status, 409, "renaming onto another's name");
   const both = await Promise.all([c.patch(`/api/gyms/${other.id}`, { name: "Twin" }), c.post("/api/gyms", { name: "TWIN" })]);
   assert.equal(both.filter((r) => r.status === 200).length, 1, "a rename and a create of the same name at once: one wins");
-  assert.equal((await c.post("/api/gyms", { name: "​‮ " })).status, 400, "only invisible characters is no name");
+  assert.equal((await c.post("/api/gyms", { name: "\u200B\u202E " })).status, 400, "only invisible characters is no name");
   const { gym } = ok(await c.post("/api/gyms", { name: "Machines" }));
   ok(await c.post(`/api/gyms/${gym.id}/equipment`, { kind: "MACHINE", name: "Leg Press" }));
-  assert.equal((await c.post(`/api/gyms/${gym.id}/equipment`, { kind: "MACHINE", name: "LEG  PRESS​" })).status, 409);
+  assert.equal((await c.post(`/api/gyms/${gym.id}/equipment`, { kind: "MACHINE", name: "LEG  PRESS\u200B" })).status, 409);
   const someoneElse = await newUser("names-other");
   assert.equal((await someoneElse.c.post("/api/gyms", { name: "café" })).status, 200, "another person may use the same name");
 });
@@ -545,4 +545,56 @@ test("machine removal and choice, in each order, forced: the one holding the mac
   await removing2.tx;
   assert.equal((await swapped).status, 404);
   assert.equal(await prisma.sessionExercise.count({ where: { substitutesId: d.se.id } }), 0, "nothing swapped");
+});
+
+test("a swap and a plan save at the same moment, and a gym rename against machine changes: never a 500, always consistent", async () => {
+  const { user, c } = await newUser("deadlocks");
+  const plan = await planFor(user.id, [lib["Barbell Bench Press"], lib["Back Squat"], lib["Push-Up"]]);
+  const body = { name: "Saved again", notes: null, exercises: [lib["Barbell Bench Press"], lib["Back Squat"], lib["Push-Up"]].map((e) => ({ exerciseId: e.id, targetSets: 3, targetRepsMin: 5, targetRepsMax: 8, targetWeightKg: null, restSeconds: null, notes: null })) };
+  const statuses = [];
+  for (let i = 0; i < 8; i++) {
+    const s = await start(c, { templateId: plan.id });
+    const [bench] = await exercisesOf(s.id);
+    const [swap, save] = await Promise.all([
+      c.post(`/api/sessions/${s.id}/exercises/${bench.id}/substitute`, { exerciseId: lib["Dumbbell Bench Press"].id }),
+      c.call("PUT", `/api/templates/${plan.id}`, body),
+    ]);
+    statuses.push(`${swap.status}/${save.status}`);
+    assert.ok([200, 503].includes(swap.status), `swap ${swap.status} ${swap.text}`);
+    assert.ok([200, 503].includes(save.status), `save ${save.status} ${save.text}`);
+    const rows = await exercisesOf(s.id);
+    const replacement = rows.find((r) => r.substitutesId === bench.id);
+    assert.equal(Boolean(replacement), swap.status === 200, "a swap answered 200 exists, one answered 503 doesn't");
+    if (replacement) {
+      const entry = replacement.templateExerciseId && await prisma.templateExercise.findUnique({ where: { id: replacement.templateExerciseId } });
+      assert.ok(!replacement.templateExerciseId || entry, "a replacement never links to an entry that's gone");
+    }
+    assert.equal((await prisma.templateExercise.count({ where: { templateId: plan.id } })), 3, "the plan has its three entries");
+    assert.equal((await c.call("DELETE", `/api/sessions/${s.id}`)).status, 200);
+  }
+  const { gym } = ok(await c.post("/api/gyms", { name: "Lock order" }));
+  for (let i = 0; i < 8; i++) {
+    const answers = await Promise.all([
+      c.patch(`/api/gyms/${gym.id}`, { name: `Lock order ${i}` }),
+      c.post(`/api/gyms/${gym.id}/equipment`, { kind: "MACHINE", name: `M${i}` }),
+      c.put(`/api/gyms/${gym.id}/equipment`, { kinds: i % 2 ? ["BARBELL"] : ["DUMBBELL", "CABLE"] }),
+    ]);
+    for (const a of answers) assert.ok([200, 503].includes(a.status), `${a.status} ${a.text}`);
+  }
+  console.log(`# swap/save statuses: ${statuses.join(" ")}`);
+});
+
+test("a retry asking for a plan update that can't be made says the earlier swap stays", async () => {
+  const { user, c } = await newUser("retry-refused");
+  const plan = await planFor(user.id, [lib["Barbell Bench Press"]]);
+  const s = await start(c, { templateId: plan.id });
+  const [bench] = await exercisesOf(s.id);
+  ok(await c.post(`/api/sessions/${s.id}/exercises/${bench.id}/substitute`, { exerciseId: lib["Push-Up"].id }));
+  // The plan is saved again, so the row's link to its entry is gone.
+  assert.equal((await c.call("PUT", `/api/templates/${plan.id}`, { name: "P", notes: null, exercises: [{ exerciseId: lib["Barbell Bench Press"].id, targetSets: 3, targetRepsMin: 5, targetRepsMax: 8, targetWeightKg: null, restSeconds: null, notes: null }] })).status, 200);
+  const r = await c.post(`/api/sessions/${s.id}/exercises/${bench.id}/substitute`, { exerciseId: lib["Push-Up"].id, updatePlan: true });
+  assert.equal(r.status, 409);
+  assert.match(r.body.error, /The swap you made earlier stays; the plan wasn't changed/);
+  assert.doesNotMatch(r.body.error, /Nothing was swapped/);
+  assert.equal(await prisma.sessionExercise.count({ where: { substitutesId: bench.id } }), 1, "and it does stay");
 });
