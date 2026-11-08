@@ -439,9 +439,19 @@ function requireSafeTarget({ env = process.env, exit = process.exit, deps = {}, 
       );
       return verification;
     },
-    launchOptions(engine) {
+    /**
+     * The guarded launch. Phase 2: { fakeCamera } adds only Chromium's fake-camera flags (a video file, a device count,
+     * auto-granted prompts), from this fixed list, so nothing can replace the proxy or its bypass rule.
+     */
+    launchOptions(engine, { fakeCamera } = {}) {
       if (!verified) throw new TargetRefused("not_verified", "a browser was launched before verifyServer() finished.");
-      return browserLaunchOptions(engine, proxy.url);
+      const options = browserLaunchOptions(engine, proxy.url);
+      if (!fakeCamera) return options;
+      if (engine !== "chromium") throw new TargetRefused("unknown_browser", "a fake camera exists only in Chromium.");
+      const { video = null, devices = 1, grant = true } = fakeCamera;
+      if (!Number.isInteger(devices) || devices < 1 || devices > 4) throw new TargetRefused("bad_option", "fakeCamera.devices must be 1 to 4.");
+      if (video !== null && (typeof video !== "string" || !/\.y4m$/.test(video) || /[\s"=]/.test(video))) throw new TargetRefused("bad_option", "fakeCamera.video must be a .y4m path with no spaces.");
+      return { ...options, args: [...options.args, `--use-fake-device-for-media-stream=device-count=${devices}`, ...(grant ? ["--use-fake-ui-for-media-stream"] : []), ...(video ? [`--use-file-for-fake-video-capture=${video}`] : [])] };
     },
     guardContext: (context) => guardBrowserContext(context, isVerified, policy, reportBlocked),
   };

@@ -1,0 +1,175 @@
+// Phase 2 in real browsers, on the production build, against the local food stand-in. Barcode images are drawn here
+// by zxing-wasm's own encoder (real EAN-13 symbols). Chromium gets two fake cameras playing a video of one; Firefox and
+// WebKit, which have no fake camera, decode a photo with the WebAssembly fallback. Every request the page makes is
+// recorded, to prove no frame or photo is uploaded: only the digits go to /api/foods/barcode/.
+//   BASE_URL=… DATABASE_URL=<designated test database> node scripts/e2e-barcode.cjs
+const assert = require("node:assert/strict");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+const playwright = require("playwright");
+const sharp = require("sharp");
+const { PrismaClient } = require("@prisma/client");
+const { createSignedInUser } = require("./lib/test-users.cjs");
+const target = require("./lib/test-target-guard.cjs").requireSafeTarget();
+
+const BASE = target.baseUrl;
+const prisma = new PrismaClient({ datasources: { db: { url: target.databaseUrl } } });
+const run = Date.now();
+const step = (s) => console.log(`✓ ${s}`);
+const TMP = fs.mkdtempSync(path.join(os.tmpdir(), "fit-barcode-"));
+const COLA = "5000112637922"; // in the stand-in: Cola Zero
+const GENERATED = "7700000000019"; // the stand-in answers 77… codes with a generated product
+const UNKNOWN = "4006381333931"; // a valid EAN-13 the stand-in doesn't have
+const BAD_CHECK = "3017624010966"; // the stand-in's "Nutella", whose check digit is wrong: refused before any lookup
+
+async function barcodePng(code) {
+  const { writeBarcode, prepareZXingModule } = await import("zxing-wasm/writer");
+  prepareZXingModule({ overrides: { wasmBinary: fs.readFileSync(require.resolve("zxing-wasm/writer/zxing_writer.wasm")) }, fireImmediately: true });
+  const out = await writeBarcode(code, { format: "EAN13", scale: 4 });
+  assert.ok(out.image, `encoded ${code}`);
+  const symbol = await sharp(Buffer.from(await out.image.arrayBuffer())).resize({ width: 420 }).png().toBuffer();
+  return sharp({ create: { width: 640, height: 480, channels: 3, background: "#ffffff" } }).composite([{ input: symbol, gravity: "center" }]).png().toBuffer();
+}
+
+/** A Y4M video (what Chromium's fake camera plays) of one still frame, repeated. */
+async function y4m(png, file) {
+  const { data, info } = await sharp(png).removeAlpha().raw().toBuffer({ resolveWithObject: true });
+  const { width: w, height: h } = info;
+  const Y = Buffer.alloc(w * h), U = Buffer.alloc((w / 2) * (h / 2)), V = Buffer.alloc((w / 2) * (h / 2));
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) {
+    const i = (y * w + x) * 3, r = data[i], g = data[i + 1], b = data[i + 2];
+    Y[y * w + x] = Math.round(0.257 * r + 0.504 * g + 0.098 * b + 16);
+    if (y % 2 === 0 && x % 2 === 0) { const j = (y / 2) * (w / 2) + x / 2; U[j] = Math.round(-0.148 * r - 0.291 * g + 0.439 * b + 128); V[j] = Math.round(0.439 * r - 0.368 * g - 0.071 * b + 128); }
+  }
+  const frames = [];
+  for (let n = 0; n < 10; n++) frames.push(Buffer.from("FRAME\n"), Y, U, V);
+  fs.writeFileSync(file, Buffer.concat([Buffer.from(`YUV4MPEG2 W${w} H${h} F10:1 Ip A1:1 C420jpeg\n`), ...frames]));
+}
+
+async function signedIn(browser, label, contextOptions = {}) {
+  const { user, token } = await createSignedInUser(prisma, `barcode${label}x${run}@test.dev`);
+  await prisma.profile.create({ data: { userId: user.id, name: "Barcode Tester", birthDate: new Date("1990-01-01T00:00:00Z"), timezone: "UTC", unitSystem: "METRIC" } });
+  const ctx = await target.guardContext(await browser.newContext({ viewport: { width: 390, height: 844 }, ...contextOptions }));
+  await ctx.addCookies([{ name: "fit_session", value: token, url: BASE, httpOnly: true, sameSite: "Lax", secure: false }]);
+  const page = await ctx.newPage();
+  const sent = [];
+  page.on("request", (r) => sent.push({ method: r.method(), url: r.url(), bytes: r.postDataBuffer()?.length ?? 0, type: r.resourceType() }));
+  return { user, ctx, page, sent };
+}
+const openScanner = async (page) => {
+  await page.goto(`${BASE}/nutrition/add`);
+  await page.getByTestId("scan-barcode").click();
+  await page.getByTestId("barcode-scan").waitFor();
+};
+const lookups = (sent) => sent.filter((r) => new URL(r.url).pathname.startsWith("/api/foods/barcode/")).map((r) => new URL(r.url).pathname.split("/").pop());
+const noUploads = (sent, label) => {
+  const posted = sent.filter((r) => r.method !== "GET" && !new URL(r.url).pathname.startsWith("/api/nutrition/entries"));
+  assert.deepEqual(posted.map((r) => `${r.method} ${new URL(r.url).pathname}`), [], `${label}: nothing but a confirmed log is sent`);
+  assert.ok(sent.every((r) => r.bytes < 2048), `${label}: no request carries an image`);
+};
+
+async function chromiumCamera(video) {
+  const browser = await playwright.chromium.launch(target.launchOptions("chromium", { fakeCamera: { video, devices: 2 } }));
+  try {
+    const { user, page, sent } = await signedIn(browser, "cam", { permissions: ["camera"] });
+    await openScanner(page);
+    await page.getByTestId("barcode-found").waitFor({ timeout: 20000 });
+    assert.match(await page.getByTestId("barcode-found").innerText(), /Cola Zero/);
+    assert.match(await page.getByTestId("barcode-source").innerText(), /Open Food Facts/i);
+    step("chromium: the camera reads a real EAN-13 on the device; the product is shown with its source, for confirmation");
+    await page.getByTestId("barcode-confirm").click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByRole("button", { name: /^Add to / }).click();
+    await dialog.waitFor({ state: "detached", timeout: 15000 });
+    const entry = await prisma.foodEntry.findFirst({ where: { userId: user.id }, include: { food: true } });
+    assert.ok(entry, "logged after confirming");
+    assert.deepEqual([entry.food.source, entry.food.sourceId, entry.food.userId], ["OPEN_FOOD_FACTS", COLA, null], "from the provider's own record, by its code");
+    step("chromium: confirmed and logged from the provider's record, with its source and code");
+    // The same product scanned again reuses the one shared record.
+    await openScanner(page);
+    await page.getByTestId("barcode-found").waitFor({ timeout: 20000 });
+    assert.equal(await prisma.food.count({ where: { source: "OPEN_FOOD_FACTS", sourceId: COLA } }), 1, "one record, however often it's scanned");
+    assert.deepEqual(lookups(sent), [COLA, COLA], "only the digits are looked up");
+    noUploads(sent, "chromium camera");
+    step("chromium: scanned again, the same record is reused, not duplicated; no frame was uploaded");
+  } finally { await browser.close(); }
+}
+
+async function chromiumTwoCameras() {
+  // Chromium's own fake cameras show a test pattern, with no barcode, so the scanner stays on the camera.
+  const browser = await playwright.chromium.launch(target.launchOptions("chromium", { fakeCamera: { devices: 2 } }));
+  try {
+    const { page, sent } = await signedIn(browser, "twocams", { permissions: ["camera"] });
+    await openScanner(page);
+    const picker = page.getByTestId("barcode-camera");
+    await picker.waitFor({ timeout: 10000 });
+    assert.equal(await picker.locator("option").count(), 3, "two cameras to choose from, and the default");
+    const second = await picker.locator("option").nth(2).getAttribute("value");
+    await picker.selectOption(second);
+    await page.waitForFunction(() => { const v = document.querySelector("[data-testid=barcode-video]"); return v && v.readyState >= 2 && !v.paused; }, null, { timeout: 10000 });
+    const track = await page.evaluate(() => document.querySelector("[data-testid=barcode-video]").srcObject.getVideoTracks()[0].getSettings().deviceId);
+    assert.equal(track, second, "the chosen camera is the one running");
+    assert.deepEqual(lookups(sent), [], "nothing is looked up until a code is read");
+    await page.getByRole("button", { name: "Close" }).last().click();
+    await page.waitForFunction(() => !document.querySelector("[data-testid=barcode-video]"), null, { timeout: 5000 });
+    step("chromium: with two cameras, either can be chosen, and the chosen one runs; closing the scanner releases it");
+  } finally { await browser.close(); }
+}
+
+async function chromiumDenied() {
+  const browser = await playwright.chromium.launch(target.launchOptions("chromium", { fakeCamera: { grant: false } }));
+  try {
+    const { page, sent } = await signedIn(browser, "denied"); // camera permission not granted: the prompt is refused
+    await openScanner(page);
+    await page.getByText(/Camera access was refused|camera couldn't be started|can't use the camera/).waitFor({ timeout: 10000 });
+    assert.equal(await page.getByTestId("barcode-typed").count(), 1, "typed entry is offered instead");
+    await page.getByTestId("barcode-typed").fill(UNKNOWN);
+    await page.getByTestId("barcode-lookup").click();
+    await page.getByTestId("barcode-unknown").waitFor();
+    await page.getByTestId("barcode-create").click();
+    const dialog = page.getByRole("dialog", { name: "Custom food" });
+    await dialog.waitFor();
+    assert.equal(await dialog.getByLabel("Barcode").inputValue(), UNKNOWN, "a food of their own, with the barcode filled in and nothing else");
+    assert.equal(await dialog.getByLabel("kcal", { exact: true }).inputValue(), "", "no value is guessed");
+    assert.equal(await dialog.getByLabel("Name", { exact: true }).inputValue(), "", "not even a name");
+    step("chromium: camera refused, typed entry works; an unknown code says so, guesses nothing, and offers a food of their own");
+    await dialog.getByRole("button", { name: /close|cancel/i }).first().click().catch(() => page.keyboard.press("Escape"));
+    await page.getByTestId("scan-barcode").click();
+    await page.getByTestId("barcode-typed").fill(BAD_CHECK);
+    await page.getByTestId("barcode-lookup").click();
+    await page.getByText("That isn't a valid product barcode").waitFor();
+    assert.deepEqual(lookups(sent), [UNKNOWN], "a code with a wrong check digit is never looked up");
+    noUploads(sent, "chromium typed");
+    step("chromium: a wrong check digit is refused on the device, never looked up");
+  } finally { await browser.close(); }
+}
+
+async function photo(name, png) {
+  const browser = await playwright[name].launch(target.launchOptions(name));
+  try {
+    const { page, sent } = await signedIn(browser, `photo${name}`);
+    await openScanner(page);
+    await page.getByTestId("barcode-photo").setInputFiles({ name: "package.png", mimeType: "image/png", buffer: png });
+    await page.getByTestId("barcode-found").waitFor({ timeout: 30000 });
+    assert.match(await page.getByTestId("barcode-found").innerText(), new RegExp(`Generated ${GENERATED}`));
+    const wasm = sent.filter((r) => /zxing_reader.*\.wasm/.test(r.url));
+    assert.ok(wasm.length > 0 && wasm.every((r) => new URL(r.url).origin === new URL(BASE).origin), "the decoder's WebAssembly came from this site");
+    assert.deepEqual(lookups(sent), [GENERATED]);
+    noUploads(sent, `${name} photo`);
+    step(`${name}: a photo's barcode is decoded on the device by the WebAssembly fallback from this site; the photo isn't sent`);
+  } finally { await browser.close(); }
+}
+
+(async () => {
+  await target.verifyServer();
+  const cola = await barcodePng(COLA);
+  const video = path.join(TMP, "cola.y4m");
+  await y4m(cola, video);
+  await chromiumCamera(video);
+  await chromiumTwoCameras();
+  await chromiumDenied();
+  const generated = await barcodePng(GENERATED);
+  for (const name of ["chromium", "firefox", "webkit"]) await photo(name, generated);
+  console.log("ALL BARCODE CHECKS PASSED");
+})().catch((e) => { console.error(e); process.exitCode = 1; }).finally(async () => { fs.rmSync(TMP, { recursive: true, force: true }); await prisma.$disconnect(); });

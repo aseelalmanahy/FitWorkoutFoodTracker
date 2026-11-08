@@ -30,6 +30,7 @@
     "@node-rs/argon2": "^2.2.2",
     "@prisma/client": "^6.19.3",
     "@tesseract.js-data/eng": "1.0.0",
+    "barcode-detector": "3.2.3",
     "next": "^15.5.28",
     "pdfjs-dist": "^6.5.438",
     "react": "^19.1.10",

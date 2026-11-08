@@ -774,13 +774,26 @@ function walk(dir, out = []) {
 }
 const SRC = path.join(__dirname, "..", "src", "app");
 const urlOf = (root, file) => "/" + path.relative(root, path.dirname(file)).split(path.sep).join("/").replace(/\[[^\]]+\]/g, "x");
-const EXEMPT = new Set(["/api/profile", "/api/account/delete", "/api/account/export", "/api/auth/login", "/api/auth/register", "/api/auth/register/complete", "/api/auth/password/forgot", "/api/auth/password/reset", "/api/account/password", "/api/auth/logout", "/api/health/db-identity"]);
+const EXEMPT = new Set(["/api/profile", "/api/account/delete", "/api/account/export", "/api/auth/login", "/api/auth/register", "/api/auth/register/complete", "/api/auth/password/forgot", "/api/auth/password/reset", "/api/account/password", "/api/auth/logout", "/api/health/db-identity",
+  // Phase 5: feedback stays open to a restricted account, like its data export, so it can report a problem with it.
+  "/api/feedback"]);
+// Phase 5: administrators only, by user ID; everyone else, with or without a profile, gets 404 (tested below).
+const ADMIN_ONLY = (url) => url.startsWith("/api/admin/");
 function gatedEndpoints() {
   const root = SRC;
   const found = [];
   for (const f of walk(path.join(root, "api")).filter((x) => path.basename(x) === "route.ts")) {
     const url = urlOf(root, f);
-    if (EXEMPT.has(url)) continue;
+    if (EXEMPT.has(url) || ADMIN_ONLY(url)) continue;
+    for (const m of fs.readFileSync(f, "utf8").matchAll(/export const (GET|POST|PUT|PATCH|DELETE)\b/g)) found.push([m[1], url]);
+  }
+  return found;
+}
+function adminEndpoints() {
+  const found = [];
+  for (const f of walk(path.join(SRC, "api")).filter((x) => path.basename(x) === "route.ts")) {
+    const url = urlOf(SRC, f);
+    if (!ADMIN_ONLY(url)) continue;
     for (const m of fs.readFileSync(f, "utf8").matchAll(/export const (GET|POST|PUT|PATCH|DELETE)\b/g)) found.push([m[1], url]);
   }
   return found;
@@ -790,6 +803,18 @@ function appPages() {
   return walk(root).filter((x) => path.basename(x) === "page.tsx").map((f) => urlOf(root, f));
 }
 const sendAs = (c, m, url) => c.call(m, url, m === "GET" || m === "DELETE" ? undefined : {});
+
+test("phase 5: every admin endpoint answers 404 to a session with no profile, a restricted one and an ordinary one", async () => {
+  const endpoints = adminEndpoints();
+  assert.ok(endpoints.length >= 3, `found ${endpoints.length}`);
+  const none = await newUser("admn", { withProfile: false });
+  const restricted = await restrictedUser("admr");
+  const ordinary = await newUser("admo");
+  for (const u of [none, restricted, ordinary]) for (const [m, url] of endpoints) {
+    const r = await sendAs(u.c, m, url.replace(/[id]/, "c" + "0".repeat(24)));
+    assert.equal(r.status, 404, `${m} ${url}`);
+  }
+});
 
 test("T4: a declared 17-year-old is refused and nothing is written", async () => {
   const { c, user } = await newUser("t4", { withProfile: false });

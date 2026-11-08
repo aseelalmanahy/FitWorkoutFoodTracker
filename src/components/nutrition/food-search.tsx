@@ -8,6 +8,7 @@ import { fmtG, fmtKcal, MEAL_LABELS, relativeDayLabel, scaleNutrients, type Meal
 import { Button, Card, ErrorText, Field, Input, Select, cx } from "@/components/ui";
 import { Sheet } from "./sheet";
 import { PortionEditor } from "./portion-editor";
+import { BarcodeScan } from "./barcode-scan";
 import type { FoodDto, SearchItem, SearchResponse } from "@/lib/server/foods/service";
 import { FILTERS, MIN_EXTERNAL_QUERY_LENGTH, MIN_QUERY_LENGTH, SOURCE_LABEL, SOURCE_NOTE, covers, localTestNotice, requestKey, searchPath, searchView, type Filter } from "@/lib/food-search-view";
 
@@ -50,6 +51,9 @@ export function FoodSearch({ date, today, initialMeal, embedded }: {
   const [selected, setSelected] = useState<FoodDto | null>(null);
   const [resolving, setResolving] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [scanning, setScanning] = useState(false);
+  // A barcode from the scanner, for a food the person then creates: it's never put in the search box.
+  const [createCode, setCreateCode] = useState<string | null>(null);
   const [meal, setMeal] = useState<MealType>(initialMeal);
   const [added, setAdded] = useState<{ name: string; kcal: number | null; meal: MealType }[]>([]);
   const reqId = useRef(0);
@@ -145,6 +149,7 @@ export function FoodSearch({ date, today, initialMeal, embedded }: {
               {counts && f.v !== "ALL" && counts[f.v] !== undefined && <span className="num opacity-80"><span className="sr-only">, found:</span> {counts[f.v]}</span>}
             </button>
           ))}
+          <button type="button" onClick={() => setScanning(true)} className="h-8 shrink-0 rounded-full bg-surface-2 px-3 text-xs font-medium text-accent-ink" data-testid="scan-barcode">Scan barcode</button>
           <button type="button" onClick={() => setCreating(true)} className="h-8 shrink-0 rounded-full bg-surface-2 px-3 text-xs font-medium text-accent-ink">+ Custom food</button>
         </div>
         <p id="food-source-help" className="mt-1.5 text-[11px] text-muted" data-testid="food-source-help">
@@ -258,8 +263,13 @@ export function FoodSearch({ date, today, initialMeal, embedded }: {
         <AddSheet food={selected} date={date} meal={meal} requireQuantity={Boolean(embedded)} onClose={() => setSelected(null)}
           onAdded={(name, kcal, m) => { if (embedded) { embedded.onLogged(m, selected); return; } setAdded((a) => [...a, { name, kcal, meal: m }]); setMeal(m); setSelected(null); setRecent((r) => (r && !r.some((x) => x.id === selected.id) ? [selected, ...r] : r)); }} />
       )}
+      {scanning && (
+        <Sheet open title="Scan a barcode" onClose={() => setScanning(false)}>
+          <BarcodeScan onClose={() => setScanning(false)} onConfirm={(f) => { setScanning(false); setSelected(f); }} onCreate={(code) => { setScanning(false); setCreateCode(code); setCreating(true); }} />
+        </Sheet>
+      )}
       {creating && (
-        <CustomFoodSheet initialName={q.trim()} onClose={() => setCreating(false)} onCreated={(f) => { setCreating(false); setSelected(f); }} />
+        <CustomFoodSheet initialName={createCode ?? q.trim()} onClose={() => { setCreating(false); setCreateCode(null); }} onCreated={(f) => { setCreating(false); setCreateCode(null); setSelected(f); }} />
       )}
     </div>
   );
