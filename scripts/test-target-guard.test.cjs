@@ -864,3 +864,45 @@ test("every script that starts the app binds it to loopback, and every server it
   assert.deepEqual(unbound, []);
   assert.equal(require("./lib/test-servers.cjs").LOOPBACK_HOST, "127.0.0.1");
 });
+
+// RC-08: the guard proxy must behave as a proxy. It forwarded the app's hop-by-hop headers, "Connection: close"
+// among them, so a browser opened a new connection to it for every request: about seven per page load. One such
+// connection failed in a traced label-pdf run, leaving a page without a script it needed.
+test("the guard proxy doesn't forward hop-by-hop headers, so a browser can keep its connection to it", async () => {
+  const app = http.createServer((req, res) => {
+    res.writeHead(200, { "Content-Type": "text/plain", Connection: "close, X-Hop", "Keep-Alive": "timeout=5", "X-Hop": "1", "X-Kept": "yes", "Set-Cookie": ["a=1", "b=2"] });
+    res.end(`seen connection=${req.headers.connection ?? "none"} x-req-hop=${req.headers["x-req-hop"] ?? "none"}`);
+  });
+  await new Promise((r) => app.listen(0, "127.0.0.1", r));
+  const origin = `http://127.0.0.1:${app.address().port}`;
+  const proxy = await startGuardProxy(createDestinationPolicy({ applicationOrigin: origin, stubOrigin: null }));
+  const { port } = new URL(proxy.url);
+  const agent = new http.Agent({ keepAlive: true, maxSockets: 1 });
+  const sockets = new Set();
+  const get = () => new Promise((resolve, reject) => {
+    const req = http.request({ host: "127.0.0.1", port, path: `${origin}/x`, agent, headers: { Connection: "keep-alive, X-Req-Hop", "X-Req-Hop": "1", "Proxy-Connection": "keep-alive" } }, (res) => {
+      sockets.add(req.socket);
+      let body = "";
+      res.on("data", (d) => { body += d; });
+      res.on("end", () => resolve({ headers: res.headers, body }));
+    });
+    req.on("error", reject);
+    req.end();
+  });
+  try {
+    const answers = [await get(), await get(), await get()];
+    for (const { headers, body } of answers) {
+      assert.notEqual(headers.connection, "close", "the app's Connection: close isn't passed on");
+      assert.equal(headers["keep-alive"] === "timeout=5", false, "nor its Keep-Alive");
+      assert.equal(headers["x-hop"], undefined, "nor a header its Connection names");
+      assert.equal(headers["x-kept"], "yes", "ordinary headers are kept");
+      assert.deepEqual(headers["set-cookie"], ["a=1", "b=2"], "repeated headers are kept, each one");
+      assert.match(body, /x-req-hop=none/, "the browser's own hop-by-hop headers aren't sent on to the app");
+    }
+    assert.equal(sockets.size, 1, "three requests went over one connection to the proxy");
+  } finally {
+    agent.destroy();
+    await proxy.close();
+    await new Promise((r) => app.close(r));
+  }
+});

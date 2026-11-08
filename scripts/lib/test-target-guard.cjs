@@ -318,6 +318,15 @@ async function guardBrowserContext(context, isVerified, policy, onBlocked = () =
  * redirect hop. A tunnel is allowed only to the exact verified application, as Playwright's route.fetch()
  * uses one even for plain http. Any other tunnel, and any WebSocket upgrade, is refused.
  */
+/** Headers that describe one connection, not the message (RFC 9110 7.6.1), including any the Connection header names. */
+const HOP_BY_HOP = ["connection", "keep-alive", "proxy-connection", "te", "trailer", "transfer-encoding", "upgrade"];
+function withoutHopByHop(headers) {
+  const named = String(headers.connection ?? "").split(",").map((h) => h.trim().toLowerCase()).filter(Boolean);
+  const out = { ...headers };
+  for (const h of [...HOP_BY_HOP, ...named]) delete out[h];
+  return out;
+}
+
 function startGuardProxy(policy, onBlocked = () => {}) {
   const server = http.createServer((req, res) => {
     let target;
@@ -327,12 +336,13 @@ function startGuardProxy(policy, onBlocked = () => {}) {
       res.writeHead(403, { "Content-Type": "text/plain", Connection: "close" });
       return res.end("Blocked by the test-target guard.");
     }
-    const headers = { ...req.headers };
-    delete headers["proxy-connection"];
+    const headers = withoutHopByHop(req.headers);
     delete headers["proxy-authorization"];
     // agent: false, so a request is never sent on a connection the app has already closed.
     const upstream = http.request({ host: target.hostname.replace(/^\[|\]$/g, ""), port: target.port || 80, path: target.pathname + target.search, method: req.method, headers, agent: false }, (answer) => {
-      res.writeHead(answer.statusCode, answer.rawHeaders);
+      // RC-08: hop-by-hop headers belong to one connection and are never forwarded. Passing on the app's
+      // "Connection: close" made the browser open a new connection to this proxy for every request.
+      res.writeHead(answer.statusCode, withoutHopByHop(answer.headers));
       answer.pipe(res);
     });
     upstream.on("error", () => { if (res.headersSent) res.destroy(); else { res.writeHead(502, { Connection: "close" }); res.end(); } });

@@ -50,11 +50,17 @@ async function corners(bytes) {
   return { width: info.width, height: info.height, tl: name(m, m), tr: name(info.width - m, m), bl: name(m, info.height - m), br: name(info.width - m, info.height - m) };
 }
 
+// RC-08: each browser run is traced (DOM snapshots, network, console), and the trace is kept only if the run fails.
+let current = null;
 async function runBrowser(name, jpeg) {
   console.log(`--- ${name}`);
   const browser = await playwright[name].launch(target.launchOptions(name));
   const ctx = await target.guardContext(await browser.newContext({ viewport: { width: 390, height: 844 } }));
+  await ctx.tracing.start({ screenshots: true, snapshots: true });
   const page = await ctx.newPage();
+  const consoleLines = [];
+  page.on("console", (m) => { if (m.type() === "error" || m.type() === "warning") consoleLines.push(`${m.type()}: ${m.text().slice(0, 200)}`); });
+  current = { name, ctx, consoleLines };
   const errors = [], requests = [], dialogs = [], consoleText = [];
   page.on("console", (m) => consoleText.push(m.text()));
   page.on("pageerror", (e) => {
@@ -96,7 +102,23 @@ async function runBrowser(name, jpeg) {
     await page.locator("#label-photo").waitFor();
     await page.locator("#label-photo").setInputFiles(file);
   };
-  const openPages = async (file) => { await open(file); await page.getByTestId("pdf-pages").waitFor(); };
+  // RC-08: if the page list doesn't appear, the failure says what the scan page showed instead.
+  const openPages = async (file) => {
+    await open(file);
+    try {
+      await page.getByTestId("pdf-pages").waitFor();
+    } catch (e) {
+      const shown = await page.evaluate(() => ({
+        path: location.pathname,
+        reading: !!document.querySelector("[data-testid=pdf-reading]"),
+        inputDisabled: document.querySelector("#label-photo")?.disabled ?? null,
+        error: [...document.querySelectorAll("[role=alert], .text-bad, .text-danger")].map((n) => n.textContent.trim()).join(" | ").slice(0, 200),
+        workers: performance.getEntriesByType("resource").filter((r) => /pdf\.worker|pdf\.mjs/.test(r.name)).map((r) => `${r.name.split("/").pop()} ${Math.round(r.duration)}ms`),
+        text: document.body.innerText.replace(/\s+/g, " ").slice(0, 300),
+      })).catch((err) => ({ unreadable: String(err.message).slice(0, 120) }));
+      throw new Error(`${name}: the PDF page list didn't appear for ${file.name}. Shown: ${JSON.stringify(shown)}. ${e.message.split("\n")[0]}`);
+    }
+  };
   const choosePage = async (n) => { await page.getByTestId(`pdf-page-${n}`).click(); await page.getByTestId("pdf-page-image").waitFor(); };
   const input = (id) => page.getByTestId(`input-${id}`);
   const useSection = async (i = 0) => { await page.getByTestId(`use-section-${i}`).click(); await page.getByTestId("scan-result").waitFor(); };
@@ -376,6 +398,8 @@ async function runBrowser(name, jpeg) {
   step("no PDF contents appear in the browser console");
 
   assert.deepEqual(errors, [], "no page errors");
+  await ctx.tracing.stop();
+  current = null;
   await browser.close();
 }
 
@@ -440,4 +464,12 @@ async function unconfigured(jpeg) {
   const jpeg = await sharp(px, { raw: { width, height, channels: 3 } }).jpeg({ quality: 90 }).toBuffer();
   for (const name of BROWSERS) await runBrowser(name, jpeg);
   console.log("ALL LABEL PDF CHECKS PASSED");
-})().catch((e) => { console.error(e); process.exit(1); });
+})().catch(async (e) => {
+  console.error(e);
+  if (current) {
+    const trace = `${SHOTS}pdf-${current.name}-failure-trace.zip`;
+    await current.ctx.tracing.stop({ path: trace }).then(() => console.error(`Trace of the failed run: ${trace}`), () => {});
+    console.error(`Browser console errors and warnings: ${current.consoleLines.length ? current.consoleLines.slice(-20).join(" | ") : "none"}`);
+  }
+  process.exit(1);
+});
