@@ -56,6 +56,9 @@
     "postcss": "8.5.32",
     "@huggingface/transformers": {
       "sharp": "$sharp"
+    },
+    "@prisma/config": {
+      "deepmerge-ts": "8.0.2"
     }
   },
   "allowScripts": {
