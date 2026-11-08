@@ -29,6 +29,12 @@ const DB = PARENT ? companionUrl(process.env.DATABASE_URL, name) : process.env.D
 const urlProblem = localDatabaseProblem(DB, name);
 if (urlProblem) refuse(urlProblem);
 if (!/^[a-z_]+$/.test(name)) refuse("unexpected database name.");
+// A database that keeps data gets only migrations the owner approved (prisma/approved-migrations.json); checked here,
+// before connecting, and again just before migrate deploy. Disposable test databases get every migration.
+if (mode === "--init" && name === "fitdb_review") {
+  const pending = require("./lib/approved-migrations.cjs").unapprovedMigrations();
+  if (pending.length) refuse(`not approved for ${name}: ${pending.join(", ")}.`);
+}
 const { marker: MARKER } = LOCAL_DATABASES[name];
 const scrub = scrubber(DB);
 
@@ -77,6 +83,11 @@ async function init() {
     console.log(`Before: ${JSON.stringify(before)}${id.marker === MARKER ? ", already marked" : ""}.`);
 
     // 3. The existing migrations, the supported way. Never reset or db push.
+    // A database that keeps data gets only migrations the owner approved; disposable test databases get all of them.
+    if (name === "fitdb_review") {
+      const pending = require("./lib/approved-migrations.cjs").unapprovedMigrations();
+      if (pending.length) throw new Error(`not approved for ${name}: ${pending.join(", ")}. Nothing was migrated.`);
+    }
     run("migrate deploy", PRISMA, ["migrate", "deploy"]);
     console.log("Migrations applied with prisma migrate deploy.");
     // 4. The built-in exercise library, from the existing seed. It only adds the ones missing.

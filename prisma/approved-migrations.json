@@ -1,0 +1,13 @@
+{
+  "note": "Migrations the owner has approved for databases that keep data: fitdb_review and production. migrate deploy applies every migration in prisma/migrations, so scripts/migrate-approved.cjs and local-db.cjs refuse those databases while any migration here is missing from this list. Disposable test databases are not limited by it. Pending: 20261108120000_feedback (MIG-FB), 20261109120000_multi_gym (MIG-GYM).",
+  "approved": [
+    "20261103155557_init",
+    "20261103155823_profile_timezone",
+    "20261103164718_nutrition",
+    "20261103172723_food_origin",
+    "20261106120000_nullable_nutrition_targets",
+    "20261106130000_nullable_profile_fields",
+    "20261106140000_account_tokens",
+    "20261106150000_body_metrics"
+  ]
+}

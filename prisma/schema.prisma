@@ -16,11 +16,11 @@ datasource db {
 // ─── Identity ───────────────────────────────────────────────────────────────
 
 model User {
-  id           String   @id @default(cuid())
-  email        String   @unique
-  passwordHash String
-  createdAt    DateTime @default(now())
-  updatedAt    DateTime @updatedAt
+  id              String    @id @default(cuid())
+  email           String    @unique
+  passwordHash    String
+  createdAt       DateTime  @default(now())
+  updatedAt       DateTime  @updatedAt
   /// Filled from Phase 4.0.5. Null means no acceptance is recorded.
   termsVersion    String?
   termsAcceptedAt DateTime?
@@ -37,6 +37,8 @@ model User {
   foodEntries      FoodEntry[]
   nutritionTargets NutritionTarget[]
   feedback         Feedback[]
+  gyms             GymLocation[]
+  gymEquipment     GymEquipment[]
 }
 
 /// Server-side session. `id` is the SHA-256 hash of the random cookie token,
@@ -129,24 +131,24 @@ enum UnitSystem {
 }
 
 model Profile {
-  userId             String             @id
-  name               String
+  userId                String              @id
+  name                  String
   /// Date of birth rather than age so the value stays correct over time.
-  birthDate          DateTime           @db.Date
-  sex                Sex?
-  heightCm           Float?
-  currentWeightKg    Float?
-  goalWeightKg       Float?
-  goal               FitnessGoal?
-  activityLevel      ActivityLevel?
-  experience         TrainingExperience?
-  workoutDaysPerWeek Int?
-  unitSystem         UnitSystem         @default(IMPERIAL)
+  birthDate             DateTime            @db.Date
+  sex                   Sex?
+  heightCm              Float?
+  currentWeightKg       Float?
+  goalWeightKg          Float?
+  goal                  FitnessGoal?
+  activityLevel         ActivityLevel?
+  experience            TrainingExperience?
+  workoutDaysPerWeek    Int?
+  unitSystem            UnitSystem          @default(IMPERIAL)
   /// IANA time zone, used for day/week boundaries (e.g. "America/New_York").
-  timezone           String             @default("UTC")
+  timezone              String              @default("UTC")
   /// Unused: nothing reads or writes it. Kept until dropping it is separately approved.
   calorieTargetOverride Int?
-  updatedAt          DateTime           @updatedAt
+  updatedAt             DateTime            @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
@@ -193,6 +195,8 @@ model Exercise {
   user              User?              @relation(fields: [userId], references: [id], onDelete: Cascade)
   templateExercises TemplateExercise[]
   sessionExercises  SessionExercise[]
+  substitutedIn     SessionExercise[]  @relation("PlannedExercise")
+  machineProfiles   GymEquipment[]
 
   @@unique([userId, name])
   @@index([name])
@@ -258,37 +262,52 @@ enum SessionStatus {
 }
 
 model WorkoutSession {
-  id         String        @id @default(cuid())
-  userId     String
-  templateId String?
-  name       String
-  status     SessionStatus @default(IN_PROGRESS)
-  startedAt  DateTime      @default(now())
-  endedAt    DateTime?
-  notes      String?
+  id            String        @id @default(cuid())
+  userId        String
+  templateId    String?
+  name          String
+  status        SessionStatus @default(IN_PROGRESS)
+  startedAt     DateTime      @default(now())
+  endedAt       DateTime?
+  notes         String?
+  /// Where it was done, if the person said. Null for every workout before gyms existed, and never guessed.
+  gymLocationId String?
 
   user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   template  WorkoutTemplate?  @relation(fields: [templateId], references: [id], onDelete: SetNull)
+  gym       GymLocation?      @relation(fields: [gymLocationId], references: [id], onDelete: SetNull)
   exercises SessionExercise[]
 
   @@index([userId, startedAt])
   @@index([userId, status])
+  @@index([gymLocationId])
 }
 
 model SessionExercise {
-  id          String  @id @default(cuid())
-  sessionId   String
-  exerciseId  String
-  position    Int
-  restSeconds Int?
-  notes       String?
-
-  session WorkoutSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
-  exercise Exercise      @relation(fields: [exerciseId], references: [id], onDelete: Restrict)
-  sets    SetEntry[]
+  id                String            @id @default(cuid())
+  sessionId         String
+  exerciseId        String
+  position          Int
+  restSeconds       Int?
+  notes             String?
+  /// The specific machine it was done on, if the person chose one. Its history is kept apart from other machines'
+  /// and from sets with no machine, as different machines aren't mechanically equivalent. Null otherwise.
+  gymEquipmentId    String?
+  /// For a swap: the planned exercise's row in this workout, which keeps its own sets. Its exercise is plannedExerciseId.
+  substitutesId     String?
+  plannedExerciseId String?
+  session           WorkoutSession    @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+  exercise          Exercise          @relation(fields: [exerciseId], references: [id], onDelete: Restrict)
+  machine           GymEquipment?     @relation(fields: [gymEquipmentId], references: [id], onDelete: Restrict)
+  substitutes       SessionExercise?  @relation("Substitution", fields: [substitutesId], references: [id], onDelete: SetNull)
+  substitutedBy     SessionExercise[] @relation("Substitution")
+  plannedExercise   Exercise?         @relation("PlannedExercise", fields: [plannedExerciseId], references: [id], onDelete: Restrict)
+  sets              SetEntry[]
 
   @@index([sessionId, position])
   @@index([exerciseId])
+  @@index([exerciseId, gymEquipmentId])
+  @@index([substitutesId])
 }
 
 model SetEntry {
@@ -341,30 +360,30 @@ enum TargetSource {
 /// External foods: userId NULL, unique on (source, sourceId).
 /// Custom foods: userId = owner, sourceId = generated id.
 model Food {
-  id          String     @id @default(cuid())
-  source      FoodSource
+  id            String     @id @default(cuid())
+  source        FoodSource
   /// USDA fdcId, Open Food Facts barcode, or a generated id for custom foods.
-  sourceId    String
-  userId      String?
-  name        String
-  brand       String?
-  barcode     String?
+  sourceId      String
+  userId        String?
+  name          String
+  brand         String?
+  barcode       String?
   /// Source-specific category, e.g. USDA "Foundation", "Branded".
-  dataType    String?
-  basisUnit   BasisUnit  @default(G)
-  kcalPer100    Decimal? @db.Decimal(9, 3)
-  proteinPer100 Decimal? @db.Decimal(9, 3)
-  carbsPer100   Decimal? @db.Decimal(9, 3)
-  fatPer100     Decimal? @db.Decimal(9, 3)
-  fiberPer100   Decimal? @db.Decimal(9, 3)
+  dataType      String?
+  basisUnit     BasisUnit  @default(G)
+  kcalPer100    Decimal?   @db.Decimal(9, 3)
+  proteinPer100 Decimal?   @db.Decimal(9, 3)
+  carbsPer100   Decimal?   @db.Decimal(9, 3)
+  fatPer100     Decimal?   @db.Decimal(9, 3)
+  fiberPer100   Decimal?   @db.Decimal(9, 3)
   /// When the external record was last fetched from its source.
-  fetchedAt   DateTime?
+  fetchedAt     DateTime?
   /// Host of the provider endpoint that produced this record (e.g. "api.nal.usda.gov").
   /// A cached record is reused only when this matches the currently configured
   /// endpoint, so data from a test stub or another endpoint is never served as live.
-  origin      String?
-  createdAt   DateTime   @default(now())
-  updatedAt   DateTime   @updatedAt
+  origin        String?
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
 
   user     User?         @relation(fields: [userId], references: [id], onDelete: Cascade)
   servings FoodServing[]
@@ -403,17 +422,17 @@ model FoodEntry {
   foodName      String
   brand         String?
   basisUnit     BasisUnit
-  kcalPer100    Decimal? @db.Decimal(9, 3)
-  proteinPer100 Decimal? @db.Decimal(9, 3)
-  carbsPer100   Decimal? @db.Decimal(9, 3)
-  fatPer100     Decimal? @db.Decimal(9, 3)
-  fiberPer100   Decimal? @db.Decimal(9, 3)
+  kcalPer100    Decimal?  @db.Decimal(9, 3)
+  proteinPer100 Decimal?  @db.Decimal(9, 3)
+  carbsPer100   Decimal?  @db.Decimal(9, 3)
+  fatPer100     Decimal?  @db.Decimal(9, 3)
+  fiberPer100   Decimal?  @db.Decimal(9, 3)
 
   servingLabel  String
   /// Size of one serving in basis units (g/ml).
-  servingAmount Decimal  @db.Decimal(9, 3)
+  servingAmount Decimal @db.Decimal(9, 3)
   /// Number of servings consumed.
-  quantity      Decimal  @db.Decimal(8, 3)
+  quantity      Decimal @db.Decimal(8, 3)
 
   kcal    Decimal? @db.Decimal(10, 2)
   protein Decimal? @db.Decimal(10, 2)
@@ -514,4 +533,42 @@ enum FeedbackPriority {
   P1
   P2
   P3
+}
+
+/// A place the person trains, named by them (multi-gym). Private to them; no address or location is stored.
+model GymLocation {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  equipment GymEquipment[]
+  sessions  WorkoutSession[]
+
+  @@unique([userId, name])
+  @@index([userId])
+}
+
+/// What a gym has. Without a name: a kind of equipment available there (alternatives use these). With a name: one
+/// specific machine or station, optionally for one exercise ("Chest Press, Machine A"), whose history stays its own.
+model GymEquipment {
+  id         String    @id @default(cuid())
+  userId     String
+  gymId      String
+  kind       Equipment
+  name       String?
+  exerciseId String?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  gym              GymLocation       @relation(fields: [gymId], references: [id], onDelete: Cascade)
+  exercise         Exercise?         @relation(fields: [exerciseId], references: [id], onDelete: SetNull)
+  sessionExercises SessionExercise[]
+
+  @@unique([gymId, kind, name])
+  @@index([userId])
+  @@index([gymId])
 }

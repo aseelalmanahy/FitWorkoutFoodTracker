@@ -601,6 +601,7 @@ const OTHER_WRITE_CAPABLE = {
   "live-check.identity.test.cjs": { must: ["databaseUrlProblem("], reason: "the live check's refusals against a mock server, reading the test database" },
   "run-guarded-suites.cjs": { must: ["databaseUrlProblem(", "verifyServerIdentity("], reason: "starts apps for the suites, and verifies each one first" },
   "local-db.cjs": { must: ["envFileProblem(", "localDatabaseProblem(", "readLocalIdentity(", "LOCAL_DATABASES"], reason: "by hand: creates and migrates fitdb_review or fitdb_test_isolated only, refuses any database it didn't prepare, never drops" },
+  "migrate-approved.cjs": { must: ["unapprovedMigrations(", "REFUSED (nothing was applied)", "process.exit(4)"], reason: "the production image's migration step: applies nothing unless every migration in the image is in prisma/approved-migrations.json" },
   "review-server.cjs": { must: ["envFileProblem(", "localDatabaseProblem(", "readLocalIdentity(", "REVIEW_MARKER", "-H\", \"127.0.0.1"], reason: "by hand: serves the review build on fitdb_review, on loopback only, after checking its marker" },
   "review-account.cjs": { must: ["envFileProblem(", "localDatabaseProblem(", "readLocalIdentity(", "REVIEW_MARKER", "check-ignore"], reason: "by hand, on fitdb_review: adds one User row per account, never changes one" },
   "restore-check.cjs": { must: ["envFileProblem(", "localDatabaseProblem(", "readLocalIdentity(", "REVIEW_MARKER", "--confirm=${SCRATCH}", "isn't empty"], reason: "by hand: restores a backup only into an empty fitdb_restore_check the owner created, reads fitdb_review, never creates or drops a database (DEPLOY-03)" },
@@ -611,6 +612,7 @@ const OTHER_WRITE_CAPABLE = {
   "measure-recognition.cjs": { must: ["review-tester-", "listeningPid(", "[3002, 3003]"], reason: "by hand: signs in as a review tester on the local review server only, sends generated images that aren't stored, and reads the server process's memory (RC-06)" },
 };
 const NOT_GUARDED = {
+  "migration-safety.test.cjs": "the approved-migrations list, the refusals of the image's migration step and local-db.cjs, and the multi-gym migration's SQL, with no database",
   "demo-account.test.cjs": "the demo data's rules, and what the demo scripts must refuse, spawning them, with no database",
   "account-facts.test.cjs": "the report's rules, and spawns the script for what it must refuse, with no database",
   "mig-04.test.cjs": "what mig-04.cjs must refuse, spawning it, with no database",

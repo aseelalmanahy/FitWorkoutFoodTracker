@@ -15,7 +15,11 @@ RUN npm run build
 # The separate, explicitly run migration step. It holds the DDL credential, and the app never does.
 FROM deps AS migrate
 ENV NODE_ENV=production
-CMD ["node", "node_modules/prisma/build/index.js", "migrate", "deploy"]
+# Applies nothing unless every migration in the image is in prisma/approved-migrations.json.
+COPY scripts/migrate-approved.cjs ./scripts/migrate-approved.cjs
+COPY scripts/lib/approved-migrations.cjs ./scripts/lib/approved-migrations.cjs
+COPY prisma/approved-migrations.json ./prisma/approved-migrations.json
+CMD ["node", "scripts/migrate-approved.cjs"]
 
 FROM node:24.21.0-bookworm-slim AS runner
 WORKDIR /app
