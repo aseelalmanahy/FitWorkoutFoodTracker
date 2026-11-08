@@ -74,7 +74,7 @@ export default async function WorkoutsPage() {
 
       </div>
       <div className="min-w-0">
-      <SectionTitle action={<Link href="/workouts/plans/new" className="flex items-center gap-1 text-sm font-medium text-accent-ink"><PlusIcon width={16} height={16} />New</Link>}>My plans</SectionTitle>
+      <SectionTitle action={<span className="flex items-center gap-3"><Link href="/workouts/import" className="text-sm font-medium text-accent-ink" data-testid="import-link">Import</Link><Link href="/workouts/plans/new" className="flex items-center gap-1 text-sm font-medium text-accent-ink"><PlusIcon width={16} height={16} />New</Link></span>}>My plans</SectionTitle>
       {plans.length === 0 ? (
         <EmptyState title="No workout plans yet" body="Create a plan like “Upper Body” with exercises, target sets, reps and weights." action={<ButtonLink href="/workouts/plans/new">Create a plan</ButtonLink>} />
       ) : (

@@ -21,7 +21,7 @@ export function readIdempotencyKey(req: NextRequest): string | null {
 }
 
 /** 37 characters, within the 40 the API accepts for an id. */
-export function idempotentId(kind: "entry" | "food" | "set", userId: string, key: string): string {
+export function idempotentId(kind: "entry" | "food" | "set" | "template", userId: string, key: string): string {
   return `idem_${createHash("sha256").update(`${kind}\0${userId}\0${key}`).digest("hex").slice(0, 32)}`;
 }
 

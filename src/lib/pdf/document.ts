@@ -3,7 +3,7 @@
  * worker, so no unfinished work outlives it. The pdf.js library is passed in, so these rules can be
  * tested against it directly, and this file has no browser or server dependencies of its own.
  */
-import { linesFromTextItems, readPage, type PageReading, type TextItem } from "./label-text";
+import { linesFromTextItems, readPage, type PageLine, type PageReading, type TextItem } from "./label-text";
 import { checkPdfFile, PDF_HEAD_BYTES, PDF_LIMITS, PDF_TAIL_BYTES, PdfError, renderScale } from "./limits";
 
 /** The parts of pdf.js used here. */
@@ -30,6 +30,8 @@ export interface PdfLibrary {
 export interface PdfPageSummary {
   number: number;
   reading: PageReading;
+  /** The page's text lines, each as its cells (phase 3 reads workout plans from them). Empty for a scanned page. */
+  lines: PageLine[];
 }
 
 export interface PdfSession {
@@ -119,7 +121,8 @@ export async function openPdf(pdfjs: PdfLibrary, bytes: Uint8Array, extraOptions
       const chars = reading.reduce((n, item) => n + (item.str?.length ?? 0), 0);
       total += chars;
       if (chars > limits.maxTextCharsPerPage || total > limits.maxTextCharsTotal) throw new PdfError("too_much_text");
-      pages.push({ number, reading: readPage(linesFromTextItems(reading)) });
+      const lines = linesFromTextItems(reading);
+      pages.push({ number, reading: readPage(lines), lines });
     }
 
     return {

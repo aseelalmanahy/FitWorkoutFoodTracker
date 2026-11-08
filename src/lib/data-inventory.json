@@ -41,7 +41,8 @@
       "src/lib/client/pdf-browser.ts": "Same origin, by CSP",
       "src/components/account/data-controls.tsx": "Same origin, by CSP",
       "src/components/nutrition/label-scanner.tsx": "Same origin, by CSP",
-      "src/components/nutrition/meal-photo.tsx": "Same origin, by CSP"
+      "src/components/nutrition/meal-photo.tsx": "Same origin, by CSP",
+      "src/components/workouts/plan-import.tsx": "Same origin, by CSP: one image of a plan to be read as text (phase 3); documents are read in the browser and never sent"
     }
   },
   "hosts": {
@@ -68,6 +69,7 @@
     "@prisma/client": "database",
     "@tesseract.js-data/eng": "none",
     "next": "none",
+    "barcode-detector": "none",
     "pdfjs-dist": "none",
     "react": "none",
     "react-dom": "none",

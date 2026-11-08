@@ -81,3 +81,35 @@ export function createLocalLabelExtractor(): LabelExtractor {
     },
   };
 }
+
+const letters = (s: string) => (s.match(/[A-Za-z]/g) ?? []).length;
+export const MAX_PLAN_TEXT_CHARS = 20_000;
+
+/**
+ * Phase 3: the plain text of a workout plan's page, photo or screenshot, by the same on-device worker and with no
+ * network request. Upright first; a photo taken sideways is tried in the other orientations only if little was read.
+ * Returns text only: nothing is interpreted, stored or logged here.
+ */
+export async function recognizePlanText(bytes: Uint8Array, signal: AbortSignal): Promise<string> {
+  let w: Worker;
+  try {
+    w = await worker();
+  } catch {
+    throw new LabelExtractionError("unavailable");
+  }
+  const sharp = (await import("sharp")).default;
+  let best = "";
+  for (const angle of ORIENTATIONS) {
+    if (signal.aborted) throw new LabelExtractionError("timeout");
+    const prepared = await sharp(bytes).rotate(angle).grayscale().normalize().png().toBuffer();
+    let text: string;
+    try {
+      text = (await w.recognize(prepared)).data.text;
+    } catch {
+      throw new LabelExtractionError("unavailable");
+    }
+    if (letters(text) > letters(best)) best = text;
+    if (letters(best) >= 40) break;
+  }
+  return best.slice(0, MAX_PLAN_TEXT_CHARS);
+}

@@ -175,6 +175,8 @@ const SUITES = {
   "weight-e2e": () => withApp("weight-e2e", {}, ({ url }) => runNode([script("e2e-weight.cjs")], { BASE_URL: url }, 590_000)),
   pwa: () => withApp("pwa", {}, ({ url }) => runNode([script("e2e-pwa.cjs")], { BASE_URL: url }, 300_000)),
   barcode: () => withApp("barcode", {}, ({ url }) => runNode([script("e2e-barcode.cjs")], { BASE_URL: url }, 300_000)),
+  "workout-import-api": () => withApp("workout-import-api", {}, ({ url }) => runNode(nodeTest("workout-import-api.test.cjs"), { BASE_URL: url }, 300_000)),
+  "workout-import": () => withApp("workout-import", {}, ({ url }) => runNode([script("e2e-workout-import.cjs")], { BASE_URL: url }, 590_000)),
   responsive: () => withApp("responsive", { appEnv: MANY }, ({ url }) => runNode([script("e2e-responsive.cjs")], { BASE_URL: url }, 590_000)),
   "workout-sets": () => withApp("workout-sets", {}, ({ url }) => runNode(nodeTest("workout-sets.test.cjs"), { BASE_URL: url }, 300_000)),
   "readiness-performance": () => withApp("readiness-performance", {}, ({ url }) => runNode(nodeTest("readiness-performance.test.cjs"), { BASE_URL: url }, 300_000)),
