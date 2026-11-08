@@ -32,8 +32,26 @@ describe("gym and machine names", () => {
     for (const n of lookAlikes) expect(nameKey(n), JSON.stringify(n)).toBe(nameKey(cafe));
     expect(cleanName(`${cafe}${cp(0x2066)}`)).toBe(cafe);
   });
-  it("leave nothing of a name made only of invisible characters, which the schema then refuses", () => {
+  it("leave nothing of a name made only of hidden characters", () => {
     for (const n of [cp(0x2066), cp(0x3164), cp(0x115f), cp(0x200b, 0x202e), cp(0x00ad), " "]) expect(cleanName(n), JSON.stringify(n)).toBe("");
+  });
+  it("keep what real text needs (joiners, selectors, tags) as typed, while comparing names without them", () => {
+    const persian = `${cp(0x645, 0x6cc)}${cp(0x200c)}${cp(0x62e, 0x648, 0x627, 0x647, 0x645)}`; // a word that needs ZWNJ
+    expect(cleanName(persian)).toBe(persian);
+    const family = cp(0x1f468, 0x200d, 0x1f469, 0x200d, 0x1f467); // an emoji sequence held together by ZWJ
+    expect(cleanName(`Gym ${family}`)).toBe(`Gym ${family}`);
+    const scotland = cp(0x1f3f4, 0xe0067, 0xe0062, 0xe0073, 0xe0063, 0xe0074, 0xe007f); // a subdivision flag, by tags
+    expect(cleanName(`Gym ${scotland}`)).toBe(`Gym ${scotland}`);
+    expect(cleanName(`Gym${cp(0xfe0f)}`)).toBe(`Gym${cp(0xfe0f)}`);
+    // Compared without them, so none of them makes a second name that looks the same.
+    for (const n of [`${cafe}${cp(0x200d)}`, `Ca${cp(0x200c)}f${cp(0xe9)}`, `${cafe}${cp(0xfe0f)}`, `${cafe}${cp(0xe0041)}`]) expect(nameKey(n), JSON.stringify(n)).toBe(nameKey(cafe));
+  });
+  it("say a name of only joiners has nothing visible, which the schema refuses", async () => {
+    expect(nameKey(cp(0x200d, 0x200c, 0xfe0f))).toBe("");
+    const { gymSchema } = await import("./gym-schemas");
+    expect(gymSchema.safeParse({ name: cp(0x200d, 0x200c) }).success).toBe(false);
+    expect(gymSchema.safeParse({ name: cp(0x200b, 0x2066) }).success).toBe(false);
+    expect(gymSchema.safeParse({ name: `Gym ${cp(0x1f468, 0x200d, 0x1f469)}` }).success).toBe(true);
   });
   it("fold case beyond lower-casing, and keep visible differences", () => {
     expect(nameKey("Straße")).toBe(nameKey("STRASSE"));

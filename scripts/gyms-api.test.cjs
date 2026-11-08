@@ -598,3 +598,27 @@ test("a retry asking for a plan update that can't be made says the earlier swap 
   assert.doesNotMatch(r.body.error, /Nothing was swapped/);
   assert.equal(await prisma.sessionExercise.count({ where: { substitutesId: bench.id } }), 1, "and it does stay");
 });
+
+test("deleting a plan while a swap runs in a workout from it: never a 500, and the workout keeps its rows", async () => {
+  const { user, c } = await newUser("plan-delete");
+  const statuses = [];
+  for (let i = 0; i < 6; i++) {
+    const plan = await planFor(user.id, [lib["Barbell Bench Press"], lib["Back Squat"]]);
+    const s = await start(c, { templateId: plan.id });
+    const [bench] = await exercisesOf(s.id);
+    const [swap, removed] = await Promise.all([
+      c.post(`/api/sessions/${s.id}/exercises/${bench.id}/substitute`, { exerciseId: lib["Dumbbell Bench Press"].id, updatePlan: i % 2 === 0 }),
+      c.call("DELETE", `/api/templates/${plan.id}`),
+    ]);
+    statuses.push(`${swap.status}/${removed.status}`);
+    assert.ok([200, 409, 503].includes(swap.status), `swap ${swap.status} ${swap.text}`);
+    assert.ok([200, 503].includes(removed.status), `delete ${removed.status} ${removed.text}`);
+    const rows = await exercisesOf(s.id);
+    assert.ok(rows.some((r) => r.id === bench.id), "the planned row is still there");
+    if (swap.status === 200) assert.ok(rows.some((r) => r.substitutesId === bench.id));
+    else assert.ok(!rows.some((r) => r.substitutesId === bench.id), "a refused swap made nothing");
+    if (removed.status === 200) assert.equal((await prisma.workoutSession.findUnique({ where: { id: s.id } })).templateId, null, "the workout no longer points at the deleted plan");
+    assert.equal((await c.call("DELETE", `/api/sessions/${s.id}`)).status, 200);
+  }
+  console.log(`# swap/plan-delete statuses: ${statuses.join(" ")}`);
+});

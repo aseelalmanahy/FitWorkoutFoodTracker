@@ -40,6 +40,12 @@ export const PUT = route<{ id: string }>(async (req, { user, params }) => {
 export const DELETE = route<{ id: string }>(async (_req, { user, params }) => {
   await owned(user.id, params.id);
   // Logged sessions keep their data; templateId is set to NULL by the FK rule.
-  await prisma.workoutTemplate.delete({ where: { id: params.id } });
+  await prisma.$transaction(async (tx) => {
+    // Workouts before plan entries, as a swap takes them (see lockPerson in gyms.ts): the in-progress workouts started
+    // from this plan are held first, so deleting the plan and a swap in one of them can't each wait for the other.
+    await limitLockWait(tx);
+    await tx.$queryRaw`SELECT id FROM "WorkoutSession" WHERE "templateId" = ${params.id} AND "userId" = ${user.id} AND status = 'IN_PROGRESS' FOR UPDATE`;
+    await tx.workoutTemplate.delete({ where: { id: params.id } });
+  });
   return { ok: true };
 });
