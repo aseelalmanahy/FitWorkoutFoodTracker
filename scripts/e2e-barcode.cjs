@@ -161,6 +161,54 @@ async function photo(name, png) {
   } finally { await browser.close(); }
 }
 
+/** Phase 4: a package front with no barcode, as words in large type, a claim and a value. */
+async function packageFront() {
+  const words = ["HILLSIDE", "Greek Yogurt", "High in Protein", "73 kcal"];
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="900" height="700"><rect width="100%" height="100%" fill="#ffffff"/>${words.map((w, i) => `<text x="60" y="${150 + i * 140}" font-family="Arial" font-weight="700" font-size="${i === 1 ? 90 : 60}" fill="#111111">${w}</text>`).join("")}</svg>`;
+  return sharp(Buffer.from(svg)).jpeg({ quality: 92 }).toBuffer();
+}
+
+async function packagePhoto() {
+  const browser = await playwright.chromium.launch(target.launchOptions("chromium"));
+  try {
+    const { user, page, sent } = await signedIn(browser, "pkg");
+    await openScanner(page);
+    await page.getByTestId("barcode-photo").setInputFiles({ name: "front.jpg", mimeType: "image/jpeg", buffer: await packageFront() });
+    await page.getByTestId("package-words").waitFor({ timeout: 60000 });
+    const words = await page.getByTestId("package-word").allInnerTexts();
+    assert.ok(words.some((w) => /greek yogurt/i.test(w)), `the name was read: ${words}`);
+    assert.ok(words.every((w) => !/kcal|protein|\d/i.test(w)), `no value or claim offered: ${words}`);
+    const uploads = sent.filter((r) => r.method === "POST");
+    assert.deepEqual(uploads.map((r) => new URL(r.url).pathname), ["/api/foods/photo-text"], "the photo went once, to be read for words");
+    assert.ok(!sent.some((r) => new URL(r.url).pathname.startsWith("/api/foods/search")), "nothing is searched before the person chooses");
+    step("chromium: a package photo with no barcode is read for its words; the name is offered, its claim and value aren't; nothing searched yet");
+    await page.getByTestId("package-query").fill("Greek Yogurt");
+    await page.getByTestId("package-search").click();
+    await page.getByTestId("barcode-scan").waitFor({ state: "detached" });
+    assert.equal(await page.getByLabel("Search foods").inputValue(), "Greek Yogurt");
+    const result = page.getByRole("button", { name: /Greek Yogurt 2% Fat/ }).first();
+    await result.waitFor({ timeout: 15000 });
+    await result.click();
+    const dialog = page.getByRole("dialog");
+    await dialog.getByTestId("food-provenance").waitFor();
+    assert.match(await dialog.innerText(), /Open Food Facts · 8800000000103/);
+    await dialog.getByRole("button", { name: /^Add to / }).click();
+    await dialog.waitFor({ state: "detached", timeout: 15000 });
+    const entry = await prisma.foodEntry.findFirst({ where: { userId: user.id }, include: { food: true } });
+    assert.deepEqual([entry.food.source, entry.food.sourceId], ["OPEN_FOOD_FACTS", "8800000000103"], "logged from the provider's record, with its values, never the photo's");
+    step("chromium: the chosen words search the providers as usual; the person picks a record with its source, and it's logged from that record");
+
+    await openScanner(page);
+    const blank = await sharp({ create: { width: 640, height: 480, channels: 3, background: "#f4f4f4" } }).jpeg().toBuffer();
+    await page.getByTestId("barcode-photo").setInputFiles({ name: "blur.jpg", mimeType: "image/jpeg", buffer: blank });
+    await page.getByTestId("package-words").waitFor({ timeout: 60000 });
+    assert.match(await page.getByTestId("package-words").innerText(), /No barcode and no clear words/);
+    assert.equal(await page.getByTestId("package-search").isDisabled(), true, "nothing to search until the person types");
+    assert.equal(await page.getByTestId("package-label-scan").getAttribute("href"), "/nutrition/scan");
+    step("chromium: an unreadable photo says so, and offers a name search, the label scan or a food of their own");
+  } finally { await browser.close(); }
+}
+
 (async () => {
   await target.verifyServer();
   const cola = await barcodePng(COLA);
@@ -171,5 +219,6 @@ async function photo(name, png) {
   await chromiumDenied();
   const generated = await barcodePng(GENERATED);
   for (const name of ["chromium", "firefox", "webkit"]) await photo(name, generated);
+  await packagePhoto();
   console.log("ALL BARCODE CHECKS PASSED");
 })().catch((e) => { console.error(e); process.exitCode = 1; }).finally(async () => { fs.rmSync(TMP, { recursive: true, force: true }); await prisma.$disconnect(); });

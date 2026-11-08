@@ -149,7 +149,7 @@ export function FoodSearch({ date, today, initialMeal, embedded }: {
               {counts && f.v !== "ALL" && counts[f.v] !== undefined && <span className="num opacity-80"><span className="sr-only">, found:</span> {counts[f.v]}</span>}
             </button>
           ))}
-          <button type="button" onClick={() => setScanning(true)} className="h-8 shrink-0 rounded-full bg-surface-2 px-3 text-xs font-medium text-accent-ink" data-testid="scan-barcode">Scan barcode</button>
+          <button type="button" onClick={() => setScanning(true)} className="h-8 shrink-0 rounded-full bg-surface-2 px-3 text-xs font-medium text-accent-ink" data-testid="scan-barcode">Scan a package</button>
           <button type="button" onClick={() => setCreating(true)} className="h-8 shrink-0 rounded-full bg-surface-2 px-3 text-xs font-medium text-accent-ink">+ Custom food</button>
         </div>
         <p id="food-source-help" className="mt-1.5 text-[11px] text-muted" data-testid="food-source-help">
@@ -264,8 +264,8 @@ export function FoodSearch({ date, today, initialMeal, embedded }: {
           onAdded={(name, kcal, m) => { if (embedded) { embedded.onLogged(m, selected); return; } setAdded((a) => [...a, { name, kcal, meal: m }]); setMeal(m); setSelected(null); setRecent((r) => (r && !r.some((x) => x.id === selected.id) ? [selected, ...r] : r)); }} />
       )}
       {scanning && (
-        <Sheet open title="Scan a barcode" onClose={() => setScanning(false)}>
-          <BarcodeScan onClose={() => setScanning(false)} onConfirm={(f) => { setScanning(false); setSelected(f); }} onCreate={(code) => { setScanning(false); setCreateCode(code); setCreating(true); }} />
+        <Sheet open title="Scan a package" onClose={() => setScanning(false)}>
+          <BarcodeScan onClose={() => setScanning(false)} onConfirm={(f) => { setScanning(false); setSelected(f); }} onCreate={(code) => { setScanning(false); setCreateCode(code); setCreating(true); }} onSearch={(query) => { setScanning(false); setQ(query); }} />
         </Sheet>
       )}
       {creating && (

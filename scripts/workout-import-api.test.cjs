@@ -144,3 +144,15 @@ test("a plan's screenshot is read as text on the server, with nothing stored; ot
   assert.notEqual((await c.post("/api/workouts/import/ocr", Buffer.from("not really a png"), { "Content-Type": "image/png" })).status, 200);
   assert.equal((await client(null).post("/api/workouts/import/ocr", png, { "Content-Type": "image/png" })).status, 401);
 });
+
+test("phase 4: a package photo's words come back as search choices only, with numbers, nutrition and claims left out", async () => {
+  const { c } = await newUser("pkg");
+  const png = await screenshot(["HILLSIDE", "Greek Yogurt", "High in Protein", "73 kcal per 100g"]);
+  const r = await c.post("/api/foods/photo-text", png, { "Content-Type": "image/png" });
+  assert.equal(r.status, 200, r.text);
+  assert.deepEqual(Object.keys(r.body), ["lines"]);
+  assert.ok(r.body.lines.some((l) => /greek yogurt/i.test(l)), JSON.stringify(r.body.lines));
+  assert.ok(r.body.lines.every((l) => !/kcal|protein|\d/i.test(l)), `no value or claim: ${JSON.stringify(r.body.lines)}`);
+  assert.equal((await client(null).post("/api/foods/photo-text", png, { "Content-Type": "image/png" })).status, 401);
+  assert.equal((await c.post("/api/foods/photo-text", Buffer.from("x"), { "Content-Type": "text/plain" })).status, 415);
+});

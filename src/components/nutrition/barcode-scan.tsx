@@ -14,6 +14,8 @@ type Phase =
   | { kind: "looking"; code: string }
   | { kind: "found"; code: string; food: FoodDto }
   | { kind: "unknown"; code: string }
+  | { kind: "reading" }
+  | { kind: "words"; lines: string[] }
   | { kind: "manual" };
 
 const CAMERA_HELP: Record<string, string> = {
@@ -27,8 +29,11 @@ const CAMERA_HELP: Record<string, string> = {
  * Phase 2: scan a package's barcode with the camera (or a photo, or by typing it), look it up with the app's
  * existing barcode lookup, and show what was found for the person to confirm. Frames never leave the device; only
  * the digits are sent. Nothing is logged here: a confirmed product goes to the usual amount-and-meal sheet.
+ *
+ * Phase 4: a photo of a package with no readable barcode is read for its words, on this app's server, and the person
+ * chooses or edits what to search for; only then is the usual food search run. Its words never become values.
  */
-export function BarcodeScan({ onConfirm, onCreate, onClose }: { onConfirm: (food: FoodDto) => void; onCreate: (code: string) => void; onClose: () => void }) {
+export function BarcodeScan({ onConfirm, onCreate, onSearch, onClose }: { onConfirm: (food: FoodDto) => void; onCreate: (code: string) => void; onSearch: (query: string) => void; onClose: () => void }) {
   const video = useRef<HTMLVideoElement>(null);
   const stream = useRef<MediaStream | null>(null);
   const [phase, setPhase] = useState<Phase>({ kind: "camera" });
@@ -36,6 +41,7 @@ export function BarcodeScan({ onConfirm, onCreate, onClose }: { onConfirm: (food
   const [cameraId, setCameraId] = useState<string>("");
   const [message, setMessage] = useState<string | null>(null);
   const [typed, setTyped] = useState("");
+  const [query, setQuery] = useState("");
   const [engine, setEngine] = useState<string | null>(null);
 
   const stop = () => { stream.current?.getTracks().forEach((t) => t.stop()); stream.current = null; };
@@ -98,11 +104,20 @@ export function BarcodeScan({ onConfirm, onCreate, onClose }: { onConfirm: (food
     if (!file) return;
     setMessage(null);
     try {
-      const found = (await detectInImage(file)).map((d) => productCode(d.rawValue, d.format)).find(Boolean);
-      if (found) await lookUp(found);
-      else setMessage("No product barcode was found in that photo. Try a closer, sharper one, or type it.");
+      const found = (await detectInImage(file).catch(() => [])).map((d) => productCode(d.rawValue, d.format)).find(Boolean);
+      if (found) { await lookUp(found); return; }
+      // No barcode: the package's words, read on this app's server, for the person to choose a search from.
+      stop();
+      setPhase({ kind: "reading" });
+      const res = await fetch("/api/foods/photo-text", { method: "POST", headers: { "Content-Type": file.type || "image/jpeg" }, body: file, credentials: "same-origin" });
+      const body = await res.json().catch(() => ({}));
+      if (!res.ok) { setMessage(body.error ?? "The photo couldn't be read. Search by name instead."); setPhase({ kind: "manual" }); return; }
+      const lines: string[] = Array.isArray(body.lines) ? body.lines : [];
+      setQuery(lines.slice(0, 2).join(" ").slice(0, 60));
+      setPhase({ kind: "words", lines });
     } catch {
       setMessage("That photo couldn't be read. Try another, or type the barcode.");
+      setPhase({ kind: "manual" });
     }
   }
 
@@ -164,6 +179,35 @@ export function BarcodeScan({ onConfirm, onCreate, onClose }: { onConfirm: (food
         </Card>
       )}
 
+      {phase.kind === "reading" && <p role="status" data-testid="package-reading">Reading the words on the package…</p>}
+
+      {phase.kind === "words" && (
+        <Card className="space-y-3 p-4" data-testid="package-words">
+          {phase.lines.length === 0 ? (
+            <p className="text-sm">No barcode and no clear words could be read from that photo. Search by name, scan the nutrition label, or create your own food.</p>
+          ) : (
+            <>
+              <p className="text-sm text-muted">No barcode was found. These words were read from the package: tap the ones that name it, then search. Nothing is looked up until you do.</p>
+              <div className="flex flex-wrap gap-1.5">
+                {phase.lines.map((l) => (
+                  <button key={l} type="button" className="rounded-full bg-surface-2 px-3 py-1 text-sm" data-testid="package-word"
+                    onClick={() => setQuery((q) => (q.toLowerCase().includes(l.toLowerCase()) ? q : `${q} ${l}`.trim()).slice(0, 60))}>{l}</button>
+                ))}
+              </div>
+            </>
+          )}
+          <Field label="Search for">
+            <Input value={query} maxLength={60} onChange={(e) => setQuery(e.target.value)} data-testid="package-query" />
+          </Field>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" disabled={query.trim().length < 2} onClick={() => onSearch(query.trim())} data-testid="package-search">Search</Button>
+            <a className="inline-flex h-8 items-center rounded-lg bg-surface-2 px-3 text-sm font-medium" href="/nutrition/scan" data-testid="package-label-scan">Scan the nutrition label</a>
+            <Button variant="ghost" size="sm" onClick={() => onCreate("")} data-testid="package-create">Create my own food</Button>
+          </div>
+          <p className="text-xs text-muted">The photo was read and released; it isn&apos;t kept. Results come from USDA and Open Food Facts, each with its source.</p>
+        </Card>
+      )}
+
       <ErrorText>{message}</ErrorText>
 
       {(phase.kind === "camera" || phase.kind === "manual") && (
@@ -174,7 +218,7 @@ export function BarcodeScan({ onConfirm, onCreate, onClose }: { onConfirm: (food
           <div className="flex flex-wrap gap-2">
             <Button type="submit" size="sm" data-testid="barcode-lookup">Look up</Button>
             <label className="inline-flex h-8 cursor-pointer items-center rounded-lg bg-surface-2 px-3 text-sm font-medium">
-              Choose a photo
+              Choose a photo of the package
               <input type="file" accept="image/*" className="sr-only" onChange={(e) => { fromPhoto(e.target.files?.[0]); e.target.value = ""; }} data-testid="barcode-photo" />
             </label>
             {phase.kind === "manual" && <Button variant="secondary" size="sm" onClick={() => { setMessage(null); setPhase({ kind: "camera" }); }}>Try the camera again</Button>}

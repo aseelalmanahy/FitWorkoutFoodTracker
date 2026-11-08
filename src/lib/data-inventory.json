@@ -41,6 +41,7 @@
       "src/lib/client/pdf-browser.ts": "Same origin, by CSP",
       "src/components/account/data-controls.tsx": "Same origin, by CSP",
       "src/components/nutrition/label-scanner.tsx": "Same origin, by CSP",
+      "src/components/nutrition/barcode-scan.tsx": "Same origin, by CSP: a package photo with no barcode, to be read for its words (phase 4); camera frames never",
       "src/components/nutrition/meal-photo.tsx": "Same origin, by CSP",
       "src/components/workouts/plan-import.tsx": "Same origin, by CSP: one image of a plan to be read as text (phase 3); documents are read in the browser and never sent"
     }
