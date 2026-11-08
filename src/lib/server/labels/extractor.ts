@@ -40,6 +40,9 @@ export const LABEL_EXTRACTION_TIMEOUT_MS = 60_000;
 export const isLocalLabelOcrEnabled = () => process.env.LABEL_OCR === "local";
 const isAnthropicLabelScanningConfigured = () => Boolean(process.env.ANTHROPIC_API_KEY?.trim() && process.env.LABEL_EXTRACTION_MODEL?.trim());
 export const isLabelScanningConfigured = () => isAnthropicLabelScanningConfigured() || isLocalLabelOcrEnabled();
+/** Where a scan will be read (RC-07), in the same order as getLabelExtractor: the provider if configured, else this server. */
+export const labelProcessing = (): "provider" | "server" | null =>
+  isAnthropicLabelScanningConfigured() ? "provider" : isLocalLabelOcrEnabled() ? "server" : null;
 
 /**
  * The configured extractor, or null when scanning isn't set up. Both a key and a model are needed.

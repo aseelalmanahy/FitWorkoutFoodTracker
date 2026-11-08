@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState, type PointerEvent as ReactPoi
 import { IMAGE_LIMITS } from "@/lib/image-limits";
 import { describePreparation, FULL_CROP, isFullCrop, JPEG_QUALITY_STEPS, planPreparation, sniffFileKind, type CropShare, type FileKind } from "@/lib/label-image";
 import type { LabelExtraction } from "@/lib/label-extraction";
+import { LABEL_COPY, type ImageProcessing, type LabelSource } from "@/lib/processing";
 import { browserPdfOptions, loadPdfLibrary } from "@/lib/client/pdf-browser";
 import { checkPdfBlob, openPdf, type PdfSession } from "@/lib/pdf/document";
 import type { LabelSection } from "@/lib/pdf/label-text";
@@ -22,7 +23,7 @@ export const PREPARE_FAILED = "This photo is too large for this device to prepar
 
 export interface Opened { file: File; url: string; kind: FileKind; image: HTMLImageElement; width: number; height: number }
 export interface Prepared { blob: Blob; url: string; width: number; height: number; description: string; suggestCrop: boolean; changed: boolean }
-interface ScanResult { notice: string; extraction: LabelExtraction }
+interface ScanResult { notice: string; extraction: LabelExtraction; source: LabelSource }
 
 const canvasBlob = (canvas: HTMLCanvasElement, quality: number) => new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/jpeg", quality));
 
@@ -99,7 +100,9 @@ function Cropper({ opened, crop, onChange }: { opened: Opened; crop: CropShare; 
 type Stage = "pick" | "pdf" | "crop" | "review" | "scanning" | "result";
 const canvasPng = (canvas: HTMLCanvasElement) => new Promise<Blob | null>((resolve) => canvas.toBlob(resolve, "image/png"));
 
-export function LabelScanner() {
+/** `processing`: where this server reads a scan (RC-07), or null when scanning isn't set up. */
+export function LabelScanner({ processing }: { processing: ImageProcessing | null }) {
+  const copy = processing ? LABEL_COPY[processing] : null;
   const [stage, setStage] = useState<Stage>("pick");
   const [opened, setOpened] = useState<Opened | null>(null);
   const [crop, setCrop] = useState<CropShare>(FULL_CROP);
@@ -239,7 +242,7 @@ export function LabelScanner() {
       setCrop(FULL_CROP);
       setPrepared(next);
       setFromText(true);
-      setResult({ notice: TEXT_NOTICE, extraction: section.result.extraction });
+      setResult({ notice: TEXT_NOTICE, extraction: section.result.extraction, source: "pdf-text" });
       setStage("result");
     } catch {
       setError(PREPARE_FAILED);
@@ -324,7 +327,8 @@ export function LabelScanner() {
         setStage("review");
         return;
       }
-      setResult(body);
+      // Where the server says it actually read this one, which may differ from what the page was told.
+      setResult({ notice: body.notice, extraction: body.extraction, source: body.processing === "server" ? "server" : "provider" });
       setStage("result");
     } catch {
       setError("The label couldn't be scanned. Check your connection and try again.");
@@ -353,6 +357,7 @@ export function LabelScanner() {
           selected={pdfPage}
           preview={pdfPreview}
           working={working}
+          scanNote={copy?.pdfSection ?? null}
           onSelect={(number) => void selectPdfPage(number)}
           onUseSection={(section) => void usePdfSection(section)}
           onUseImage={usePdfPageImage}
@@ -388,7 +393,7 @@ export function LabelScanner() {
             {/* eslint-disable-next-line @next/next/no-img-element -- a local preview, deliberately at full size */}
             <img data-testid="prepared-image" src={prepared.url} alt="Prepared label" className="block max-w-none" />
           </div>
-          <p className="text-sm text-muted">Scanning sends this image to our AI provider, after removing location and other hidden data. Your name and email aren&apos;t sent.</p>
+          {copy && <p className="text-sm text-muted" data-testid="scan-processing-note">{copy.beforeScan}</p>}
           <div className="flex flex-wrap gap-2">
             <Button onClick={() => void onScan()} disabled={stage === "scanning"}>{stage === "scanning" ? "Reading label…" : "Use this"}</Button>
             <Button variant="secondary" disabled={stage === "scanning"} onClick={() => { setError(null); setStage("crop"); }}>Crop closer</Button>
@@ -401,6 +406,8 @@ export function LabelScanner() {
         <LabelReview
           extraction={result.extraction}
           notice={result.notice}
+          source={result.source}
+          rescanNote={copy?.rescan ?? null}
           preparedUrl={prepared.url}
           originalUrl={prepared.changed ? opened.url : null}
           rescanLabel={fromText ? "Scan this page image instead" : undefined}

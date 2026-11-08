@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { parseMealIdentification } from "@/lib/meal-identification";
+import { processingOf } from "@/lib/processing";
 import { HttpError, route } from "@/lib/server/api";
 import { withValidatedImage } from "@/lib/server/images/upload";
 import { LabelExtractionError, type LabelExtractionFailure } from "@/lib/server/labels/extractor";
@@ -56,7 +57,7 @@ export const POST = route(async (req, { user }) => {
     if (!parsed.identification.containsFood) throw new HttpError(422, "This doesn't look like a photo of food. Try another photo, or search for the foods yourself.");
 
     return NextResponse.json(
-      { verified: false, notice: identifier.id.startsWith("local:") ? LOCAL_NOTICE : NOTICE, identification: parsed.identification, identifierId: identifier.id },
+      { verified: false, notice: identifier.id.startsWith("local:") ? LOCAL_NOTICE : NOTICE, identification: parsed.identification, identifierId: identifier.id, processing: processingOf(identifier.id) },
       { headers: { "Cache-Control": "no-store" } },
     );
   });

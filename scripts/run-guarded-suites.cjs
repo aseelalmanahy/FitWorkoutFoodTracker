@@ -179,6 +179,8 @@ const SUITES = {
   "meal-unconfigured": unconfigured("meal-unconfigured", "e2e-meal.cjs", { LABEL_EXTRACTION_MODEL: "not-the-meal-model" }),
   "label-pdf-unconfigured": unconfigured("label-pdf-unconfigured", "e2e-label-pdf.cjs", {}),
   "label-unconfigured": unconfigured("label-unconfigured", "e2e-label-scan.cjs", {}),
+  // RC-07: on-device label and meal reading, and what the pages say about where images are read.
+  "label-local": () => withApp("label-local", { appEnv: { LABEL_OCR: "local", MEAL_RECOGNITION: "local" } }, ({ url }) => runNode([script("e2e-label-scan.cjs")], { BASE_URL: url, EXPECT_LOCAL: "1", SHOTS_DIR: LOGS }, 300_000)),
   "usda-missing-nutrients": () => runNode(nodeTest("usda-missing-nutrients.test.cjs"), { SAFETY_DB_URL: DB, SAFETY_DB_CONFIRM: TARGET }, 420_000),
   "safety-no-marker": () => withoutMarkerWrite(() => runNode(nodeTest("live-provider-check.safety.test.cjs", "--test-skip-pattern=MISSING marker|INVALID marker"), SAFETY_ENV, 900_000)),
   "db-guard-scoped": () => withoutMarkerWrite(() => runNode(nodeTest("test-db-guard.test.cjs"), { SAFETY_DB_URL: DB, GUARD_SNAPSHOT_SCOPE: "designated" }, 600_000)),

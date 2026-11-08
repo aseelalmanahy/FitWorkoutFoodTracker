@@ -16,8 +16,10 @@ function describe(reading: PageReading): string {
 export interface PdfPagePreview { number: number; url: string }
 
 /** The pages of a PDF, one chosen at a time. Only the chosen page is drawn. */
-export function PdfPagePicker({ fileName, session, selected, preview, working, onSelect, onUseSection, onUseImage, onChooseAnother }: {
+export function PdfPagePicker({ fileName, session, selected, preview, working, scanNote, onSelect, onUseSection, onUseImage, onChooseAnother }: {
   fileName: string;
+  /** Where a scan of part of the page would be read (RC-07); null when scanning isn't set up. */
+  scanNote: string | null;
   session: PdfSession;
   selected: number | null;
   preview: PdfPagePreview | null;
@@ -71,7 +73,7 @@ export function PdfPagePicker({ fileName, session, selected, preview, working, o
           <div className="flex flex-wrap gap-2">
             <Button variant={reading?.kind === "labels" ? "secondary" : "primary"} disabled={working} data-testid="use-page-image" onClick={onUseImage}>Crop and scan this page image</Button>
           </div>
-          <p className="text-xs text-muted">Reading from the text uses no AI. Scanning sends only the part of this page you choose to our AI provider, and counts as a scan.</p>
+          <p className="text-xs text-muted" data-testid="pdf-scan-note">{scanNote ?? "Reading from the text uses no recognition."}</p>
         </Card>
       )}
       <Button variant="secondary" disabled={working} onClick={onChooseAnother}>Choose another file</Button>

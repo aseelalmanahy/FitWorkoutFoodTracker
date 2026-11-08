@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useRef, useState } from "react";
+import { createContext, useContext, useMemo, useRef, useState } from "react";
 import { api, newIdempotencyKey, SAVE_TIMEOUT_MS, saveFailureMessage } from "@/lib/client/api";
 import type { LabelExtraction } from "@/lib/label-extraction";
+import { READ_LABEL, type LabelSource } from "@/lib/processing";
 import {
   BASIS_LABELS, buildReviewDraft, fieldOrigin, flagTargets, isManualColumn, manualBases, NUTRIENT_LABELS, NUTRIENT_UNITS, ORIGIN_LABELS, reviewFlags, savePreview, servingOrigin, validateReview,
   type BasisUnit, type FieldOrigin, type ReviewDraft, type ReviewField, type UsableBasis,
@@ -22,9 +23,13 @@ const ORIGIN_STYLES: Record<FieldOrigin, string> = {
   needs_value: "bg-warn/12 text-warn",
 };
 
+/** Where this review's values were read (RC-07), so a filled-in value says it truly: "Read by AI" only for the provider. */
+const ReadLabel = createContext<string>(READ_LABEL.provider);
+
 function OriginBadge({ field, testId }: { field: ReviewField | FieldOrigin; testId?: string }) {
+  const readLabel = useContext(ReadLabel);
   const origin = typeof field === "string" ? field : fieldOrigin(field);
-  return <span data-testid={testId} data-origin={origin} className={cx("whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium", ORIGIN_STYLES[origin])}>{ORIGIN_LABELS[origin]}</span>;
+  return <span data-testid={testId} data-origin={origin} className={cx("whitespace-nowrap rounded-full px-2 py-0.5 text-xs font-medium", ORIGIN_STYLES[origin])}>{origin === "ai" ? readLabel : ORIGIN_LABELS[origin]}</span>;
 }
 
 function Evidence({ field }: { field: ReviewField }) {
@@ -99,9 +104,13 @@ function SavedFood({ food, onScanAnother }: { food: FoodDto; onScanAnother: () =
   );
 }
 
-export function LabelReview({ extraction, notice, preparedUrl, originalUrl, rescanLabel = "Scan this image again", onRescan, onScanAnother, onSavingChange }: {
+export function LabelReview({ extraction, notice, source, rescanNote, preparedUrl, originalUrl, rescanLabel = "Scan this image again", onRescan, onScanAnother, onSavingChange }: {
   extraction: LabelExtraction;
   notice: string;
+  /** Where these values were read: the provider, this server, or a PDF's own text (RC-07). */
+  source: LabelSource;
+  /** Where scanning again would read the image; null when scanning isn't set up. */
+  rescanNote: string | null;
   preparedUrl: string;
   /** The photo before it was cropped or scaled, when that differs. */
   originalUrl: string | null;
@@ -166,6 +175,7 @@ export function LabelReview({ extraction, notice, preparedUrl, originalUrl, resc
   if (saved) return <SavedFood food={saved} onScanAnother={onScanAnother} />;
 
   return (
+    <ReadLabel.Provider value={READ_LABEL[source]}>
     <div className="grid gap-4 md:relative md:left-1/2 md:w-[min(calc(100vw-2rem),64rem)] md:-translate-x-1/2 md:grid-cols-2 md:items-start">
       <LabelImage preparedUrl={preparedUrl} originalUrl={originalUrl} />
 
@@ -347,8 +357,9 @@ export function LabelReview({ extraction, notice, preparedUrl, originalUrl, resc
           <Button variant="secondary" disabled={saving} onClick={onRescan}>{rescanLabel}</Button>
           <Button variant="secondary" disabled={saving} onClick={onScanAnother}>Scan another label</Button>
         </div>
-        <p className="text-sm text-muted">Scanning sends the image to the AI provider, counts as a scan, and discards your corrections. Saving doesn&apos;t add anything to your diary.</p>
+        <p className="text-sm text-muted" data-testid="rescan-note">{rescanNote ? `${rescanNote} ` : ""}Saving doesn&apos;t add anything to your diary.</p>
       </div>
     </div>
+    </ReadLabel.Provider>
   );
 }

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { processingOf } from "@/lib/processing";
 import { checkLabelExtraction, parseLabelExtraction } from "@/lib/label-extraction";
 import { HttpError, route } from "@/lib/server/api";
 import { withValidatedImage } from "@/lib/server/images/upload";
@@ -54,7 +55,7 @@ export const POST = route(async (req, { user }) => {
     if (!parsed.extraction.isNutritionLabel) throw new HttpError(422, "This doesn't look like a nutrition label. Crop to the label, or try another photo.");
 
     return NextResponse.json(
-      { verified: false, notice: extractor.id.startsWith("local:") ? LOCAL_NOTICE : NOTICE, extraction: parsed.extraction, flags: checkLabelExtraction(parsed.extraction), extractorId: extractor.id, imageSha256: sha256 },
+      { verified: false, notice: extractor.id.startsWith("local:") ? LOCAL_NOTICE : NOTICE, extraction: parsed.extraction, flags: checkLabelExtraction(parsed.extraction), extractorId: extractor.id, processing: processingOf(extractor.id), imageSha256: sha256 },
       { headers: { "Cache-Control": "no-store" } },
     );
   });

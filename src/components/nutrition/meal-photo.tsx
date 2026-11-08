@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { MEAL_COPY, type ImageProcessing } from "@/lib/processing";
 import { FULL_CROP, sniffFileKind } from "@/lib/label-image";
 import type { MealIdentification } from "@/lib/meal-identification";
 import { recordOrigin } from "@/lib/food-provenance";
@@ -58,7 +59,8 @@ function ItemCard({ item, selected, logged: record, onRename, onAccept, onRemove
   );
 }
 
-export function MealPhoto({ today }: { today: string }) {
+/** `processing`: where this server reads a photo (RC-07), or null when identification isn't set up. */
+export function MealPhoto({ today, processing }: { today: string; processing: ImageProcessing | null }) {
   const [stage, setStage] = useState<Stage>("pick");
   const [opened, setOpened] = useState<Opened | null>(null);
   const [prepared, setPrepared] = useState<Prepared | null>(null);
@@ -185,7 +187,7 @@ export function MealPhoto({ today }: { today: string }) {
         <>
           {/* eslint-disable-next-line @next/next/no-img-element -- the user's own file, held only in this browser */}
           <img data-testid="meal-preview" src={prepared.url} alt="Your meal" className="block w-full rounded-lg" />
-          <p className="text-sm text-muted">Identifying sends this photo to our AI provider, after removing location and other hidden data. Your name and email aren&apos;t sent, and the photo isn&apos;t kept.</p>
+          {processing && <p className="text-sm text-muted" data-testid="meal-processing-note">{MEAL_COPY[processing].beforeIdentify}</p>}
           <div className="flex flex-wrap gap-2">
             <Button data-testid="meal-identify" disabled={stage === "identifying"} onClick={() => void identify()}>{stage === "identifying" ? "Looking at the photo…" : "Identify foods"}</Button>
             <Button variant="secondary" disabled={stage === "identifying"} onClick={reset}>Choose another photo</Button>

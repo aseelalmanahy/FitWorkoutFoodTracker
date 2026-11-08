@@ -17,6 +17,8 @@ const model = () => process.env.MEAL_IDENTIFICATION_MODEL?.trim();
 /** On-device meal suggestions (AI-02), with no paid service: MEAL_RECOGNITION=local. */
 export const isLocalMealRecognitionEnabled = () => process.env.MEAL_RECOGNITION === "local";
 export const isMealIdentificationConfigured = () => Boolean(key() && model()) || isLocalMealRecognitionEnabled();
+/** Where a photo will be read (RC-07), in the same order as getMealIdentifier: the provider if configured, else this server. */
+export const mealProcessing = (): "provider" | "server" | null => (key() && model() ? "provider" : isLocalMealRecognitionEnabled() ? "server" : null);
 
 /**
  * The configured identifier, or null when it isn't set up. It has its own model setting, with no

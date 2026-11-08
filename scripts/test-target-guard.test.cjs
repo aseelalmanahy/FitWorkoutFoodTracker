@@ -594,6 +594,7 @@ const OTHER_WRITE_CAPABLE = {
   "review-server.cjs": { must: ["envFileProblem(", "localDatabaseProblem(", "readLocalIdentity(", "REVIEW_MARKER", "-H\", \"127.0.0.1"], reason: "by hand: serves the review build on fitdb_review, on loopback only, after checking its marker" },
   "review-account.cjs": { must: ["envFileProblem(", "localDatabaseProblem(", "readLocalIdentity(", "REVIEW_MARKER", "check-ignore"], reason: "by hand, on fitdb_review: adds one User row per account, never changes one" },
   "restore-check.cjs": { must: ["envFileProblem(", "localDatabaseProblem(", "readLocalIdentity(", "REVIEW_MARKER", "--confirm=${SCRATCH}", "isn't empty"], reason: "by hand: restores a backup only into an empty fitdb_restore_check the owner created, reads fitdb_review, never creates or drops a database (DEPLOY-03)" },
+  "measure-recognition.cjs": { must: ["review-tester-", "listeningPid(", "[3002, 3003]"], reason: "by hand: signs in as a review tester on the local review server only, sends generated images that aren't stored, and reads the server process's memory (RC-06)" },
 };
 const NOT_GUARDED = {
   "demo-account.test.cjs": "the demo data's rules, and what the demo scripts must refuse, spawning them, with no database",

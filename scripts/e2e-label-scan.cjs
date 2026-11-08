@@ -2,6 +2,8 @@
 // paid requests: the app must run with ANTHROPIC_BASE_URL pointing at scripts/stub-label-provider.cjs
 // and any non-real key. Usage: BASE_URL=... DATABASE_URL=<local test database> LABEL_STUB_URL=... SHOTS_DIR=... node scripts/e2e-label-scan.cjs
 // With EXPECT_UNCONFIGURED=1, checks only that a server with no provider settings reports that clearly.
+// With EXPECT_LOCAL=1 (the app run with LABEL_OCR=local and MEAL_RECOGNITION=local), checks that the label and meal
+// pages say the image is read on this server, never that it's sent to a provider (RC-07).
 "use strict";
 const assert = require("node:assert/strict");
 const playwright = require("playwright");
@@ -49,6 +51,50 @@ async function unconfigured() {
   assert.equal(await page.getByRole("link", { name: "Scan a nutrition label" }).count(), 0, "no link to a feature that's off");
   await browser.close();
   console.log("ALL UNCONFIGURED CHECKS PASSED");
+}
+
+/** RC-07: on-device reading. Each page says where the image is read, and nothing claims it's sent to a provider. */
+async function local() {
+  const lines = ["Nutrition Facts", "Serving size 1 bar (40g)", "Amount per serving", "Calories 190", "Total Fat 7g", "Total Carbohydrate 26g", "Protein 6g"];
+  const text = lines.map((l, i) => `<text x="24" y="${56 + i * 44}" font-family="Arial" font-size="30" font-weight="${i === 0 ? 700 : 400}">${l}</text>`).join("");
+  const label = await sharp(Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="760" height="${60 + lines.length * 44}"><rect width="100%" height="100%" fill="#fff"/>${text}</svg>`)).png().toBuffer();
+  const noProvider = async (page, where) => {
+    const all = await page.locator("body").innerText();
+    assert.doesNotMatch(all, /AI provider|Read by AI/, `${where}: nothing says the image goes to a provider`);
+    assert.doesNotMatch(all, /on (?:your|this) (?:phone|device)/i, `${where}: nothing says a photo is read on the phone`);
+  };
+  for (const name of BROWSERS) {
+    console.log(`--- ${name}`);
+    const browser = await playwright[name].launch(target.launchOptions(name));
+    const ctx = await target.guardContext(await browser.newContext({ viewport: { width: 390, height: 844 } }));
+    const page = await ctx.newPage();
+    await signUp(page);
+    await page.goto(`${BASE}/nutrition/scan`);
+    await page.locator("#label-photo").setInputFiles({ name: "label.png", mimeType: "image/png", buffer: label });
+    await page.getByRole("button", { name: "Continue" }).click();
+    await page.getByTestId("prepared-image").waitFor();
+    assert.match(await page.getByTestId("scan-processing-note").innerText(), /text recognition on this app's server/);
+    await noProvider(page, "before scanning");
+    step("before scanning, the label page says the image is read on this server");
+    await page.getByRole("button", { name: "Use this" }).click();
+    await page.getByTestId("scan-result").waitFor({ timeout: 90_000 });
+    assert.match(await page.getByTestId("scan-result").innerText(), /read by text recognition on this server/);
+    const origins = await page.locator("[data-origin=ai]").allInnerTexts();
+    assert.ok(origins.length > 0, "some values were read");
+    assert.ok(origins.every((t) => t === "Read by text recognition"), `read values say how they were read: ${origins.join(", ")}`);
+    assert.match(await page.getByTestId("rescan-note").innerText(), /reads the image again on this app's server/);
+    await noProvider(page, "the review");
+    step("the review labels values as read by text recognition, and scanning again stays on this server");
+    await page.goto(`${BASE}/nutrition/meal`);
+    await page.locator("#meal-photo").setInputFiles({ name: "meal.jpg", mimeType: "image/jpeg", buffer: await quadrants(600, 400).jpeg().toBuffer() });
+    await page.getByTestId("meal-identify").waitFor();
+    assert.match(await page.getByTestId("meal-processing-note").innerText(), /recognition model on this app's server/);
+    assert.match(await page.locator("main").innerText(), /A model on this server suggests the main dish/);
+    await noProvider(page, "the meal page");
+    step("the meal page says the photo is read on this server");
+    await browser.close();
+  }
+  console.log("ALL LOCAL PROCESSING CHECKS PASSED");
 }
 
 const PASSWORD = "correct horse battery";
@@ -127,8 +173,12 @@ async function runBrowser(name, files) {
   const small = await preview();
   assert.deepEqual(small.natural, [900, 1200]);
   assert.equal(small.shown, 900, "shown at full resolution");
+  // RC-07: with the provider configured, the page says the image goes to it.
+  assert.match(await page.getByTestId("scan-processing-note").innerText(), /sends this image to our AI provider/);
   await useThis();
   await page.getByTestId("scan-result").waitFor();
+  assert.equal(await page.getByTestId("origin-kcal").innerText(), "Read by AI", "a provider's value is labelled as read by AI");
+  assert.match(await page.getByTestId("rescan-note").innerText(), /sends the image to the AI provider/);
   const body = await page.getByTestId("scan-result").innerText();
   assert.match(body, /Unverified/);
   assert.match(body, /Rolled Oats/);
@@ -519,6 +569,7 @@ async function reviewFlows({ name, page, scanPage, pick, toReview, useThis, file
 (async () => {
   await target.verifyServer();
   if (process.env.EXPECT_UNCONFIGURED) return unconfigured();
+  if (process.env.EXPECT_LOCAL) return local();
   assert.ok(STUB, "LABEL_STUB_URL is required");
   // Never run against the real provider: the stub must be the thing answering.
   assert.equal((await fetch(`${STUB}/__health`).then((r) => r.json())).ok, true);
