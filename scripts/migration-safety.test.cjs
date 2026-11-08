@@ -135,6 +135,9 @@ test("the history SQL fails closed: not on the search path, not the owner, or an
     assert.match(verify, /has_table_privilege\(r\.oid, t, 'INSERT,UPDATE,DELETE,TRUNCATE'\)/, "effective privileges, however obtained");
     assert.match(verify, /r\.oid <> c\.relowner AND NOT r\.rolsuper AND r\.rolname !~ '\^pg_'/, "every role but the owner, superusers and the predefined roles themselves");
     assert.match(verify, /IF who IS NOT NULL THEN\s+RAISE EXCEPTION/, "anyone left: an error");
+    assert.match(verify, /pg_has_role\(r\.oid, c\.relowner, 'MEMBER'\)/, "members of the owner, inherited or not (SET ROLE)");
+    assert.match(verify, /pg_has_role\(r\.oid, 'pg_write_all_data', 'MEMBER'\)/, "members of pg_write_all_data, inherited or not");
+    assert.match(verify, /IF EXISTS \(SELECT 1 FROM pg_class c, aclexplode\(c\.relacl\) a WHERE c\.oid = t AND a\.grantee <> c\.relowner\) THEN\s+RAISE EXCEPTION/, "no grant but the owner's left, PUBLIC's included");
   }
   const src = fs.readFileSync(path.join(__dirname, "migrate-approved.cjs"), "utf8");
   assert.match(src, /const revoked = prisma\(\[[^\]]+\], revoke\)\.status === 0;\s+return revoked && prisma\(\[[^\]]+\], verify\)\.status === 0;/, "two commands, both must succeed");

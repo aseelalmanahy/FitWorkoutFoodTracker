@@ -66,11 +66,19 @@ END $$;`;
 DECLARE ${find} who text;
 BEGIN
   IF t IS NULL THEN ${missing} END IF;
+  -- Effective privileges, and also membership whether inherited or not: a member that doesn't inherit can still
+  -- SET ROLE to the owner, or to pg_write_all_data, and write.
   SELECT string_agg(r.rolname, ', ' ORDER BY r.rolname) INTO who FROM pg_roles r, pg_class c
     WHERE c.oid = t AND r.oid <> c.relowner AND NOT r.rolsuper AND r.rolname !~ '^pg_'
-      AND has_table_privilege(r.oid, t, 'INSERT,UPDATE,DELETE,TRUNCATE');
+      AND (has_table_privilege(r.oid, t, 'INSERT,UPDATE,DELETE,TRUNCATE')
+        OR pg_has_role(r.oid, c.relowner, 'MEMBER')
+        OR pg_has_role(r.oid, 'pg_write_all_data', 'MEMBER'));
   IF who IS NOT NULL THEN
     RAISE EXCEPTION 'These roles can still change _prisma_migrations: %. Remove that access first (a grant from another role, membership of its owner, or a role such as pg_write_all_data).', who;
+  END IF;
+  -- Any grant left in the table's ACL other than the owner's (PUBLIC's would reach every role made later).
+  IF EXISTS (SELECT 1 FROM pg_class c, aclexplode(c.relacl) a WHERE c.oid = t AND a.grantee <> c.relowner) THEN
+    RAISE EXCEPTION 'A grant on _prisma_migrations other than its owner''s is still there (it could not be revoked: see the warnings above). Remove it first.';
   END IF;
 END $$;`;
   return [revoke, verify];
