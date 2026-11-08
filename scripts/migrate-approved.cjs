@@ -14,7 +14,12 @@ const { unapprovedMigrations, protectHistorySql } = require("./lib/approved-migr
 
 const SCHEMA = path.join(__dirname, "..", "prisma", "schema.prisma");
 const prisma = (args, input) => spawnSync(process.execPath, [path.join(__dirname, "..", "node_modules", "prisma", "build", "index.js"), ...args], input === undefined ? { stdio: "inherit" } : { input, stdio: ["pipe", "inherit", "inherit"] });
-const protectHistory = (missingOk) => prisma(["db", "execute", "--stdin", "--schema", SCHEMA], protectHistorySql({ missingOk })).status === 0;
+// Revoke, then verify, as two separate commands: what the first revoked stays revoked even if the second then fails.
+const protectHistory = (missingOk) => {
+  const [revoke, verify] = protectHistorySql({ missingOk });
+  const revoked = prisma(["db", "execute", "--stdin", "--schema", SCHEMA], revoke).status === 0;
+  return revoked && prisma(["db", "execute", "--stdin", "--schema", SCHEMA], verify).status === 0;
+};
 
 const pending = unapprovedMigrations();
 if (pending.length) {

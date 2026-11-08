@@ -29,34 +29,51 @@ function unapprovedMigrations(root = ROOT) {
 }
 
 /**
- * SQL that leaves Prisma's migration history writable by its owner alone, or fails. The default privileges in
- * deploy/database-roles.sql would otherwise give the app's role rows in it (so it could mark a migration as applied, or
- * erase one). Fails closed, with an error, when:
- * - the table isn't on this connection's search path (unless missingOk: before the first deploy it doesn't exist yet);
- * - the role running it isn't the table's owner (another role did a deploy), as only the owner can revoke all grants;
- * - any other role still has any privilege on it afterwards, from whatever grantor (read from the table's own ACL,
- *   not information_schema, which shows only grants involving the current role).
- * It names no role, and running it again changes nothing.
+ * Two SQL statements, run one after the other as separate commands, that leave Prisma's migration history writable by
+ * its owner alone, or fail. The default privileges in deploy/database-roles.sql would otherwise give the app's role rows
+ * in it (so it could mark a migration as applied, or erase one). Neither names a role; running them again changes nothing.
+ *
+ * 1. revoke: every grant in the table's own ACL (not information_schema, which shows only grants involving the current
+ *    role) other than the owner's is revoked, each on its own, so one that can't be revoked (a grant passed on by
+ *    another role) doesn't undo the others. Fails when the table isn't on this connection's search path (unless
+ *    missingOk: before the first deploy it doesn't exist yet) or the role running it isn't its owner.
+ * 2. verify: fails if any role but the owner can still insert, update, delete or truncate it, however it got that:
+ *    a grant from any grantor, PUBLIC, membership of the owner role, or a predefined role such as pg_write_all_data.
+ *    Superusers can't be restricted and aren't counted. A provider whose administrator role holds pg_write_all_data
+ *    makes this fail, on purpose: the history isn't the migrator's alone there.
  */
 function protectHistorySql({ missingOk = false } = {}) {
-  return `DO $$
-DECLARE t regclass := to_regclass('_prisma_migrations'); owner_name text; r record;
+  const find = `t regclass := to_regclass('_prisma_migrations');`;
+  const missing = missingOk ? "RETURN;" : "RAISE EXCEPTION 'No _prisma_migrations table on this connection''s search path: check the schema in DATABASE_URL.';";
+  const revoke = `DO $$
+DECLARE ${find} owner_name text; r record;
 BEGIN
-  IF t IS NULL THEN
-    ${missingOk ? "RETURN;" : "RAISE EXCEPTION 'No _prisma_migrations table on this connection''s search path: check the schema in DATABASE_URL.';"}
-  END IF;
+  IF t IS NULL THEN ${missing} END IF;
   SELECT pg_get_userbyid(c.relowner) INTO owner_name FROM pg_class c WHERE c.oid = t;
   IF owner_name <> current_user THEN
     RAISE EXCEPTION '_prisma_migrations is owned by %, not by %, which is running the migrations. Run them as its owner.', owner_name, current_user;
   END IF;
   FOR r IN SELECT DISTINCT a.grantee FROM pg_class c, aclexplode(c.relacl) a WHERE c.oid = t AND a.grantee <> c.relowner LOOP
-    IF r.grantee = 0 THEN EXECUTE format('REVOKE ALL ON TABLE %s FROM PUBLIC', t);
-    ELSE EXECUTE format('REVOKE ALL ON TABLE %s FROM %I', t, pg_get_userbyid(r.grantee)); END IF;
+    BEGIN
+      IF r.grantee = 0 THEN EXECUTE format('REVOKE ALL ON TABLE %s FROM PUBLIC', t);
+      ELSE EXECUTE format('REVOKE ALL ON TABLE %s FROM %I', t, pg_get_userbyid(r.grantee)); END IF;
+    EXCEPTION WHEN OTHERS THEN
+      RAISE WARNING 'Could not revoke % on _prisma_migrations: %', CASE WHEN r.grantee = 0 THEN 'PUBLIC' ELSE pg_get_userbyid(r.grantee) END, SQLERRM;
+    END;
   END LOOP;
-  IF EXISTS (SELECT 1 FROM pg_class c, aclexplode(c.relacl) a WHERE c.oid = t AND a.grantee <> c.relowner) THEN
-    RAISE EXCEPTION 'Another role can still use _prisma_migrations (granted by a role other than its owner). Remove that grant first.';
+END $$;`;
+  const verify = `DO $$
+DECLARE ${find} who text;
+BEGIN
+  IF t IS NULL THEN ${missing} END IF;
+  SELECT string_agg(r.rolname, ', ' ORDER BY r.rolname) INTO who FROM pg_roles r, pg_class c
+    WHERE c.oid = t AND r.oid <> c.relowner AND NOT r.rolsuper AND r.rolname !~ '^pg_'
+      AND has_table_privilege(r.oid, t, 'INSERT,UPDATE,DELETE,TRUNCATE');
+  IF who IS NOT NULL THEN
+    RAISE EXCEPTION 'These roles can still change _prisma_migrations: %. Remove that access first (a grant from another role, membership of its owner, or a role such as pg_write_all_data).', who;
   END IF;
 END $$;`;
+  return [revoke, verify];
 }
 
 module.exports = { unapprovedMigrations, sha256, protectHistorySql };

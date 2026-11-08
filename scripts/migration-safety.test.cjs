@@ -116,18 +116,26 @@ test("the migrate step protects the migration history before deploying (or appli
   assert.match(fs.readFileSync(path.join(ROOT, "deploy", "database-roles.sql"), "utf8"), /_prisma_migrations/, "the role template says why");
 });
 
-test("the history SQL fails closed: not on the search path, not the owner, or any grant left afterwards", () => {
+test("the history SQL fails closed: not on the search path, not the owner, or any role but the owner able to change it", () => {
   const { protectHistorySql } = require("./lib/approved-migrations.cjs");
   const strict = protectHistorySql();
   const first = protectHistorySql({ missingOk: true });
-  assert.match(strict, /IF t IS NULL THEN\s+RAISE EXCEPTION/, "missing: an error");
-  assert.match(first, /IF t IS NULL THEN\s+RETURN;/, "before the first deploy, missing is fine");
-  for (const sql of [strict, first]) {
-    assert.match(sql, /to_regclass\('_prisma_migrations'\)/, "the table found as the connection sees it, then used schema-qualified");
-    assert.match(sql, /IF owner_name <> current_user THEN\s+RAISE EXCEPTION/, "only the owner can revoke every grant");
-    assert.match(sql, /aclexplode\(c\.relacl\)/, "grants read from the table's own ACL, whatever their grantor");
-    assert.match(sql, /format\('REVOKE ALL ON TABLE %s FROM %I', t, pg_get_userbyid\(r\.grantee\)\)/, "roles quoted as identifiers");
-    assert.match(sql, /IF EXISTS \(SELECT 1 FROM pg_class c, aclexplode\(c\.relacl\) a WHERE c\.oid = t AND a\.grantee <> c\.relowner\) THEN\s+RAISE EXCEPTION/, "anything left: an error");
-    assert.doesNotMatch(sql, /fit_app|fit_migrator/, "names no role");
+  assert.equal(strict.length, 2, "revoke, then verify, as separate statements");
+  for (const sql of strict) assert.match(sql, /IF t IS NULL THEN RAISE EXCEPTION/, "missing: an error");
+  for (const sql of first) assert.match(sql, /IF t IS NULL THEN RETURN;/, "before the first deploy, missing is fine");
+  for (const [revoke, verify] of [strict, first]) {
+    for (const sql of [revoke, verify]) {
+      assert.match(sql, /to_regclass\('_prisma_migrations'\)/, "the table found as the connection sees it, then used schema-qualified");
+      assert.doesNotMatch(sql, /fit_app|fit_migrator/, "names no role");
+    }
+    assert.match(revoke, /IF owner_name <> current_user THEN\s+RAISE EXCEPTION/, "only the owner can revoke every grant");
+    assert.match(revoke, /aclexplode\(c\.relacl\)/, "grants read from the table's own ACL, whatever their grantor");
+    assert.match(revoke, /format\('REVOKE ALL ON TABLE %s FROM %I', t, pg_get_userbyid\(r\.grantee\)\)/, "roles quoted as identifiers");
+    assert.match(revoke, /BEGIN\s+IF r\.grantee = 0[\s\S]*EXCEPTION WHEN OTHERS THEN\s+RAISE WARNING/, "each revoke on its own, so one failure doesn't undo the rest");
+    assert.match(verify, /has_table_privilege\(r\.oid, t, 'INSERT,UPDATE,DELETE,TRUNCATE'\)/, "effective privileges, however obtained");
+    assert.match(verify, /r\.oid <> c\.relowner AND NOT r\.rolsuper AND r\.rolname !~ '\^pg_'/, "every role but the owner, superusers and the predefined roles themselves");
+    assert.match(verify, /IF who IS NOT NULL THEN\s+RAISE EXCEPTION/, "anyone left: an error");
   }
+  const src = fs.readFileSync(path.join(__dirname, "migrate-approved.cjs"), "utf8");
+  assert.match(src, /const revoked = prisma\(\[[^\]]+\], revoke\)\.status === 0;\s+return revoked && prisma\(\[[^\]]+\], verify\)\.status === 0;/, "two commands, both must succeed");
 });
