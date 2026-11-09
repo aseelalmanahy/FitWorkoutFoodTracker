@@ -3,6 +3,7 @@ import { requireProfile } from "@/lib/server/profile";
 import { getPreviousPerformances, getSessionDetail } from "@/lib/server/workouts";
 import { listGyms } from "@/lib/server/gyms";
 import { contextKey } from "@/lib/movement-patterns";
+import { targetForExercise } from "@/lib/swap-target";
 import { WorkoutLogger, type LoggerExercise, type LoggerGym } from "@/components/workouts/workout-logger";
 import { Page } from "@/components/page";
 
@@ -32,8 +33,9 @@ export default async function SessionPage({ params }: { params: Promise<{ id: st
 
   const initial: LoggerExercise[] = session.exercises.map((e) => {
     const p = prev.get(contextKey(e.exerciseId, e.gymEquipmentId));
-    // A swapped-in exercise keeps the plan's target for what it replaced.
+    // A swapped-in exercise keeps the plan's sets and reps for what it replaced, but not its weight (WT-04).
     const t = targets.get(e.plannedExerciseId ?? e.exerciseId);
+    const swappedIn = e.plannedExerciseId != null && e.plannedExerciseId !== e.exerciseId;
     return {
       id: e.id,
       exercise: { id: e.exercise.id, name: e.exercise.name, equipment: e.exercise.equipment },
@@ -41,7 +43,7 @@ export default async function SessionPage({ params }: { params: Promise<{ id: st
       restSeconds: e.restSeconds,
       sets: e.sets.map(pickSet),
       prev: p ? { date: p.date.toISOString(), sets: p.sets.map(pickSet) } : null,
-      target: t ? { sets: t.targetSets, repsMin: t.targetRepsMin, repsMax: t.targetRepsMax, weightKg: t.targetWeightKg } : null,
+      target: targetForExercise(t ? { sets: t.targetSets, repsMin: t.targetRepsMin, repsMax: t.targetRepsMax, weightKg: t.targetWeightKg } : null, { swappedIn }),
       machine: e.machine?.name ? { id: e.machine.id, name: e.machine.name } : null,
       planned: e.plannedExercise ? { name: e.plannedExercise.name } : null,
       swappedOut: e.substitutedBy.length > 0,

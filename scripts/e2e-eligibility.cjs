@@ -105,6 +105,7 @@ async function inBrowser(name) {
     const body = await page.locator("main").innerText();
     assert.doesNotMatch(body.replace(/\d{1,2} [A-Z][a-z]+ \d{4}/, ""), /\b(18|13)\b/, "T6: no threshold");
     assert.equal(await page.getByRole("button", { name: "Log out" }).first().isVisible(), true, "T22: Log out present");
+    assert.equal(await page.getByRole("button", { name: "Log out" }).count(), 1, "WT-08: one Log out, not two");
     assert.equal(await prisma.profile.count({ where: { userId: user.id } }), 0, "nothing saved");
     step("refusal: neutral, focused, nothing saved");
 

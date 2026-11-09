@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { prisma } from "@/lib/server/db";
 import { requireProfile } from "@/lib/server/profile";
-import { getExerciseHistories } from "@/lib/server/workouts";
+import { getAllExerciseSessions } from "@/lib/server/workouts";
+import { overviewByExercise } from "@/lib/progress-overview";
 import { compareToPrevious, summarizeSets } from "@/lib/overload";
 import { formatLocalDate } from "@/lib/time";
 import { formatMass } from "@/lib/units";
@@ -20,18 +21,21 @@ export default async function ProgressPage() {
     distinct: ["exerciseId"],
     select: { exercise: true },
   });
-  const ids = performed.map((p) => p.exercise.id);
-  const histories = await getExerciseHistories(user.id, ids);
+  // WT-03: sessions are counted in every context (a named machine or none); the latest result and its status come
+  // from the most recent session's context only, so different machines' loads are never compared or combined.
+  const overview = overviewByExercise(await getAllExerciseSessions(user.id));
 
   const rows = performed
     .map(({ exercise }) => {
-      const h = histories.get(exercise.id) ?? [];
+      const o = overview.get(exercise.id);
+      const h = o?.history ?? [];
       const last = h.at(-1);
       const prevS = h.at(-2);
       const lastSum = last ? summarizeSets(last.sets) : null;
       return {
         exercise,
-        sessions: h.length,
+        context: o?.latestContext ?? null,
+        sessions: o?.sessions ?? 0,
         lastDate: last?.date,
         lastSum,
         status: lastSum ? compareToPrevious(prevS ? summarizeSets(prevS.sets) : null, lastSum).status : null,
@@ -50,7 +54,7 @@ export default async function ProgressPage() {
       ) : (
         <div className="grid grid-cols-1 gap-2 md:grid-cols-2 xl:grid-cols-3">
           {rows.map((r) => (
-            <Link key={r.exercise.id} href={`/progress/${r.exercise.id}`} className="flex min-w-0 items-center gap-3 rounded-2xl border border-line bg-surface px-4 py-3 transition hover:border-accent/40">
+            <Link key={r.exercise.id} href={r.context ? `/progress/${r.exercise.id}?machine=${r.context}` : `/progress/${r.exercise.id}`} className="flex min-w-0 items-center gap-3 rounded-2xl border border-line bg-surface px-4 py-3 transition hover:border-accent/40">
               <div className="min-w-0 flex-1">
                 <p className="truncate font-semibold">{r.exercise.name}</p>
                 <p className="num truncate text-xs text-muted">

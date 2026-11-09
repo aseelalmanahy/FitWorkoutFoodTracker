@@ -61,6 +61,8 @@ export default async function DashboardPage() {
     }
   }
   recentPrs.sort((a, b) => b.date.getTime() - a.date.getTime());
+  // WT-08: the card lists each exercise once, at its latest record; the goal card still counts every record.
+  const shownPrs = recentPrs.filter((p, i) => recentPrs.findIndex((q) => q.exerciseId === p.exerciseId) === i);
 
   const todaySlots = schedule[today];
   const doneToday = week.completedDays.has(today);
@@ -161,7 +163,7 @@ export default async function DashboardPage() {
         <p className="text-sm text-muted">No new records in the last 30 days. Records are flagged when you beat a previous best.</p>
       ) : (
         <Card className="divide-y divide-line">
-          {recentPrs.slice(0, 6).map((p, i) => (
+          {shownPrs.slice(0, 6).map((p, i) => (
             <Link key={i} href={`/progress/${p.exerciseId}`} className="flex items-center justify-between gap-3 px-4 py-3">
               <span className="min-w-0">
                 <span className="block truncate font-medium">{p.exercise}</span>

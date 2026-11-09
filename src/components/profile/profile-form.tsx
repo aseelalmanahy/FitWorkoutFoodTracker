@@ -5,7 +5,6 @@ import { useEffect, useRef, useState } from "react";
 import { ApiError, api, isUncertainFailure, parseNum, saveFailureMessage } from "@/lib/client/api";
 import { ACTIVITY_LABELS, type ActivityLevel, type FitnessGoal } from "@/lib/energy";
 import { cmToIn, inToCm, kgToLb, lbToKg, round, type UnitSystem } from "@/lib/units";
-import { LogoutButton } from "@/components/logout-button";
 import { Button, Card, ErrorText, Field, Input, Select, cx } from "@/components/ui";
 
 type Experience = "BEGINNER" | "INTERMEDIATE" | "ADVANCED";
@@ -270,7 +269,7 @@ export function ProfileForm({ initial, submitLabel, redirectTo, hideGoals }: { i
         <p className="text-sm text-muted">You entered {dateInWords(birthDate)}. We didn&apos;t save that date.</p>
         <Button type="button" variant="secondary" className="w-full" onClick={() => { setRefused(false); setFocusNext(fieldId("birthDate")); }}>Check the date</Button>
         <a href="/account" className="block text-center text-sm font-semibold text-accent-ink">Delete this account</a>
-        <LogoutButton className="w-full" />
+        {/* WT-08: both pages that show this form have their own Log out, so the card doesn't repeat it. */}
       </Card>
     );
   }

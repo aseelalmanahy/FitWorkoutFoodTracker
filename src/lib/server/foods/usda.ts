@@ -92,11 +92,15 @@ export function extractPortions(food: Record<string, unknown>): ServingOption[] 
   for (const p of portions as Record<string, unknown>[]) {
     const grams = num(p.gramWeight);
     if (!grams || grams > MAX_SERVING_AMOUNT) continue;
+    // WT-05: an unspecified quantity isn't a portion anyone can choose (as for search measures below), and a
+    // modifier that is only digits is an FNDDS portion code ("90000"), not words to show.
+    if (p.portionDescription === "Quantity not specified") continue;
     const unit = (p.measureUnit as Record<string, unknown> | undefined)?.name as string | undefined;
-    const desc = typeof p.portionDescription === "string" && p.portionDescription && p.portionDescription !== "Quantity not specified"
+    const modifier = typeof p.modifier === "string" && !/^\s*\d+\s*$/.test(p.modifier) ? p.modifier : "";
+    const desc = typeof p.portionDescription === "string" && p.portionDescription
       ? p.portionDescription
-      : [num(p.amount) ?? "", unit && unit !== "undetermined" ? unit : "", (p.modifier as string) ?? ""].join(" ").replace(/\s+/g, " ").trim();
-    if (!desc) continue;
+      : [num(p.amount) ?? "", unit && unit !== "undetermined" ? unit : "", modifier].join(" ").replace(/\s+/g, " ").trim();
+    if (!/[a-z]/i.test(desc)) continue; // a bare number ("1") isn't a portion anyone can recognise
     out.push({ label: `${desc} (${Math.round(grams * 10) / 10} g)`, amount: grams });
   }
   // Search results expose household measures as `foodMeasures`.
@@ -158,10 +162,21 @@ async function fetchUsdaSearch(query: string, userId: string | undefined, pageSi
   return foods;
 }
 
+/**
+ * WT-02: one food record. USDA's first answer for a record it hasn't served recently can take about 8 seconds
+ * (measured: 7–8.4 s for fdcId 330137, then 0.3–1 s), which the 8-second search limit cut off every time. A
+ * single record is fetched once, when someone chooses it, so it gets its own bounded limit. Searches keep the
+ * default, so typing stays responsive. The request also asks only for the nutrients the app reads (portions are
+ * still included), which cut that record from 726 KB to about 23 KB with the same values.
+ */
+export const USDA_FOOD_TIMEOUT_MS = 15_000;
+const TRACKED_NUMBERS = Object.values(NUTRIENTS).flatMap((n) => n.numbers);
+export const usdaFoodUrl = (fdcId: string) => `${base()}/food/${fdcId}?${TRACKED_NUMBERS.map((n) => `nutrients=${encodeURIComponent(n)}`).join("&")}`;
+
 export async function getUsdaFood(fdcId: string, userId?: string): Promise<NormalizedFood> {
   if (!/^\d{1,10}$/.test(fdcId)) throw new ExternalFoodError("USDA", "not_found", "Invalid USDA food id.");
   const key = apiKey();
-  const data = (await guardedFetchJson("USDA", userId, `${base()}/food/${fdcId}`, { headers: { "X-Api-Key": key, Accept: "application/json" } }, isUsdaFoodResponse)) as Record<string, unknown>;
+  const data = (await guardedFetchJson("USDA", userId, usdaFoodUrl(fdcId), { headers: { "X-Api-Key": key, Accept: "application/json" } }, isUsdaFoodResponse, USDA_FOOD_TIMEOUT_MS)) as Record<string, unknown>;
   const food = normalizeUsdaFood(data);
   if (!food) throw new ExternalFoodError("USDA", "invalid_response", "The food database returned an unexpected response.");
   return food;

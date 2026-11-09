@@ -19,22 +19,42 @@ export function ExercisePicker({ open, onClose, onPick }: { open: boolean; onClo
   const [q, setQ] = useState("");
   const [muscle, setMuscle] = useState<string>("ALL");
   const [creating, setCreating] = useState(false);
-  const [newMuscle, setNewMuscle] = useState<string>("CHEST");
-  const [newEquip, setNewEquip] = useState<string>("DUMBBELL");
+  // WT-09: no preselected muscle or equipment, so a new exercise is never filed under a default it wasn't given.
+  const [newMuscle, setNewMuscle] = useState<string>("");
+  const [newEquip, setNewEquip] = useState<string>("");
   const [error, setError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  // WT-01: parents pass a new onClose on every render (the workout logger re-renders every second for its clock).
+  // Reading it through a ref keeps the reset below tied to opening the picker, not to unrelated re-renders.
+  const onCloseRef = useRef(onClose);
+  useEffect(() => { onCloseRef.current = onClose; });
 
+  // Each opening starts clean; nothing else resets the search.
   useEffect(() => {
     if (!open) return;
     setQ("");
     setCreating(false);
+    setNewMuscle("");
+    setNewEquip("");
     setError(null);
-    if (!all) api<{ exercises: ExerciseOption[] }>("GET", "/api/exercises").then((r) => setAll(r.exercises)).catch((e) => setError(e.message));
     const t = setTimeout(() => inputRef.current?.focus(), 50);
-    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onClose();
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && onCloseRef.current();
     window.addEventListener("keydown", onKey);
-    return () => { clearTimeout(t); window.removeEventListener("keydown", onKey); };
-  }, [open, all, onClose]);
+    return () => {
+      clearTimeout(t);
+      window.removeEventListener("keydown", onKey);
+      // Cleared on closing too, so a reopened picker never shows the last search, even for one frame.
+      setQ("");
+      setCreating(false);
+      setNewMuscle("");
+      setNewEquip("");
+      setError(null);
+    };
+  }, [open]);
+
+  useEffect(() => {
+    if (open && !all) api<{ exercises: ExerciseOption[] }>("GET", "/api/exercises").then((r) => setAll(r.exercises)).catch((e) => setError(e.message));
+  }, [open, all]);
 
   const filtered = useMemo(() => {
     const term = q.trim().toLowerCase();
@@ -43,6 +63,7 @@ export function ExercisePicker({ open, onClose, onPick }: { open: boolean; onClo
 
   async function create() {
     setError(null);
+    if (!newMuscle || !newEquip) { setError("Choose the main muscle and the equipment."); return; }
     try {
       const { exercise } = await api<{ exercise: ExerciseOption }>("POST", "/api/exercises", { name: q.trim(), primaryMuscle: newMuscle, equipment: newEquip });
       setAll((a) => [...(a ?? []), exercise].sort((x, y) => x.name.localeCompare(y.name)));
@@ -93,14 +114,16 @@ export function ExercisePicker({ open, onClose, onPick }: { open: boolean; onClo
                 <div className="space-y-2 rounded-xl bg-surface-2 p-3">
                   <p className="text-sm font-medium">New exercise: {q.trim()}</p>
                   <div className="grid grid-cols-2 gap-2">
-                    <Select value={newMuscle} onChange={(e) => setNewMuscle(e.target.value)}>
+                    <Select value={newMuscle} onChange={(e) => setNewMuscle(e.target.value)} aria-label="Main muscle" data-testid="new-exercise-muscle">
+                      <option value="" disabled>Main muscle…</option>
                       {MUSCLE_GROUPS.map((m) => <option key={m} value={m}>{MUSCLE_LABELS[m]}</option>)}
                     </Select>
-                    <Select value={newEquip} onChange={(e) => setNewEquip(e.target.value)}>
+                    <Select value={newEquip} onChange={(e) => setNewEquip(e.target.value)} aria-label="Equipment" data-testid="new-exercise-equipment">
+                      <option value="" disabled>Equipment…</option>
                       {EQUIPMENT.map((m) => <option key={m} value={m}>{EQUIPMENT_LABELS[m]}</option>)}
                     </Select>
                   </div>
-                  <Button className="w-full" onClick={create}>Create and add</Button>
+                  <Button className="w-full" onClick={create} disabled={!newMuscle || !newEquip} data-testid="new-exercise-create">Create and add</Button>
                 </div>
               )}
             </li>

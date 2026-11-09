@@ -100,8 +100,12 @@ export function BarcodeScan({ onConfirm, onCreate, onSearch, onClose }: { onConf
         };
         tick();
       } catch (e) {
+        // WT-06: a camera that fails after the person has moved on (a typed code looked up, or the sheet closed)
+        // mustn't pull them back, and its notice mustn't replace a message about what they just typed.
+        if (stopped) return;
         const name = (e as { name?: string }).name ?? "";
-        setMessage(CAMERA_HELP[name] ?? "The camera couldn't be started. Type the barcode below, or choose a photo.");
+        const help = CAMERA_HELP[name] ?? "The camera couldn't be started. Type the barcode below, or choose a photo.";
+        setMessage((current) => current ?? help);
         setPhase({ kind: "manual" });
       }
     })();
@@ -301,7 +305,7 @@ export function BarcodeScan({ onConfirm, onCreate, onSearch, onClose }: { onConf
           </div>
         </form>
       )}
-      <Button variant="ghost" size="sm" onClick={() => { stop(); onClose(); }}>Close</Button>
+      {/* WT-08: the sheet's own Close (in its header) closes the scanner; unmounting stops the camera. */}
     </div>
   );
 }

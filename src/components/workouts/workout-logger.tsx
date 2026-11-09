@@ -11,6 +11,7 @@ import { OverloadBadge } from "@/components/overload-badge";
 import { ExercisePicker, type ExerciseOption } from "./exercise-picker";
 import { NoteSaver, flushAll, type NoteSaveStatus } from "@/lib/client/note-saver";
 import { SwapSheet, type Swapped } from "./swap-sheet";
+import { targetForExercise } from "@/lib/swap-target";
 
 export interface LoggedSet {
   id: string;
@@ -212,7 +213,7 @@ export function WorkoutLogger({ sessionId, name, startedAt, units, initial, init
     const se = s.sessionExercise;
     const m = machines.find((x) => x.id === se.gymEquipmentId) ?? null;
     const prev = await previousFor(se.exerciseId, se.gymEquipmentId);
-    const replacement: LoggerExercise = { id: se.id, exercise: { id: se.exercise.id, name: se.exercise.name, equipment: se.exercise.equipment }, notes: se.notes, restSeconds: se.restSeconds, sets: [], prev, target: original.target, machine: m ? { id: m.id, name: m.name } : null, planned: { name: original.planned?.name ?? original.exercise.name } };
+    const replacement: LoggerExercise = { id: se.id, exercise: { id: se.exercise.id, name: se.exercise.name, equipment: se.exercise.equipment }, notes: se.notes, restSeconds: se.restSeconds, sets: [], prev, target: targetForExercise(original.target, { swappedIn: true }), machine: m ? { id: m.id, name: m.name } : null, planned: { name: original.planned?.name ?? original.exercise.name } };
     setExercises((xs) => xs.flatMap((x) => (x.id === original.id ? [{ ...x, swappedOut: true }, replacement] : [x])));
   }
 

@@ -94,14 +94,30 @@ async function logProviderHttpError(source: ExternalSource, url: string, res: Re
 
 export const DEFAULT_TIMEOUT_MS = 8000;
 
-/** GET JSON with a timeout, mapping every failure to an ExternalFoodError. */
+const timeoutError = (source: ExternalSource) => new ExternalFoodError(source, "timeout", "The food database took too long to respond.");
+
+/**
+ * GET JSON with a timeout, mapping every failure to an ExternalFoodError. The timeout covers the whole exchange,
+ * reading the body included, and aborts the request when it fires, so nothing is left running. (A timer and an
+ * AbortController rather than AbortSignal.timeout, so tests can drive it with fake timers.)
+ */
 export async function fetchJson(source: ExternalSource, url: string, init: RequestInit = {}, timeoutMs = DEFAULT_TIMEOUT_MS): Promise<unknown> {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetchJsonWith(source, url, init, controller.signal);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function fetchJsonWith(source: ExternalSource, url: string, init: RequestInit, signal: AbortSignal): Promise<unknown> {
   let res: Response;
   try {
-    res = await fetch(url, { ...init, signal: AbortSignal.timeout(timeoutMs), cache: "no-store" });
+    res = await fetch(url, { ...init, signal, cache: "no-store" });
   } catch (e) {
     const name = (e as Error)?.name;
-    if (name === "TimeoutError" || name === "AbortError") throw new ExternalFoodError(source, "timeout", "The food database took too long to respond.");
+    if (signal.aborted || name === "TimeoutError" || name === "AbortError") throw timeoutError(source);
     const networkError = new ExternalFoodError(source, "network", "Could not reach the food database.");
     networkError.transient = true;
     throw networkError;
@@ -126,6 +142,7 @@ export async function fetchJson(source: ExternalSource, url: string, init: Reque
   try {
     return await res.json();
   } catch {
+    if (signal.aborted) throw timeoutError(source);
     throw new ExternalFoodError(source, "invalid_response", "The food database returned an unreadable response.");
   }
 }
@@ -150,14 +167,14 @@ export function _setSearchRetryDelay(fn: () => number) { searchRetryDelayMs = fn
  * fault shouldn't use up the user's allowance. Each search counts once for the circuit.
  */
 export async function guardedFetchJson(
-  op: ProviderOp, userId: string | undefined, url: string, init: RequestInit, validate: ResponseValidator,
+  op: ProviderOp, userId: string | undefined, url: string, init: RequestInit, validate: ResponseValidator, timeoutMs = DEFAULT_TIMEOUT_MS,
 ): Promise<unknown> {
   const source: ExternalSource = op === "USDA" ? "USDA" : "OPEN_FOOD_FACTS";
   acquire(op, userId);
   try {
     let data: unknown;
     try {
-      data = await fetchJson(source, url, init);
+      data = await fetchJson(source, url, init, timeoutMs);
     } catch (e) {
       if (op !== "OFF_SEARCH" || !(e instanceof ExternalFoodError) || !e.transient) throw e;
       await new Promise((resolve) => setTimeout(resolve, searchRetryDelayMs()));
@@ -166,7 +183,7 @@ export async function guardedFetchJson(
       } catch {
         throw e; // No capacity for a retry: report the failure that actually happened.
       }
-      data = await fetchJson(source, url, init);
+      data = await fetchJson(source, url, init, timeoutMs);
     }
     if (!validate(data)) {
       throw new ExternalFoodError(source, "invalid_response", "The food database returned an unexpected response.");

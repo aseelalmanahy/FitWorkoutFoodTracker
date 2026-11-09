@@ -218,6 +218,16 @@ export async function getExerciseHistories(userId: string, exerciseIds: string[]
   return new Map(exerciseIds.map((id) => [id, [...(out.get(id)?.values() ?? [])]]));
 }
 
+/** Every completed session exercise, in every context (machine or none), for the Progress list (WT-03). */
+export async function getAllExerciseSessions(userId: string) {
+  const rows = await prisma.sessionExercise.findMany({
+    where: { session: { userId, status: "COMPLETED" } },
+    select: { exerciseId: true, gymEquipmentId: true, session: { select: { id: true, startedAt: true } }, sets: { orderBy: { setNumber: "asc" } } },
+    orderBy: [{ session: { startedAt: "asc" } }, { position: "asc" }],
+  });
+  return rows.map((r) => ({ exerciseId: r.exerciseId, gymEquipmentId: r.gymEquipmentId, sessionId: r.session.id, date: r.session.startedAt, sets: r.sets }));
+}
+
 export async function getExerciseHistory(userId: string, exerciseId: string, gymEquipmentId: string | null = null): Promise<SessionPerformance[]> {
   return (await getExerciseHistories(userId, [exerciseId], { gymEquipmentId })).get(exerciseId) ?? [];
 }

@@ -112,6 +112,16 @@ async function wholeFlow(browser) {
   const press = card(page, "Machine Chest Press");
   assert.match(await press.getByTestId("swapped-in").innerText(), /Swapped in for Barbell Bench Press/);
   assert.match(await press.getByTestId("exercise-machine").innerText(), /On Hammer press/);
+  // WT-04: the replacement keeps the plan's sets and reps, never the bench's 60 kg, on screen and after a reload.
+  const targetText = async () => (await card(page, "Machine Chest Press").innerText()).match(/Target [^\n·]*/)?.[0] ?? "";
+  assert.match(await targetText(), /Target 3 × 8–10/);
+  assert.doesNotMatch(await targetText(), /@/, "no weight carried over from the bench");
+  await page.reload();
+  await card(page, "Machine Chest Press").waitFor();
+  assert.match(await targetText(), /Target 3 × 8–10/);
+  assert.doesNotMatch(await targetText(), /@/, "no weight carried over after a reload either");
+  assert.match(await card(page, "Barbell Bench Press").innerText(), /Target 3 × 8–10 @ 60 kg/, "the planned exercise keeps its own weight");
+  step("WT-04: a swapped-in exercise shows the plan's sets and reps, without the replaced exercise's weight");
   await logSet(page, "Machine Chest Press", 50, 10);
   await finish(page);
   const rows = await prisma.sessionExercise.findMany({ where: { sessionId }, orderBy: { position: "asc" }, include: { sets: { orderBy: { setNumber: "asc" } } } });
@@ -148,6 +158,16 @@ async function wholeFlow(browser) {
   assert.match(await page.locator("body").innerText(), /1 session logged on Hammer press/);
   step("progress: the machine's history is separate from the shared one");
 
+  // WT-03: the Progress list counts sessions on a named machine, and opens that machine's history.
+  await page.goto(`${BASE}/progress`);
+  const pressRow = page.getByRole("link").filter({ hasText: "Machine Chest Press" }).first();
+  assert.match(await pressRow.innerText(), /1 session\b/, "a machine-only exercise isn't shown as 0 sessions");
+  assert.match(await pressRow.getAttribute("href"), /\?machine=/, "it links to the machine's own history");
+  assert.match(await page.getByRole("link").filter({ hasText: "Barbell Bench Press" }).first().innerText(), /1 session\b/);
+  await pressRow.click();
+  await page.getByTestId("progress-context-note").filter({ hasText: "Only sets on Hammer press at City Gym" }).waitFor();
+  step("WT-03: the Progress list counts machine sessions and opens the machine's history");
+
   // Change the gym during a workout.
   await page.goto(`${BASE}/workouts`);
   await page.getByRole("button", { name: "Start an empty workout" }).click();
@@ -161,6 +181,55 @@ async function wholeFlow(browser) {
   step("the gym changed during a workout");
 }
 
+/**
+ * WT-01 and WT-09, during a workout (whose clock re-renders the page every second): the search keeps what's typed,
+ * an exercise can be added, a custom exercise can be created only with a muscle and equipment chosen, the logged
+ * sets are untouched, and closing and reopening the picker starts it clean.
+ */
+async function pickerDuringWorkout(page, engine) {
+  const sessionId = page.url().split("/").pop();
+  const setsBefore = await prisma.setEntry.findMany({ where: { sessionExercise: { sessionId } }, orderBy: { id: "asc" } });
+  const search = page.getByPlaceholder("Search exercises");
+  await page.getByRole("button", { name: "Add exercise" }).click();
+  await search.fill("Plank");
+  await page.waitForTimeout(2500); // more than two ticks of the workout clock
+  assert.equal(await search.inputValue(), "Plank", `${engine}: the search survives the workout's re-renders`);
+  await page.getByRole("dialog").getByRole("button", { name: /^Plank/ }).click();
+  await card(page, "Plank").waitFor();
+
+  await page.getByRole("button", { name: "Add exercise" }).click();
+  await search.fill("Goblet Squat");
+  await page.waitForTimeout(1500);
+  await page.getByRole("button", { name: "Create “Goblet Squat”" }).click();
+  const muscle = page.getByLabel("Main muscle");
+  const equipment = page.getByLabel("Equipment", { exact: true });
+  assert.equal(await muscle.inputValue(), "", "no muscle is preselected");
+  assert.equal(await equipment.inputValue(), "", "no equipment is preselected");
+  assert.equal(await page.getByTestId("new-exercise-create").isDisabled(), true, "it can't be created without both");
+  await muscle.selectOption({ label: "Quads" });
+  assert.equal(await page.getByTestId("new-exercise-create").isDisabled(), true, "the equipment is still needed");
+  await equipment.selectOption({ label: "Dumbbell" });
+  await page.waitForTimeout(1200);
+  assert.equal(await search.inputValue(), "Goblet Squat", "the name is still there after the clock ticked");
+  await page.getByTestId("new-exercise-create").click();
+  await card(page, "Goblet Squat").waitFor();
+  const { userId } = await prisma.workoutSession.findUnique({ where: { id: sessionId } });
+  const created = await prisma.exercise.findFirst({ where: { name: "Goblet Squat", userId } });
+  assert.equal(created.primaryMuscle, "QUADS");
+  assert.equal(created.equipment, "DUMBBELL");
+
+  await page.getByRole("button", { name: "Add exercise" }).click();
+  await search.fill("Leftover");
+  await page.getByRole("dialog").getByRole("button", { name: "Close" }).click();
+  await page.getByRole("button", { name: "Add exercise" }).click();
+  assert.equal(await search.inputValue(), "", "reopening starts with an empty search");
+  await page.getByRole("dialog").getByRole("button", { name: "Close" }).click();
+
+  const setsAfter = await prisma.setEntry.findMany({ where: { sessionExercise: { sessionId } }, orderBy: { id: "asc" } });
+  assert.deepEqual(setsAfter, setsBefore, "the logged sets are untouched");
+  step(`${engine}: WT-01/WT-09 mid-workout search kept, exercise added, custom exercise created as Quads · Dumbbell, sets intact`);
+}
+
 async function swapWithPlanUpdate(browser, engine) {
   const { plan, page } = await signedIn(browser, `plan${engine}`);
   await page.goto(`${BASE}/workouts`);
@@ -168,6 +237,7 @@ async function swapWithPlanUpdate(browser, engine) {
   await page.waitForURL(/\/workouts\/session\//);
   assert.equal(await page.getByTestId("session-gym").count(), 0, "no gyms: no gym chooser in the workout");
   await logSet(page, "Barbell Bench Press", 60, 8);
+  await pickerDuringWorkout(page, engine);
   const offered = await swap(page, "Barbell Bench Press", "Dumbbell Bench Press", { updatePlan: true });
   assert.equal(offered["Dumbbell Bench Press"], "true", "no gym chosen: availability isn't claimed");
   await logSet(page, "Dumbbell Bench Press", 24, 10);
