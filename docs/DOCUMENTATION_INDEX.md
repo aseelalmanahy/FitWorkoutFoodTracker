@@ -47,6 +47,15 @@
 | [SESSION_HANDOFF.md](SESSION_HANDOFF.md) | A snapshot of 2026-11-07 | **superseded by PROJECT_STATUS.md**; keep for its rules (for example, BUNNY) |
 | [../PHASE_2_PROGRESS.md](../PHASE_2_PROGRESS.md) | Phase 2 and 2.5 progress and the live check | the final section (15/15 PASSED) |
 
+## Application walkthrough (evidence, 2026-11-09)
+
+| Document | What it records |
+|---|---|
+| [APP_FEATURE_TEST_REPORT.md](APP_FEATURE_TEST_REPORT.md) | The hands-on test of the running app at `d7d278d`: environment, a result for every feature, the 11 journeys, defects WT-01..09, live USDA and Open Food Facts checks, readiness |
+| [APP_USER_GUIDE.md](APP_USER_GUIDE.md) | How to use every feature, step by step, with the demo user and screenshots |
+| [APP_SCREEN_INDEX.md](APP_SCREEN_INDEX.md) | Every screen, how to reach it, and its screenshot (148, in `screenshots/walkthrough/`) |
+| [APP_DEMO_DATA.md](APP_DEMO_DATA.md) | The fictional account used, what was seeded and what each part shows |
+
 ## Product and decisions
 
 | Document | Authority |
