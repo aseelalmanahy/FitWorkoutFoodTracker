@@ -59,8 +59,26 @@ const timed = (fn) => { const t0 = Date.now(); const v = fn(); return [v, Math.r
 const memory = () => {
   const r = docker(["exec", APP, "sh", "-c", "cat /sys/fs/cgroup/memory.current /sys/fs/cgroup/memory.peak 2>/dev/null || cat /sys/fs/cgroup/memory/memory.usage_in_bytes /sys/fs/cgroup/memory/memory.max_usage_in_bytes"]);
   const [cur, peak] = r.stdout.trim().split(/\s+/).map(Number);
-  return { currentMB: Math.round(cur / 2 ** 20), peakMB: Math.round(peak / 2 ** 20) };
+  // memory.peak counts reclaimable file cache (the image's files the app reads), which Linux lets grow to the limit
+  // and reclaims under pressure. What can get the process killed is anonymous memory, and the kernel's own OOM count.
+  const s = docker(["exec", APP, "sh", "-c", "grep -E '^(anon|file) ' /sys/fs/cgroup/memory.stat; grep -E '^(oom|oom_kill) ' /sys/fs/cgroup/memory.events"]).stdout;
+  const v = (k) => Number((s.match(new RegExp(`^${k} (\\d+)`, "m")) || [])[1] ?? NaN);
+  return { currentMB: Math.round(cur / 2 ** 20), peakMB: Math.round(peak / 2 ** 20), anonMB: Math.round(v("anon") / 2 ** 20), fileMB: Math.round(v("file") / 2 ** 20), oomEvents: v("oom"), oomKills: v("oom_kill") };
 };
+/** Samples anonymous memory every 250 ms while `work` runs, without blocking it, and returns the highest seen. */
+async function sampleAnonWhile(work) {
+  const { execFile } = require("node:child_process");
+  let max = 0, done = false;
+  const loop = (async () => {
+    while (!done) {
+      const out = await new Promise((res) => execFile("docker", ["exec", APP, "grep", "^anon ", "/sys/fs/cgroup/memory.stat"], { windowsHide: true }, (_, so) => res(so || "")));
+      const n = Number((out.match(/^anon (\d+)/m) || [])[1] ?? 0);
+      if (n > max) max = n;
+      await new Promise((r) => setTimeout(r, 250));
+    }
+  })();
+  try { return { result: await work(), maxAnonMB: Math.round(max / 2 ** 20) }; } finally { done = true; await loop; }
+}
 const appEnv = (over = {}) => Object.entries({ NODE_ENV: "production", APP_ORIGIN: ORIGIN, DATABASE_URL: `postgresql://postgres:${DB_PW}@${DB}:5432/${DB_NAME}?sslmode=require`, TRUST_PROXY_HOPS: "1", LABEL_OCR: "local", MEAL_RECOGNITION: "local", ...over }).flatMap(([k, v]) => ["-e", `${k}=${v}`]);
 const HARDENED = ["--read-only", "--tmpfs", "/tmp", "--tmpfs", "/app/.next/cache", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true", "--memory", "1536m", "--cpus", "1.5", "--pids-limit", "256"];
 const psql = (sql) => must(docker(["exec", "-e", `PGPASSWORD=${DB_PW}`, DB, "psql", "-U", "postgres", "-d", DB_NAME, "-v", "ON_ERROR_STOP=1", "-At", "-c", sql]), "psql");
@@ -193,13 +211,19 @@ async function waitHealthy(name, seconds) {
     const cookie2 = await signIn("g1user2", "g1-second@example.invalid");
     seed("g1user", maxRows); seed("g1user2", maxRows);
     const t0 = Date.now();
-    const both = await Promise.all([exportAs(cookie), exportAs(cookie2)]);
+    const { result: [both, second], maxAnonMB } = await sampleAnonWhile(async () => {
+      const b = await Promise.all([exportAs(cookie), exportAs(cookie2)]);
+      return [b, b.find((x) => x.status === 429) ? await exportAs(b[0].status === 429 ? cookie : cookie2) : { status: 0, bytes: 0 }];
+    });
     const statuses = both.map((b) => b.status).sort().join(",");
-    const second = both.find((b) => b.status === 429) ? await exportAs(both[0].status === 429 ? cookie : cookie2) : { status: 0, bytes: 0 };
     const m = memory();
     const alive = docker(["inspect", "-f", "{{.State.Running}} {{.State.OOMKilled}} {{.RestartCount}}", APP]).stdout.trim();
-    record(`7. an export at the ${maxRows.toLocaleString("en")}-row limit while a second is refused (429), then the second; under 1536 MB, process alive`, statuses === "200,429" && second.status === 200 && m.peakMB < 1536 && alive === "true false 0",
-      { note: `at once: ${statuses}; then ${second.status}, ${Math.round(second.bytes / 2 ** 20)} MiB; ${Math.round((Date.now() - t0) / 1000)} s; running/oom/restarts ${alive}`, memory: m });
+    // Pass: the right answers, the process alive with no restart, no OOM kill in the cgroup, and anonymous memory (what
+    // the kernel can't reclaim) at least 256 MB below the 1536 MB limit at its highest.
+    const ANON_CEILING_MB = 1536 - 256;
+    record(`7. an export at the ${maxRows.toLocaleString("en")}-row limit while a second is refused (429), then the second; anonymous memory under ${ANON_CEILING_MB} MB, no OOM kill, process alive`,
+      statuses === "200,429" && second.status === 200 && maxAnonMB > 0 && maxAnonMB < ANON_CEILING_MB && m.oomKills === 0 && alive === "true false 0",
+      { note: `at once: ${statuses}; then ${second.status}, ${Math.round(second.bytes / 2 ** 20)} MiB; ${Math.round((Date.now() - t0) / 1000)} s; highest anonymous ${maxAnonMB} MB; OOM kills ${m.oomKills}; running/oom/restarts ${alive}`, memory: { ...m, maxAnonMB } });
     const cookie3 = await signIn("g1user3", "g1-third@example.invalid");
     seed("g1user3", maxRows + 1);
     const over = await exportAs(cookie3);
