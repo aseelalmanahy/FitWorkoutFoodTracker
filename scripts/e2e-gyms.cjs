@@ -158,8 +158,22 @@ async function wholeFlow(browser) {
   assert.match(await page.locator("body").innerText(), /1 session logged on Hammer press/);
   step("progress: the machine's history is separate from the shared one");
 
-  // WT-03: the Progress list counts sessions on a named machine, and opens that machine's history.
+  // UI-02: Training programs is the default view. This plan isn't in a program, so its workout is under "Not in a
+  // program", with the swapped-in exercise on its machine, linking to that machine's history.
   await page.goto(`${BASE}/progress`);
+  assert.deepEqual(await page.getByTestId("progress-tab").allInnerTexts(), ["Training programs", "Exercise progress", "Body weight"]);
+  assert.equal(await page.locator("[data-testid=progress-tab][aria-current=page]").innerText(), "Training programs");
+  assert.deepEqual(await page.getByTestId("progress-program-name").allInnerTexts(), ["Not in a program"]);
+  await page.getByTestId("progress-no-programs").waitFor();
+  const pressInProgram = page.getByTestId("progress-exercise").filter({ hasText: "Machine Chest Press" });
+  assert.match(await pressInProgram.innerText(), /Hammer press[\s\S]*1 set · top 50 kg × 10[\s\S]*Baseline/);
+  assert.match(await pressInProgram.getByRole("link").getAttribute("href"), /\?machine=/);
+  assert.equal(await page.getByTestId("progress-tab").filter({ hasText: "Body weight" }).getAttribute("href"), "/progress/weight");
+  step("UI-02: Training programs by default, the workout under Not in a program, its machine exercise linked");
+
+  // WT-03: the Progress list counts sessions on a named machine, and opens that machine's history.
+  await page.goto(`${BASE}/progress?view=exercises`);
+  assert.equal(await page.locator("[data-testid=progress-tab][aria-current=page]").innerText(), "Exercise progress");
   const pressRow = page.getByRole("link").filter({ hasText: "Machine Chest Press" }).first();
   assert.match(await pressRow.innerText(), /1 session\b/, "a machine-only exercise isn't shown as 0 sessions");
   assert.match(await pressRow.getAttribute("href"), /\?machine=/, "it links to the machine's own history");

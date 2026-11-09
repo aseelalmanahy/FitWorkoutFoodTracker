@@ -290,6 +290,20 @@ Browser emulation on this computer (WebKit at phone size through a local HTTPS s
 
 **Not here:** GPS or locations (by design), a shared gym list, and AI suggestions for swaps (alternatives are reviewed movement patterns and your own earlier swaps only).
 
+## UI-02: Progress views
+
+On http://localhost:3400. The Exercise progress cards and badges are meant to look and work exactly as before ([BUG_TRACKER.md](BUG_TRACKER.md) UI-02).
+
+| # | Where | Do this | What should happen |
+|---|---|---|---|
+| P.1 | Progress | Open it | Three tabs: **Training programs** (selected), **Exercise progress**, **Body weight** |
+| P.2 | Training programs | Look at it | Each program with its workout count and last date, then months (the latest open), then each workout's date and exercises, each with a badge. Workouts not from a program are under **Not in a program** |
+| P.3 | Training programs | Tap a workout's name, then go back and tap an exercise | The finished workout opens; the exercise opens its progress detail |
+| P.4 | Workouts → a program → take a day out, then Progress | Look at it | That day's past workouts move to Not in a program, as the note under the list says. Put it back afterwards |
+| P.5 | Exercise progress | Look at it | The same cards and badges as before: Improved green, Down orange, Matched blue, Baseline neutral. A card opens its exercise |
+| P.6 | Body weight | Tap it | The weight log opens |
+| P.7 | Progress, on a phone width | Look at it | All three tabs visible, and no sideways scrolling |
+
 ## Known limitations
 
 - **Local only.** One Windows machine, with a local production build, on `fitdb_test`. Nothing is deployed.

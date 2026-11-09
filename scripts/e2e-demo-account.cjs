@@ -96,7 +96,7 @@ async function inBrowser(name, shots) {
   step("workout history is populated, and a finished workout opens");
 
   // ─── Progress ────────────────────────────────────────────────────────────
-  await visit("/progress", "08-progress");
+  await visit("/progress?view=exercises", "08-progress");
   for (const status of ["Improved", "Matched", "Down"]) assert.ok(await page.getByText(status).count() >= 1, `progress shows ${status}`);
   const bench = await prisma.exercise.findFirst({ where: { userId: null, name: "Barbell Bench Press" }, select: { id: true } });
   await visit(`/progress/${bench.id}`, "09-exercise");

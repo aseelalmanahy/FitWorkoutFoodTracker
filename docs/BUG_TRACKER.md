@@ -6,6 +6,7 @@
 |---|---|---|---|---|---|
 | **UI-01** | Owner, 2026-11-09 | Imported plans were mixed with unrelated plans: each imported day became its own plan named "Program – Day", listed among the person's own plans, and was put on the weekly schedule whenever the file named a weekday | High | **Fixed** in `bd86e47`; owner review pending | See below |
 | **IM-02** | Owner, 2026-11-09 | A text import ("workout 1.txt") saved exercises that weren't in the file | High | **Fixed** in `bd86e47` (cause found and closed); owner review pending | See below |
+| **UI-02** | Owner, 2026-11-09 | Progress had no view by program: workouts couldn't be followed program by program and month by month | Medium: a missing view, nothing wrong | **Built** as an added view; owner review pending | See below |
 | **IMG-01** | Owner, 2026-11-09 | A real plan image gave "No exercises with sets and repetitions were found" | High | **Fixed** in `2411496`, `7fec302`. The owner confirmed the reading works; **full acceptance is still separate** | [DECISION_REGISTER.md](DECISION_REGISTER.md) §7 |
 | CON-01 | Owner, 2026-11-09 (Chrome console) | "Banner not shown: beforeinstallpromptevent.preventDefault() called" | None: an information message, by design | **Not a defect, no change.** The install flow was verified | See below |
 | CON-02 | Owner, 2026-11-09 (Chrome console) | Repeated "A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received" | None for the app: it comes from a browser extension | **Not an app defect, no change.** Reproduced only with an extension | See below |
@@ -83,3 +84,46 @@ Checked on 2026-11-09 against http://localhost:3400 (`fd6f67b`), as the demo acc
 - **To confirm in your own Chrome:** open http://localhost:3400 in an Incognito window with extensions off. The message doesn't appear. Turning extensions back on one at a time shows which one sends it; password managers, translators and ad blockers commonly do.
 
 **Tests:** the PWA unit tests passed (`src/lib/pwa.test.ts` and related, 127 passed). The browser PWA suite wasn't run, as it starts its own app server.
+
+## UI-02: Progress views
+
+**Owner design decision (2026-11-09), recorded as given.**
+- **The existing exercise cards and their badges stay.** The owner explicitly approved them: **Improved** (green), **Down** (orange), **Matched** (blue) and **Baseline** (neutral).
+- **Unchanged:** their colours, appearance, comparison calculations, and the link to each exercise's detail page.
+- **The new organization is an added view, not a replacement.**
+
+**The Progress page has three views, as tabs:**
+1. **Training programs** (the default, `/progress`): by program, then month, then workout date, then exercises.
+2. **Exercise progress** (`/progress?view=exercises`): the existing cards and badges, from the same code, unchanged.
+3. **Body weight**: opens the existing weight log, `/progress/weight`.
+
+**How the Training programs view works.** There's no database change. A workout's program comes from its plan: workout → plan → program.
+- **Grouped by each plan's current program,** and the page says so. Grouping or ungrouping a plan moves its past workouts with it. Storing the program on each workout would need a schema change, which the owner asked to avoid.
+- **Workouts with no program** (from individual plans, empty workouts or deleted plans) are in one group, **Not in a program**. Nothing is grouped by guessing from names or dates.
+- **Each exercise on a date** gets the same badge calculation as Exercise progress. It compares that workout with the previous workout of the same exercise, on the same machine or none (WT-03), across every program, so switching programs never gives a false Baseline. The latest workout's badge equals the exercise card's (unit-tested).
+- Each workout links to its history page. Each exercise links to its progress detail, on its machine if it had one.
+
+**Product review** (`product-strategy-agent`, MODIFY).
+- **Adopted:** its points on the "Not in a program" label, the current-program note, the per-date comparison and the Body weight link.
+- **Not adopted:** its suggestion to open on Exercise progress while there are no programs. The owner explicitly chose Training programs as the default.
+
+**Verified.**
+- **Unit tests** (`src/lib/progress-programs.test.ts`, 7), covering:
+  - grouping and order;
+  - months by local date;
+  - comparison across programs, but never across machines;
+  - the latest badge equal to the card's;
+  - an exercise done twice in a workout counted as one;
+  - no badge without working sets.
+- **Browser tests:**
+  - `gyms-e2e` passed. It now also checks the default view, the Not in a program group, and a machine exercise's link. Its card checks run on `?view=exercises`.
+  - `csp-e2e` passed.
+- **On the demo account** (`fitdb_test`, read-only):
+  - Exercise progress: the 21 cards were **identical** to the previous page's, in markup, classes and links.
+  - Training programs: 32 workouts under the program the owner made, across 3 months. Badges: Improved 73, Matched 30, Down 29, and Baseline 21 (one per exercise's first session).
+  - No page errors, and no sideways scrolling at 390 px.
+- **Screenshots:** [docs/screenshots/ui02](screenshots/ui02).
+
+**Limits.**
+- A workout from a plan that was later moved to another program shows under the plan's current program, not the one it had then.
+- With years of workouts, the view lists them all, by month, with only the latest month open.
