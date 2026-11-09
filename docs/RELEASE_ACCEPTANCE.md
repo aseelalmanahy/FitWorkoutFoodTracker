@@ -7,8 +7,9 @@
 **Release verdict (2026-11-09): NOT READY** for an invited beta, and not yet ready for staging.
 - **What passed:** G1 on Linux (17 of 17), and the final regression at `caca244` (56/56 guarded, 2,309 unit tests).
 - **EXP-01:** verified fixed (Part 9).
-- **Still missing:** database recovery on real data, role isolation, the migrations (and with them G1's guarded path), hosting, email, phones, the privacy review and your acceptance.
-- **Next step:** one approval covers the three next database operations (9.6). The rest is in 8.9.
+- **Database operations (Part 10):** B2 passed (a real backup restores; `fitdb_review` unchanged). B1b failed on 2 of `safety-no-marker`'s tests, with no data harmed, so the `fitdb_test` migrations didn't run.
+- **Still missing:** B1b, the migrations (and with them G1's guarded path), role isolation, hosting, email, phones, the privacy review and your acceptance.
+- **Next step:** 10.2. The rest is in 8.9.
 
 **Nothing in this document is approved.** Every approval is the owner's, and so is every acceptance. Nothing has been merged or deployed. No migration has been applied to `fitdb`, `fitdb_test`, `fitdb_review` or production.
 
@@ -967,3 +968,76 @@ All three were verified by run 42558272013 above. The unit test in `deploy-confi
 **Wording that approves all three:** "B2, B1b and MIG-FB + MIG-GYM on fitdb_test approved; B2's transient copy accepted." Any part can be approved alone.
 
 **Still behind their own gates:** A4, the migrations on `fitdb_review`, the guarded G1 run (after `fitdb_review`), and everything from 8.9 rows 8–14.
+
+---
+
+## Part 10. Database operations (2026-11-09)
+
+**Owner approval, recorded verbatim:** "B2, B1b and MIG-FB + MIG-GYM on fitdb_test approved; B2's transient copy accepted." Order: B2, then B1b, then the migrations, **stopping at the first failed check**. Not authorized: any change to `fitdb_review` beyond B2's temporary restore, to `fitdb`, to A4 credentials, or to production.
+
+Evidence: `FitWorkoutFoodTracker-backups\diagnostics\db-ops-2026-11-09\`.
+
+| # | Operation | Result |
+|---|---|---|
+| 1 | **B2** | **PASSED** |
+| 2 | **B1b** | **FAILED**: `db-guard-scoped` 6/6; `safety-no-marker` 5 passed, **2 failed**, 1 skipped |
+| 3 | **MIG-FB + MIG-GYM on `fitdb_test`** | **NOT RUN**: the sequence stopped at B1b, as instructed |
+
+### 10.1 B2: PASSED
+
+Run from the release folder (`ca015e5`; its `restore-check.cjs` is identical to this branch's apart from line endings).
+
+1. **Before:** `table-fingerprint.cjs --save` on `fitdb_review` (read-only): 16 tables, 249 rows, 8 migrations.
+2. **Created** an empty `fitdb_restore_check` (owner `fit`, no marker, 0 tables).
+3. **Restored** with `restore-check.cjs --backup=…\fitdb_review-2026-11-07-21-52-51.dump`: **"RESTORE VERIFIED"**.
+   - 8 migrations, 17 tables, 153 columns, the owner's account and the 47 built-in exercises, all matching `fitdb_review`'s schema.
+   - Rows restored against `fitdb_review` now: AccountToken 0/0, BodyMetric 2/2, Exercise 47/47, Food 6/15, FoodEntry 5/17, FoodServing 19/58, NutritionTarget 1/1, Profile 3/3, ScheduleSlot 1/3, Session 13/40, SessionExercise 5/13, SetEntry 11/31, TemplateExercise 2/6, User 3/3, WorkoutSession 3/7, WorkoutTemplate 1/3, `_prisma_migrations` 8/8.
+4. **After:** `fitdb_review` independently compared: **UNCHANGED**, every row identical and every foreign key validated.
+5. **Dropped** `fitdb_restore_check`, confirmed absent.
+
+**No new backup was created.** The only dump is the existing one from 2026-11-07.
+
+**Finding:** that backup is **two days behind** `fitdb_review` (for example 5 of 17 food entries). B2 proves that a backup restores, not that a recent one exists. On staging this is the job of the nightly backup (RPO 24 h, proposed in G2). Locally, the owner chose not to keep another copy.
+
+### 10.2 B1b: FAILED (no data was harmed)
+
+Run from the release folder, with 8 migrations, as planned.
+
+**Steps:**
+- `local-db.cjs --init --confirm=fitdb_test_isolated_other`: created, 8 migrations, 47 built-in exercises, marked, READY.
+- Then the runner, with `safety-no-marker db-guard-scoped`.
+
+**Databases afterwards (read-only):**
+- **Fingerprint-identical** to just before B1b: `fitdb_review`, `fitdb_test` and `fitdb`.
+- `fitdb_test_isolated` (synthetic): users 1,713, the same as before; **no test user left behind**. Its AccountToken count went 1 → 0 (explained below).
+- `fitdb_test_isolated_other`: exists, synthetic, no users. **Left in place** for a diagnostic re-run. Rollback: drop it.
+
+**Failure 1, "matching DB: … cleanup restores row counts". Cause found; a test assumption, not an app defect.**
+- **What the test saw:** every count matched before and after, except `AccountToken`, 1 → 0.
+- **Why:** issuing any link first deletes every **expired** link (`access.ts:56`), as the privacy notice states. The test's sign-up issued a link, so the one pre-existing token was purged.
+- **Why it must have been expired:** a live token is deleted only for its own email or user, and the test uses new addresses.
+- **Where it came from:** most likely an earlier test run's sign-up link that never became a user. The live check's cleanup sweeps users, not orphaned sign-up links: a test-cleanup gap, in a synthetic database only.
+- **Why it passed elsewhere:** on the throwaway cluster the table started empty.
+
+**Failure 2, "request TIMEOUT: a sign-up that lands after the client gave up is removed by the second sweep" (QA-05's test). Cause NOT determined.**
+- **What the test does:** a proxy holds `POST /api/auth/register/complete` for 2.5 s, the client gives up at 1 s, and a second sweep runs 5 s later.
+- **What happened:** the client timed out as intended, but the held request **never created a user**. The second sweep found none, and `fitdb_test_isolated` still has exactly 1,713 users. So the cleanup worked, but the late write it exists to catch never happened. QA-05's protection is therefore **unverified on the real server**, not disproved.
+- **No more evidence available:** the suite deletes its report files, and the test app's server log isn't kept.
+- **Elsewhere:** passed on the throwaway cluster in every full regression (including `caca244`).
+
+**Not done, under the stop rule:**
+- no re-run of the suites;
+- no change to either test;
+- the migrations on `fitdb_test`;
+- dropping the companion database.
+
+**Safest next step (one approval):** "B1b diagnostic re-run approved". It re-runs `safety-no-marker` against the real server, synthetic data only, with the test app's server log and the live check's report kept.
+- **Failure 1:** it should then pass, as the expired token is gone. If so, the cleanup gap gets a separate test fix: the live check also removes the sign-up links of its own test addresses.
+- **Failure 2:** the server log will show whether the held request reached the app, and what it answered.
+- **Then:** if both pass, and the protected databases are unchanged, B1b passes, and the `fitdb_test` migrations can proceed under the approval already given, if the owner confirms.
+
+### 10.3 Also done
+
+**SEC-ACL:**
+- the backup folder is still restricted (unchanged);
+- the rollback is corrected (7.2).
