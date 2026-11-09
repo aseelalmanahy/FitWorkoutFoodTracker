@@ -158,6 +158,9 @@ async function waitHealthy(name, seconds) {
     const { hash } = require("@node-rs/argon2");
     const pwHash = await hash(USER_PW, { memoryCost: 19456, timeCost: 2, parallelism: 1 });
     psql(`INSERT INTO "User" (id, email, "passwordHash", "updatedAt") VALUES ('g1user', 'g1@example.invalid', '${pwHash}', now())`);
+    // The access gate answers 409 "Complete your profile first" to an account with no profile, so the synthetic user
+    // gets the minimum a real one has: a name and an adult date of birth.
+    psql(`INSERT INTO "Profile" ("userId", name, "birthDate", "updatedAt") VALUES ('g1user', 'G1 rehearsal', date '1990-01-01', now())`);
     let cookie = "";
     const login = await fetch(`${BASE}/api/auth/login`, { method: "POST", headers: { ...headers(), "Content-Type": "application/json" }, body: JSON.stringify({ email: "g1@example.invalid", password: USER_PW }), redirect: "manual" });
     for (const c of login.headers.getSetCookie()) if (c.startsWith("fit_session=")) cookie = c.split(";")[0];
@@ -188,7 +191,9 @@ async function waitHealthy(name, seconds) {
     const exit = docker(["inspect", "-f", "{{.State.ExitCode}}", APP]).stdout.trim();
     record("8. stops cleanly within its grace period", stopS < 30 && ["0", "143"].includes(exit), { note: `exit ${exit} after ${stopS} s` });
   } catch (e) {
-    record("run", false, { note: scrub(e.message).slice(0, 600) });
+    const state = docker(["inspect", "-f", "{{.State.Status}} exit={{.State.ExitCode}} oom={{.State.OOMKilled}} restarts={{.RestartCount}}", APP]).stdout.trim();
+    const appLogs = docker(["logs", "--tail", "40", APP]);
+    record("run", false, { note: `${scrub(e.message).slice(0, 600)}; app: ${state || "not started"}`, logs: scrub(appLogs.stderr + appLogs.stdout).slice(-1500) });
   } finally {
     for (const c of [APP, DB, `${RUN}-refuse`]) docker(["rm", "-f", "-v", c]);
     docker(["network", "rm", NET]);
