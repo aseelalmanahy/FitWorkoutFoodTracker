@@ -1,5 +1,7 @@
 # Project Completion Tracker
 
+> **Synchronization note (2026-11-09):** This tracker continues through sections 2j–2n (to 2026-11-09). The current state is [PROJECT_STATUS.md](PROJECT_STATUS.md); the consolidated register is [DECISION_REGISTER.md](DECISION_REGISTER.md). Where a row here differs from RELEASE_ACCEPTANCE Parts 10–11, the latter is newer.
+
 **The single source of truth for what's done and what isn't.** Last updated 2026-11-07, on `integration/phase-4`, after Phases 4.0.5, 4.1 and 4.0.6 were integrated there for development. **`main` is unchanged at `5434f90`. No production infrastructure has been deployed.** The handoff for the next session is in `SESSION_HANDOFF.md`, on `feature/demo-account`. **The release-completion register, with every approval still needed, is section 2j, on `feature/release-completion`.**
 
 **Rules:**

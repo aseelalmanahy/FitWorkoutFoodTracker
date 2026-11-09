@@ -1,5 +1,7 @@
 # Product Strategy
 
+> **Synchronization note (2026-11-09):** Still a recommendation, but the owner has since approved UX-01 (2026-11-07), the beta capabilities and multi-gym (2026-11-08): see [DECISION_REGISTER.md](DECISION_REGISTER.md) §1. Its "confirmed missing" list is stale; see [FEATURE_INVENTORY.md](FEATURE_INVENTORY.md). Its open decisions are PS-Q1..12 there.
+
 **Status: proposed, for independent review. Everything here is a recommendation, and nothing is approved for implementation.** Only the owner approves, one scope at a time, under [`DEVELOPMENT_WORKFLOW.md`](DEVELOPMENT_WORKFLOW.md). Full decision records are in [`FEATURE_DECISIONS.md`](FEATURE_DECISIONS.md).
 
 **The main conclusion:** the app doesn't need many new features yet. It has strong logging, but can't yet responsibly hold real users' data, and it can't show the outcome many people care about: whether their weight is moving toward their goal. Fix those first. Then let real users, rather than this document, decide what comes next.

@@ -1,5 +1,7 @@
 # Phase 4.0 Design: Account Safety and Pre-Beta Safeguards
 
+> **Synchronization note (2026-11-09):** Status update: Phase 4.0 was implemented (4.0.0a–4.0.6). Decisions here are PD-D1..30 in [DECISION_REGISTER.md](DECISION_REGISTER.md).
+
 **Status: proposal for independent review. Nothing here is approved for implementation.**
 
 **Boundaries of this document:**

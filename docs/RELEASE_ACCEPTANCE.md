@@ -1,6 +1,6 @@
 # Release acceptance package
 
-**Release candidate:** `feature/multi-gym-exercise-alternatives` at `8c520a0` (the draft privacy-notice wording on top of `37198a8`), plus the documentation commit that updates this file.
+**Release candidate:** `feature/multi-gym-exercise-alternatives`, application code at `d7d278d`; the commits after it are documentation only. (Earlier: `8c520a0`, the draft privacy-notice wording on top of `37198a8`.) Current state: [PROJECT_STATUS.md](PROJECT_STATUS.md).
 
 **Code is frozen.** Development is closed. Only a reproducible critical or high-severity defect, a data-loss risk or a release-blocking regression would reopen it.
 
@@ -17,7 +17,7 @@
 - **Still missing:** `fitdb_review`'s migrations (and with them G1's guarded path), role isolation (A4), hosting, email, phones, the privacy review and your acceptance.
 - **Next approvals:** in 8.9, from row 5.
 
-**Nothing in this document is approved.** Every approval is the owner's, and so is every acceptance. Nothing has been merged or deployed. No migration has been applied to `fitdb`, `fitdb_test`, `fitdb_review` or production.
+**Approvals are only those the owner gave, as recorded verbatim in this document** (consolidated in [DECISION_REGISTER.md](DECISION_REGISTER.md) §1). Every acceptance is the owner's too, and **none is recorded yet**. Nothing has been merged or deployed. **Migrations:** MIG-FB and MIG-GYM were applied to `fitdb_test` only, on 2026-11-09, with the owner's approval (Part 10). `fitdb`, `fitdb_review` and production have had no new migration. *(Corrected 2026-11-09: this line used to say that nothing here was approved and no migration had been applied, which stopped being true at Part 10.)*
 
 The document is in three parts, kept separate:
 

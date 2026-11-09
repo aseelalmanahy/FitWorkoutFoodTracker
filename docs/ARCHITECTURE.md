@@ -1,5 +1,7 @@
 # Architecture & Delivery Plan
 
+> **Synchronization note (2026-11-09):** Partly superseded. This is the original pre-build design. The architecture as built (manual targets instead of BMR/TDEE, PostgreSQL 18, email and reset, gyms, feedback, on-server readers) is in [PROJECT_MASTER.md](PROJECT_MASTER.md) §2.
+
 This document answers the six pre-build questions from the product spec and records
 the decisions behind the Phase 1 implementation.
 

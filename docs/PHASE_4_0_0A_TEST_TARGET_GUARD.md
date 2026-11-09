@@ -1,5 +1,7 @@
 # Phase 4.0.0a: Test-Target Guard
 
+> **Synchronization note (2026-11-09):** Status update: this guard was **merged to `main` at `56606ee`** (TD-07). The status line below is from before the merge.
+
 Stops automated tests from writing to anything other than a designated local test database, through a marked local server. It's test-environment hardening, so product behaviour doesn't change. Application code and the Prisma schema are untouched.
 
 **Status: on a feature branch, for independent review. Not merged. Phase 4.0 remains unfinished, and Phase 4.0.1 isn't authorized.**

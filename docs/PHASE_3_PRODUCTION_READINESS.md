@@ -1,5 +1,7 @@
 # Phase 3: Production Readiness
 
+> **Synchronization note (2026-11-09):** Historical. Many of these blockers are resolved: `npm audit` 0 (F-11), deletion and export (4.0.2), a draft notice (4.0.5), the on-server readers. Open items are in [DECISION_REGISTER.md](DECISION_REGISTER.md).
+
 **Assessment: not ready for production.** The code is tested with stubs, but no AI model, real phone, real PDF or production environment has been tested. AI features stay off until the requirements below are met, and the rest of the app works without them.
 
 **How to read the evidence:**

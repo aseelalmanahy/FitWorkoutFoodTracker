@@ -1,5 +1,7 @@
 # FitWorkoutFoodTracker
 
+> **Synchronization note (2026-11-09):** Status here is stale (it describes Phases 1–2). The current state is [docs/PROJECT_STATUS.md](docs/PROJECT_STATUS.md); start at [docs/PROJECT_MASTER.md](docs/PROJECT_MASTER.md).
+
 A mobile-first training, nutrition and progress tracker. The product spec is delivered in four phases.
 **Phase 1 (training) and Phase 2 (nutrition tracking) are implemented.** Phase 2 progress and test evidence are in
 [`PHASE_2_PROGRESS.md`](PHASE_2_PROGRESS.md). The architecture, data model, required APIs and the

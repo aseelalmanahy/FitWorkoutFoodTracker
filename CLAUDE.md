@@ -1,10 +1,22 @@
 # FitWorkoutFoodTracker
 
+## Start with the canonical documents
+
+Read these before relying on any other document or on memory of earlier sessions:
+- `docs/PROJECT_MASTER.md`: what the project is, the architecture as built, the phase matrix.
+- `docs/PROJECT_STATUS.md`: the current branch and commit, the verdict, blockers, next steps.
+- `docs/FEATURE_INVENTORY.md`: what exists, verified against the code.
+- `docs/ROADMAP.md`: what comes next; nothing there is approved unless marked.
+- `docs/DECISION_REGISTER.md`: owner decisions, open questions, rejections, risks, defects.
+- `docs/DOCUMENTATION_INDEX.md`: every document and its authority.
+
+When documents disagree, the canonical ones win, and the latest part of `docs/RELEASE_ACCEPTANCE.md` wins over earlier parts and the tracker. When work changes the project's state, update the canonical documents in the same commit. Evidence documents (the tracker, `RELEASE_ACCEPTANCE.md`) are append-only: add to them, don't rewrite their history.
+
 ## New features go through product review first
 
 Before designing or implementing a new feature, or a major scope change to one, run the `product-strategy-agent` (`.claude/agents/product-strategy-agent.md`, or `@agent-product-strategy-agent`) and get the owner's approval. Its recommendation is independent, and applies to proposals from anyone, including the owner, ChatGPT and Claude Code. A recommendation isn't approval, and the agent can't authorize implementation, migrations, paid requests, deployment, merges or architecture changes. Bug fixes and hardening that don't change what the product does don't need it.
 
-The full cycle is in `docs/DEVELOPMENT_WORKFLOW.md`. Decisions so far are in `docs/FEATURE_DECISIONS.md`, and the vision and roadmap are in `docs/PRODUCT_STRATEGY.md`.
+The full cycle is in `docs/DEVELOPMENT_WORKFLOW.md`. Decisions so far are consolidated in `docs/DECISION_REGISTER.md` (the reasoning for each verdict stays in `docs/FEATURE_DECISIONS.md`), and the vision and roadmap are in `docs/PROJECT_MASTER.md` and `docs/ROADMAP.md` (the original recommendations are in `docs/PRODUCT_STRATEGY.md`).
 
 ## Every phase ends with a UI demonstration
 

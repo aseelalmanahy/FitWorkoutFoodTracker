@@ -1,5 +1,7 @@
 # Feature Decisions
 
+> **Synchronization note (2026-11-09):** The 2026-11-08 owner approvals (beta capabilities; multi-gym and alternatives, which this file still lists as POSTPONE) are recorded in [DECISION_REGISTER.md](DECISION_REGISTER.md) §1 (OD-10, OD-11). "Decision N" here means PHASE_4_0_DESIGN's PD-DN.
+
 The register of product decisions. The `product-strategy-agent` reads this before evaluating anything, and new records are added here.
 
 **Approval status: nothing below is approved for implementation.** Every entry is a recommendation until the owner approves a specific scope, and then the record will say so.

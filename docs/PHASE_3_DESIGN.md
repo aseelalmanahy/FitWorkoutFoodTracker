@@ -1,5 +1,7 @@
 # Phase 3: Accuracy-First Nutrition
 
+> **Synchronization note (2026-11-09):** Status update: Phase 3 (3.1–3.6) is complete for development and on `main`; the on-server readers were added later. Current state: [FEATURE_INVENTORY.md](FEATURE_INVENTORY.md).
+
 **Principle:** accuracy matters more than automation. AI may read printed values and suggest what a food might be. It must never invent calories, macros, weights, ingredients or missing facts. Only confirmed source data and user-provided quantities enter nutrition calculations.
 
 This replaces the earlier plan in `ARCHITECTURE.md` for AI-estimated calories and portions.

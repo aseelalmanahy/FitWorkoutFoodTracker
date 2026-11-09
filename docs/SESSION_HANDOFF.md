@@ -1,5 +1,7 @@
 # Session handoff
 
+> **Synchronization note (2026-11-09):** Superseded as a status snapshot (it is from 2026-11-07) by [PROJECT_STATUS.md](PROJECT_STATUS.md). Its rules still apply, including the one about BUNNY_AGENT_DESIGN.md.
+
 **Written 2026-11-07, on `feature/demo-account`, for the next Claude Code session.** It summarizes the current state. It replaces no other document and approves nothing. The full record is in `PROJECT_COMPLETION_TRACKER.md`, with the merge decision package in `PHASE_4_MERGE_READINESS.md`.
 
 ## 1. Branches
