@@ -24,9 +24,14 @@
     "export": ["id", "name", "primaryMuscle", "equipment", "createdAt"],
     "excluded": { "userId": "the owner" }
   },
+  "WorkoutProgram": {
+    "deletion": "Own rows deleted; a program's plans are kept, as individual plans",
+    "export": ["id", "name", "origin", "createdAt", "updatedAt"],
+    "excluded": { "userId": "the owner" }
+  },
   "WorkoutTemplate": {
     "deletion": "Own rows deleted",
-    "export": ["id", "name", "notes", "createdAt", "updatedAt"],
+    "export": ["id", "name", "notes", "programId", "programPosition", "createdAt", "updatedAt"],
     "excluded": { "userId": "the owner" }
   },
   "TemplateExercise": {

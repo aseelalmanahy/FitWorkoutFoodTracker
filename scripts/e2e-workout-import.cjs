@@ -45,7 +45,14 @@ async function fullImport(browser) {
   await choose(page, "strength-block.txt", Buffer.from(text), "text/plain");
   assert.equal(await page.getByTestId("import-program").inputValue(), "Strength Block");
   assert.deepEqual(await page.getByTestId("import-day-name").evaluateAll((els) => els.map((e) => e.value)), ["Monday - Upper", "Thursday - Lower"]);
+  // UI-01: nothing is scheduled unless asked; asked, the stated weekdays are proposed and shown before saving.
+  assert.equal(await page.getByTestId("import-day-weekday").count(), 0, "no weekday choice until scheduling is asked for");
+  assert.equal(await page.getByTestId("import-schedule").isChecked(), false);
+  await page.getByTestId("import-schedule").check();
   assert.deepEqual(await page.getByTestId("import-day-weekday").evaluateAll((els) => els.map((e) => e.value)), ["0", "3"]);
+  assert.match(await page.getByTestId("import-schedule-preview").innerText(), /Monday: Monday - Upper[\s\S]*Thursday: Thursday - Lower/);
+  // IM-02: each exercise says where it stands.
+  assert.deepEqual(await rows(page).evaluateAll((els) => els.map((e) => e.dataset.status)), ["matched", "matched", "needs", "needs", "matched"]);
   const ready = await rows(page).evaluateAll((els) => els.map((e) => e.dataset.ready));
   assert.deepEqual(ready, ["true", "false", "false", "false", "true"], "bench and Face Pull (weight optional, its unit-less value kept in notes) are ready; AMRAP, Squat and RDL need the person");
   const r = rows(page);
@@ -70,16 +77,20 @@ async function fullImport(browser) {
   await r.nth(4).getByTestId("import-unit").selectOption("kg");
   await page.getByTestId("import-save").waitFor({ state: "visible" });
   assert.equal(await page.getByTestId("import-save").isDisabled(), false);
+  // IM-02: before saving, what the person chose is set out beside what the plan said.
+  assert.match(await page.getByTestId("import-counts").innerText(), /3 matched · 2 chosen by you · 0 skipped/);
+  assert.match(await page.getByTestId("import-choices").innerText(), /“Squat” → Back Squat[\s\S]*“RDL” → Romanian Deadlift/);
   await page.getByTestId("import-save").click();
   await page.getByTestId("import-saved").waitFor({ timeout: 15000 });
-  const plans = await prisma.workoutTemplate.findMany({ where: { userId: user.id }, include: { exercises: { include: { exercise: true }, orderBy: { position: "asc" } }, slots: true }, orderBy: { name: "asc" } });
-  assert.deepEqual(plans.map((p) => [p.name, p.slots.map((s) => s.weekday)]), [["Strength Block – Monday - Upper", [0]], ["Strength Block – Thursday - Lower", [3]]]);
+  assert.match(await page.getByTestId("import-saved-schedule").innerText(), /Monday - Upper on Monday; Thursday - Lower on Thursday/);
+  const plans = await prisma.workoutTemplate.findMany({ where: { userId: user.id }, include: { exercises: { include: { exercise: true }, orderBy: { position: "asc" } }, slots: true, program: true }, orderBy: { name: "asc" } });
+  assert.deepEqual(plans.map((p) => [p.program?.name, p.name, p.slots.map((s) => s.weekday)]), [["Strength Block", "Monday - Upper", [0]], ["Strength Block", "Thursday - Lower", [3]]]);
   assert.deepEqual(plans[0].exercises.map((e) => [e.exercise.name, e.targetSets, e.targetRepsMin, e.targetRepsMax, e.targetWeightKg]), [["Barbell Bench Press", 4, 6, 8, 80], ["Pull-Up", 3, 6, 10, null]]);
   assert.deepEqual(plans[1].exercises.map((e) => [e.exercise.name, e.targetWeightKg]), [["Back Squat", 102.06], ["Romanian Deadlift", null], ["Face Pull", 20]]);
   assert.equal(plans.every((p) => p.userId === user.id), true);
   noDocumentUploaded(sent, "txt");
   assert.deepEqual(sent.map((s) => s.path), ["/api/workouts/import"], "only the confirmed draft was sent, once");
-  step("txt: after the person's choices, two plans saved with exactly the values shown, on their weekdays; the file never left the browser");
+  step("txt: after the person's choices (set out beside the plan's words), one program of two days saved with exactly the values shown, scheduled on their weekdays only because that was ticked; the file never left the browser");
 }
 
 async function everyFormat(browser, engine) {
@@ -156,6 +167,7 @@ async function tableImage(browser, engine) {
 
   const days = page.getByTestId("import-day");
   assert.equal(await days.count(), 3, `${engine}: three days`);
+  await page.getByTestId("import-schedule").check(); // to see the proposed weekdays; unticked again before saving
   for (const [i, [day, ex]] of DAYS.entries()) {
     const d = days.nth(i);
     assert.equal(await d.getByTestId("import-day-name").inputValue(), day);
@@ -190,17 +202,39 @@ async function tableImage(browser, engine) {
   assert.equal(await days.nth(2).getByTestId("import-row").count(), 2);
   await days.nth(2).getByTestId("import-day-name").fill("Arms");
 
+  // IM-02: an exercise the person won't do is skipped, said so, and left out of what's saved.
+  const fly = days.nth(0).getByTestId("import-row").nth(2);
+  await fly.getByTestId("import-exercise").selectOption("skip");
+  assert.equal(await fly.getAttribute("data-status"), "skipped");
+  assert.match(await fly.getByTestId("import-row-status").innerText(), /Skipped by you/);
+  assert.match(await page.getByTestId("import-counts").innerText(), /9 matched · 0 chosen by you · 1 skipped/);
+
+  // UI-01: scheduling stays off, so the weekly schedule isn't touched.
+  await page.getByTestId("import-schedule").uncheck();
   await page.getByTestId("import-program").fill(`Three-day ${engine}`);
   await page.getByTestId("import-save").click();
   await page.getByTestId("import-saved").waitFor({ timeout: 20000 });
-  const saved = await prisma.workoutTemplate.findMany({ where: { userId: user.id }, include: { exercises: { orderBy: { position: "asc" }, include: { exercise: true } } } });
-  assert.deepEqual(saved.map((t) => [t.name.replace(`Three-day ${engine} – `, ""), t.exercises.map((e) => `${e.exercise.name} ${e.targetSets}x${e.targetRepsMin}-${e.targetRepsMax}`)]).sort(), [
+  assert.match(await page.getByTestId("import-saved-schedule").innerText(), /schedule wasn't changed/);
+  assert.equal(await prisma.scheduleSlot.count({ where: { userId: user.id } }), 0, "the schedule is unchanged");
+  const program = await prisma.workoutProgram.findFirst({ where: { userId: user.id }, include: { templates: { orderBy: { programPosition: "asc" }, include: { exercises: { orderBy: { position: "asc" }, include: { exercise: true } } } } } });
+  assert.equal(program.name, `Three-day ${engine}`);
+  assert.deepEqual(program.templates.map((t) => [t.name, t.exercises.map((e) => `${e.exercise.name} ${e.targetSets}x${e.targetRepsMin}-${e.targetRepsMax}`)]), [
+    ["MONDAY", ["Barbell Bench Press 3x8-12", "Dumbbell Incline Press 3x8-12"]],
+    ["WEDNESDAY", ["Seated Cable Row 3x8-12", "Face Pull 3x8-12"]],
     ["Arms", ["Hammer Curl 3x8-12", "Barbell Curl 3x8-12"]],
     ["FRIDAY", ["Romanian Deadlift 3x8-12", "Leg Press 3x8-12", "Seated Leg Curl 3x10-12"]],
-    ["MONDAY", ["Barbell Bench Press 3x8-12", "Dumbbell Incline Press 3x8-12", "Cable Fly 3x8-12"]],
-    ["WEDNESDAY", ["Seated Cable Row 3x8-12", "Face Pull 3x8-12"]],
-  ].sort());
-  step(`${engine}: IMG-01 a small three-day table image read into 3 days, 9 exercises at 3 x 8-12 on their weekdays; a row without sets added and filled in by hand; a day split; saved only on confirmation`);
+  ]);
+  assert.equal(await prisma.workoutTemplate.count({ where: { userId: user.id } }), 4, "the program's days only, nothing else");
+
+  // UI-01: on the Workouts page, the four days sit together under the program's one name, in order.
+  await page.goto(`${BASE}/workouts`);
+  const card = page.getByTestId("program").filter({ hasText: `Three-day ${engine}` });
+  assert.equal(await card.count(), 1);
+  if (!(await card.getByTestId("program-day").first().isVisible())) await card.locator("summary").click();
+  assert.deepEqual(await card.getByTestId("program-day-name").allInnerTexts(), ["MONDAY", "WEDNESDAY", "Arms", "FRIDAY"]);
+  assert.match(await card.getByTestId("program-meta").innerText(), /4 workout days · Imported · Not on your schedule/);
+  assert.equal(await page.getByTestId("plan").count(), 0, "none of them is listed again as an individual plan");
+  step(`${engine}: IMG-01 + UI-01 + IM-02 a small three-day table image read into 3 days at 3 x 8-12; a row added by hand, one skipped, a day split; saved as one program in order, schedule untouched, shown together on the Workouts page`);
 }
 
 (async () => {

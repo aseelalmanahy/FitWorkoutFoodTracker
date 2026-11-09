@@ -41,20 +41,32 @@ before(async () => {
 });
 after(() => prisma.$disconnect());
 
-test("a confirmed program is saved as new plans, one per day, in order, with weekday slots only where stated", async () => {
+test("UI-01: a confirmed import is one program, its days in order and named by day; the schedule is unchanged unless asked", async () => {
   const { user, c } = await newUser("ok");
-  const r = await c.post("/api/workouts/import", { programName: "Strength Block", days: [
+  const days = [
     { name: "Monday - Upper", weekday: 0, notes: "Keep 2 in reserve", exercises: [ex(bench.id, { targetSets: 4, targetRepsMin: 6, targetRepsMax: 8, targetWeightKg: 80, restSeconds: 120, notes: "Superset A" }), ex(squat.id)] },
     { name: "Day 2", weekday: null, exercises: [ex(squat.id, { targetWeightKg: 102.06 })] },
-  ] });
+  ];
+  const r = await c.post("/api/workouts/import", { programName: "Strength Block", days });
   assert.equal(r.status, 200, r.text);
-  assert.deepEqual(r.body.templates.map((t) => t.name), ["Strength Block – Monday - Upper", "Strength Block – Day 2"]);
-  const plans = await prisma.workoutTemplate.findMany({ where: { userId: user.id }, include: { exercises: { orderBy: { position: "asc" } }, slots: true }, orderBy: { name: "asc" } });
-  const monday = plans.find((p) => p.name.endsWith("Upper"));
+  assert.equal(r.body.program.name, "Strength Block");
+  assert.deepEqual(r.body.templates.map((t) => t.name), ["Monday - Upper", "Day 2"], "each day keeps its own short name");
+  const program = await prisma.workoutProgram.findUnique({ where: { id: r.body.program.id }, include: { templates: { orderBy: { programPosition: "asc" }, include: { exercises: { orderBy: { position: "asc" } }, slots: true } } } });
+  assert.equal(program.userId, user.id);
+  assert.equal(program.origin, "import");
+  assert.deepEqual(program.templates.map((t) => [t.programPosition, t.name]), [[0, "Monday - Upper"], [1, "Day 2"]]);
+  const monday = program.templates[0];
   assert.equal(monday.notes, "Keep 2 in reserve");
   assert.deepEqual(monday.exercises.map((e) => [e.position, e.exerciseId, e.targetSets, e.targetRepsMin, e.targetRepsMax, e.targetWeightKg, e.restSeconds, e.notes]), [[0, bench.id, 4, 6, 8, 80, 120, "Superset A"], [1, squat.id, 3, 8, 10, null, null, null]]);
-  assert.deepEqual(monday.slots.map((s) => [s.weekday, s.position]), [[0, 0]]);
-  assert.equal(plans.find((p) => p.name.endsWith("Day 2")).slots.length, 0, "a day with no weekday isn't scheduled");
+  assert.equal(await prisma.scheduleSlot.count({ where: { userId: user.id } }), 0, "importing alone doesn't change the schedule, even with a weekday stated");
+  assert.deepEqual(r.body.scheduled, []);
+
+  // Asked for: the stated weekdays are added, and only those.
+  const s = await c.post("/api/workouts/import", { programName: "Strength Block 2", schedule: true, days });
+  assert.equal(s.status, 200, s.text);
+  assert.deepEqual(s.body.scheduled, [{ name: "Monday - Upper", weekday: 0 }]);
+  const slots = await prisma.scheduleSlot.findMany({ where: { userId: user.id } });
+  assert.deepEqual(slots.map((x) => [x.weekday, x.templateId]), [[0, s.body.templates[0].id]], "a day with no weekday isn't scheduled");
 });
 
 test("nothing missing can be saved as if it were there, and nothing outside the bounds", async () => {
@@ -106,9 +118,9 @@ test("the schedule only gains slots: a full weekday keeps its plans, and the imp
   const existing = [];
   for (let i = 0; i < 3; i++) existing.push(await prisma.workoutTemplate.create({ data: { userId: user.id, name: `Mine ${i}` } }));
   for (const [i, t] of existing.entries()) await prisma.scheduleSlot.create({ data: { userId: user.id, weekday: 2, templateId: t.id, position: i } });
-  const r = await c.post("/api/workouts/import", { programName: "P", days: [{ name: "Wed", weekday: 2, exercises: [ex(bench.id)] }, { name: "Thu", weekday: 3, exercises: [ex(bench.id)] }] });
+  const r = await c.post("/api/workouts/import", { programName: "P", schedule: true, days: [{ name: "Wed", weekday: 2, exercises: [ex(bench.id)] }, { name: "Thu", weekday: 3, exercises: [ex(bench.id)] }] });
   assert.equal(r.status, 200);
-  assert.deepEqual(r.body.unscheduled, ["P – Wed"]);
+  assert.deepEqual(r.body.unscheduled, ["Wed"]);
   const slots = await prisma.scheduleSlot.findMany({ where: { userId: user.id }, orderBy: [{ weekday: "asc" }, { position: "asc" }] });
   assert.deepEqual(slots.map((s) => [s.weekday, s.templateId]), [[2, existing[0].id], [2, existing[1].id], [2, existing[2].id], [3, r.body.templates[1].id]]);
   // A plan with the same name as an existing one is a new plan, not a change to it.
@@ -119,15 +131,65 @@ test("the schedule only gains slots: a full weekday keeps its plans, and the imp
 
 test("a retried save with the same key returns the first one's plans and makes nothing more", async () => {
   const { user, c } = await newUser("idem");
-  const body = { programName: "P", days: [{ name: "A", weekday: 4, exercises: [ex(bench.id)] }, { name: "B", weekday: null, exercises: [ex(squat.id)] }] };
+  const body = { programName: "P", schedule: true, days: [{ name: "A", weekday: 4, exercises: [ex(bench.id)] }, { name: "B", weekday: null, exercises: [ex(squat.id)] }] };
   const key = { "Idempotency-Key": `import-${run}-abcdefghijklmnop` };
   const first = await c.post("/api/workouts/import", body, key);
   const second = await c.post("/api/workouts/import", body, key);
   assert.equal(first.status, 200);
   assert.equal(second.status, 200);
   assert.equal(second.body.repeated, true);
+  assert.equal(second.body.program.id, first.body.program.id, "the same program, not a second one");
   assert.deepEqual(second.body.templates.map((t) => t.id).sort(), first.body.templates.map((t) => t.id).sort());
-  assert.deepEqual(await counts(user.id), { templates: 2, slots: 1, exercises: 0 });
+  assert.deepEqual(await counts(user.id), { templates: 2, slots: 1, exercises: 0 }, "nothing duplicated, nothing scheduled twice");
+  assert.equal(await prisma.workoutProgram.count({ where: { userId: user.id } }), 1);
+});
+
+test("UI-01: a program can be renamed, reordered and ungrouped; plans, schedule and logged workouts are kept", async () => {
+  const { user, c } = await newUser("prog");
+  const r = await c.post("/api/workouts/import", { programName: "Full Body", schedule: true, days: [
+    { name: "A", weekday: 0, exercises: [ex(bench.id)] }, { name: "B", weekday: 2, exercises: [ex(squat.id)] }, { name: "C", weekday: null, exercises: [ex(bench.id)] },
+  ] });
+  const [a, b, cc] = r.body.templates;
+  const pid = r.body.program.id;
+  // A workout logged from day A.
+  const session = await prisma.workoutSession.create({ data: { userId: user.id, templateId: a.id, name: "A", status: "COMPLETED", endedAt: new Date(), exercises: { create: [{ exerciseId: bench.id, position: 0, sets: { create: [{ setNumber: 1, reps: 8, weightKg: 60 }] } }] } } });
+
+  const renamed = await c.call("PATCH", `/api/programs/${pid}`, { name: "Full Body 3x" });
+  assert.equal(renamed.status, 200, renamed.text);
+  assert.equal(renamed.body.program.name, "Full Body 3x");
+  const reordered = await c.call("PATCH", `/api/programs/${pid}`, { templateIds: [cc.id, a.id, b.id] });
+  assert.deepEqual(reordered.body.program.templates.map((t) => t.name), ["C", "A", "B"]);
+  const takenOut = await c.call("PATCH", `/api/programs/${pid}`, { templateIds: [cc.id, a.id] });
+  assert.deepEqual(takenOut.body.program.templates.map((t) => t.name), ["C", "A"]);
+  const bNow = await prisma.workoutTemplate.findUnique({ where: { id: b.id }, include: { slots: true } });
+  assert.equal(bNow.programId, null, "a day taken out is an individual plan");
+  assert.deepEqual(bNow.slots.map((s) => s.weekday), [2], "and keeps its schedule");
+
+  assert.equal((await c.call("DELETE", `/api/programs/${pid}`)).status, 200);
+  assert.equal(await prisma.workoutProgram.count({ where: { userId: user.id } }), 0);
+  const plans = await prisma.workoutTemplate.findMany({ where: { userId: user.id }, include: { exercises: true, slots: true }, orderBy: { name: "asc" } });
+  assert.deepEqual(plans.map((p) => [p.name, p.programId, p.exercises.length, p.slots.map((s) => s.weekday)]), [["A", null, 1, [0]], ["B", null, 1, [2]], ["C", null, 1, []]], "every plan kept, with its exercises and schedule");
+  const kept = await prisma.workoutSession.findUnique({ where: { id: session.id }, include: { exercises: { include: { sets: true } } } });
+  assert.equal(kept.templateId, a.id, "the logged workout still points at its plan");
+  assert.equal(kept.exercises[0].sets[0].weightKg, 60);
+});
+
+test("UI-01: plans saved earlier can be grouped by hand; nobody else's plans or programs can be touched", async () => {
+  const { user, c } = await newUser("group");
+  const other = await newUser("group-other");
+  const mine = [];
+  for (const n of ["Day 1", "Day 2"]) mine.push(await prisma.workoutTemplate.create({ data: { userId: user.id, name: n } }));
+  const theirs = await prisma.workoutTemplate.create({ data: { userId: other.user.id, name: "Theirs" } });
+  const g = await c.post("/api/programs", { name: "My old import", templateIds: [mine[1].id, mine[0].id] });
+  assert.equal(g.status, 200, g.text);
+  const p = await prisma.workoutProgram.findUnique({ where: { id: g.body.program.id }, include: { templates: { orderBy: { programPosition: "asc" } } } });
+  assert.deepEqual([p.origin, p.templates.map((t) => t.name)], ["manual", ["Day 2", "Day 1"]]);
+  assert.equal((await c.post("/api/programs", { name: "X", templateIds: [theirs.id] })).status, 404, "another person's plan can't be grouped");
+  assert.equal((await other.c.call("PATCH", `/api/programs/${p.id}`, { name: "Mine now" })).status, 404, "nor their program renamed");
+  assert.equal((await other.c.call("DELETE", `/api/programs/${p.id}`)).status, 404, "or ungrouped");
+  assert.equal((await c.call("PATCH", `/api/programs/${p.id}`, { templateIds: [mine[0].id, theirs.id] })).status, 404);
+  assert.equal((await prisma.workoutTemplate.findUnique({ where: { id: theirs.id } })).programId, null, "their plan is untouched");
+  assert.equal((await c.post("/api/programs", { name: "Dup", templateIds: [mine[0].id, mine[0].id] })).status, 400, "a plan can't be a program's day twice");
 });
 
 test("a plan's screenshot is read as text on the server, with nothing stored; other uploads are refused", async () => {

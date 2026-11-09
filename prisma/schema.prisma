@@ -31,6 +31,7 @@ model User {
   profile          Profile?
   exercises        Exercise[]
   templates        WorkoutTemplate[]
+  programs         WorkoutProgram[]
   scheduleSlots    ScheduleSlot[]
   workoutSessions  WorkoutSession[]
   foods            Food[]
@@ -205,20 +206,42 @@ model Exercise {
 // ─── Planning ───────────────────────────────────────────────────────────────
 
 /// A reusable workout definition, e.g. "Upper Body A".
+/// UI-01: a program groups the workout days of one plan (an import, or plans the person grouped). Optional: a plan
+/// without one is an individual plan. Deleting a program keeps its plans, as individual ones.
+model WorkoutProgram {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  /// "import" or "manual": where the grouping came from.
+  origin    String   @default("manual")
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  templates WorkoutTemplate[]
+
+  @@index([userId])
+}
+
 model WorkoutTemplate {
   id        String   @id @default(cuid())
   userId    String
   name      String
   notes     String?
+  /// UI-01: the program this plan is a day of, and its place in it. Both null for an individual plan.
+  programId       String?
+  programPosition Int?
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
   user      User               @relation(fields: [userId], references: [id], onDelete: Cascade)
+  program   WorkoutProgram?    @relation(fields: [programId], references: [id], onDelete: SetNull)
   exercises TemplateExercise[]
   slots     ScheduleSlot[]
   sessions  WorkoutSession[]
 
   @@index([userId])
+  @@index([programId, programPosition])
 }
 
 model TemplateExercise {

@@ -29,6 +29,7 @@ export async function deleteAccount(userId: string, verifiedHash: string): Promi
       await tx.gymLocation.deleteMany({ where: { userId } });
       await tx.scheduleSlot.deleteMany({ where: { userId } });
       await tx.workoutTemplate.deleteMany({ where: { userId } });
+      await tx.workoutProgram.deleteMany({ where: { userId } });
       await tx.exercise.deleteMany({ where: { userId } });
       await tx.foodEntry.deleteMany({ where: { userId } });
       await tx.food.deleteMany({ where: { userId } });

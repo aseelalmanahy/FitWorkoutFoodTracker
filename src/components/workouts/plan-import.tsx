@@ -7,7 +7,7 @@ import { extractPlan } from "@/lib/client/plan-extract";
 import { PlanFileError } from "@/lib/workout-import/documents";
 import { matchExercise, type LibraryExercise } from "@/lib/workout-import/match";
 import type { Draft, DraftExercise } from "@/lib/workout-import/parse";
-import { EQUIPMENT, MUSCLE_GROUPS, planName, poundsToKg, SAVE_LIMITS, type ImportSave } from "@/lib/workout-import/save-schema";
+import { EQUIPMENT, MUSCLE_GROUPS, poundsToKg, SAVE_LIMITS, type ImportSave } from "@/lib/workout-import/save-schema";
 import { Button, Card, ErrorText, Field, Input, Select, Textarea, cx } from "@/components/ui";
 
 const WEEKDAY_NAMES = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"];
@@ -15,9 +15,21 @@ const ACCEPT = ".pdf,.png,.jpg,.jpeg,.webp,.csv,.tsv,.txt,.docx,.xlsx,applicatio
 const title = (s: string) => s.toLowerCase().replace(/\b\w/g, (c) => c.toUpperCase());
 
 type Row = {
-  key: string; source: string; name: string; matched: string | null; suggestions: LibraryExercise[]; choice: string;
+  key: string; source: string; name: string; matched: string | null; matchedId: string | null; suggestions: LibraryExercise[]; choice: string;
   newMuscle: string; newEquipment: string; sets: string; repsMin: string; repsMax: string; weight: string; unit: "kg" | "lb"; rest: string; notes: string;
 };
+/** The choice that leaves an exercise out of what's saved (IM-02): the plan names something the person won't do or track. */
+const SKIP = "skip";
+
+/**
+ * IM-02: where each exercise stands. Matched: the plan's name is a library exercise's, and it's still the choice.
+ * Chosen: the person picked it (it shows what the plan said beside it). Needs confirmation: nothing chosen yet.
+ */
+type RowStatus = "matched" | "chosen" | "skipped" | "needs";
+const statusOf = (r: Row): RowStatus => (r.choice === SKIP ? "skipped" : !r.choice ? "needs" : r.matchedId && r.choice === r.matchedId ? "matched" : "chosen");
+const STATUS_LABEL: Record<RowStatus, string> = { matched: "Matched", chosen: "Chosen by you", skipped: "Skipped by you", needs: "Needs confirmation" };
+/** "Barbell or Goblet Squat", "Lat Pulldown or Pull-ups": the plan offers a choice. */
+const offersChoice = (name: string) => /\s(?:or|\/)\s/i.test(name);
 type Day = { key: string; name: string; weekday: string; notes: string; rows: Row[] };
 
 let seq = 0;
@@ -28,7 +40,7 @@ const s = (v: number | null) => (v === null ? "" : String(v));
 function toRow(e: Pick<DraftExercise, "name" | "source" | "sets" | "repsMin" | "repsMax" | "weight" | "restSeconds" | "notes" | "group">, library: LibraryExercise[]): Row {
   const m = matchExercise(e.name, library);
   return {
-    key: key(), source: e.source, name: e.name, matched: m.kind === "exact" ? m.exercise.name : null,
+    key: key(), source: e.source, name: e.name, matched: m.kind === "exact" ? m.exercise.name : null, matchedId: m.kind === "exact" ? m.exercise.id : null,
     suggestions: m.kind === "choose" ? m.suggestions : [], choice: m.kind === "exact" ? m.exercise.id : "",
     newMuscle: "", newEquipment: "", sets: s(e.sets), repsMin: s(e.repsMin), repsMax: s(e.repsMax),
     weight: e.weight ? String(e.weight.value) : "", unit: e.weight?.unit ?? "kg", rest: s(e.restSeconds),
@@ -46,7 +58,8 @@ function toDays(draft: Draft, library: LibraryExercise[]): Day[] {
 const int = (v: string, min: number, max: number) => (/^\d+$/.test(v.trim()) && Number(v) >= min && Number(v) <= max ? Number(v) : null);
 function problemsOf(r: Row): string[] {
   const p: string[] = [];
-  if (!r.choice) p.push("choose an exercise");
+  if (r.choice === SKIP) return p; // left out: nothing of it is saved
+  if (!r.choice) p.push("choose an exercise, or skip it");
   if (r.choice === "new" && (!r.newMuscle || !r.newEquipment)) p.push("choose its muscle and equipment");
   if (int(r.sets, 1, 20) === null) p.push("sets (1 to 20)");
   const lo = int(r.repsMin, 1, 100), hi = int(r.repsMax, 1, 100);
@@ -64,11 +77,15 @@ export function PlanImport() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [program, setProgram] = useState("");
   const [days, setDays] = useState<Day[]>([]);
-  const [saved, setSaved] = useState<{ templates: { id: string; name: string }[]; unscheduled: string[] } | null>(null);
+  const [saved, setSaved] = useState<{ program: { id: string; name: string }; templates: { id: string; name: string }[]; scheduled: { name: string; weekday: number }[]; unscheduled: string[] } | null>(null);
+  // UI-01: importing doesn't touch the weekly schedule unless this is ticked, with the proposed days shown first.
+  const [schedule, setSchedule] = useState(false);
+  const [current, setCurrent] = useState<{ weekday: number; template: { name: string } }[] | null>(null);
   const idem = useRef(newIdempotencyKey());
 
   useEffect(() => {
     api<{ exercises: LibraryExercise[] }>("GET", "/api/exercises").then((r) => setLibrary(r.exercises)).catch(() => setError("The exercise library couldn't be loaded. Reload the page."));
+    api<{ slots: { weekday: number; template: { name: string } }[] }>("GET", "/api/schedule").then((r) => setCurrent(r.slots)).catch(() => setCurrent([]));
   }, []);
 
   async function readImage(image: Blob): Promise<string> {
@@ -80,7 +97,7 @@ export function PlanImport() {
 
   async function choose(file: File | undefined) {
     if (!file || !library) return;
-    setError(null); setDraft(null); setDays([]); setSaved(null); setAdded(new Set());
+    setError(null); setDraft(null); setDays([]); setSaved(null); setAdded(new Set()); setSchedule(false);
     setBusy(`Reading ${file.name}…`);
     try {
       const { draft: d } = await extractPlan(file, readImage);
@@ -96,7 +113,13 @@ export function PlanImport() {
   }
 
   const issues = useMemo(() => days.flatMap((d) => d.rows.map((r) => ({ d, r, p: problemsOf(r) }))).filter((x) => x.p.length), [days]);
-  const ready = program.trim().length > 0 && days.length > 0 && days.every((d) => d.name.trim() && d.rows.length > 0) && issues.length === 0;
+  // What's saved: skipped exercises left out, and a day with nothing left in it left out too.
+  const kept = useMemo(() => days.map((d) => ({ ...d, rows: d.rows.filter((r) => r.choice !== SKIP) })).filter((d) => d.rows.length > 0), [days]);
+  const ready = program.trim().length > 0 && kept.length > 0 && kept.every((d) => d.name.trim()) && issues.length === 0;
+  const all = days.flatMap((d) => d.rows);
+  const counts = { matched: all.filter((r) => statusOf(r) === "matched").length, chosen: all.filter((r) => statusOf(r) === "chosen").length, skipped: all.filter((r) => statusOf(r) === "skipped").length, needs: all.filter((r) => statusOf(r) === "needs").length };
+  const nameOf = (r: Row) => (r.choice === "new" ? `${title(r.name)} (new)` : library?.find((x) => x.id === r.choice)?.name ?? "");
+  const proposed = kept.filter((d) => d.weekday !== "").map((d) => ({ day: d.name, weekday: Number(d.weekday), already: (current ?? []).filter((c) => c.weekday === Number(d.weekday)).map((c) => c.template.name) }));
   const setDay = (k: string, patch: Partial<Day>) => setDays((ds) => ds.map((d) => (d.key === k ? { ...d, ...patch } : d)));
   const setRow = (dk: string, rk: string, patch: Partial<Row>) => setDays((ds) => ds.map((d) => (d.key === dk ? { ...d, rows: d.rows.map((r) => (r.key === rk ? { ...r, ...patch } : r)) } : d)));
   // Recovery when a page's day labels weren't read: start a new day at this exercise; the rest of the day moves with it.
@@ -120,7 +143,8 @@ export function PlanImport() {
     if (!ready) return;
     const body: ImportSave = {
       programName: program.trim(),
-      days: days.map((d) => ({
+      schedule,
+      days: kept.map((d) => ({
         name: d.name.trim(), weekday: d.weekday === "" ? null : Number(d.weekday), notes: d.notes.trim() || null,
         exercises: d.rows.map((r) => {
           const w = r.weight.trim() ? Number(r.weight.replace(",", ".")) : null;
@@ -146,10 +170,18 @@ export function PlanImport() {
   if (saved) {
     return (
       <Card className="space-y-3 p-5" data-testid="import-saved">
-        <p className="font-semibold">Saved {saved.templates.length} plan{saved.templates.length === 1 ? "" : "s"}.</p>
-        <ul className="list-disc pl-5 text-sm">{saved.templates.map((t) => <li key={t.id}>{t.name}</li>)}</ul>
+        <p className="font-semibold">Saved the program “{saved.program.name}”, with {saved.templates.length} workout day{saved.templates.length === 1 ? "" : "s"}.</p>
+        <ol className="list-decimal pl-5 text-sm">{saved.templates.map((t) => <li key={t.id}>{t.name}</li>)}</ol>
+        <p className="text-sm" data-testid="import-saved-schedule">
+          {saved.scheduled.length === 0
+            ? "Your weekly schedule wasn't changed."
+            : `Added to your weekly schedule: ${saved.scheduled.map((x) => `${x.name} on ${WEEKDAY_NAMES[x.weekday]}`).join("; ")}.`}
+        </p>
         {saved.unscheduled.length > 0 && <p className="text-sm text-down">Not put on the schedule, as those days already have three plans: {saved.unscheduled.join(", ")}.</p>}
-        <Link href="/workouts" className="font-medium text-accent-ink underline">Go to your workouts</Link>
+        <div className="flex flex-wrap gap-4">
+          <Link href={`/workouts/programs/${saved.program.id}`} className="font-medium text-accent-ink underline">View the program</Link>
+          <Link href="/workouts" className="font-medium text-accent-ink underline">Go to your workouts</Link>
+        </div>
       </Card>
     );
   }
@@ -190,30 +222,36 @@ export function PlanImport() {
           )}
           {days.length > 0 && (
             <>
-              <Field label="Program name"><Input value={program} maxLength={60} onChange={(e) => setProgram(e.target.value)} data-testid="import-program" /></Field>
-              {days.map((d) => (
+              <Field label="Program name" hint="One name for the whole program; each day keeps its own short name."><Input value={program} maxLength={60} onChange={(e) => setProgram(e.target.value)} data-testid="import-program" /></Field>
+              {days.map((d, di) => (
                 <Card key={d.key} className="space-y-3 p-4" data-testid="import-day">
-                  <div className="grid gap-2 sm:grid-cols-[1fr_12rem]">
-                    <Field label="Day"><Input value={d.name} maxLength={80} onChange={(e) => setDay(d.key, { name: e.target.value })} data-testid="import-day-name" /></Field>
-                    <Field label="On the schedule">
-                      <Select value={d.weekday} onChange={(e) => setDay(d.key, { weekday: e.target.value })} data-testid="import-day-weekday">
-                        <option value="">Not scheduled</option>
-                        {WEEKDAY_NAMES.map((n, i) => <option key={n} value={i}>{n}</option>)}
-                      </Select>
-                    </Field>
+                  <div className={cx("grid gap-2", schedule && "sm:grid-cols-[1fr_12rem]")}>
+                    <Field label={`Day ${di + 1}`}><Input value={d.name} maxLength={80} onChange={(e) => setDay(d.key, { name: e.target.value })} data-testid="import-day-name" /></Field>
+                    {schedule && (
+                      <Field label="On the schedule">
+                        <Select value={d.weekday} onChange={(e) => setDay(d.key, { weekday: e.target.value })} data-testid="import-day-weekday">
+                          <option value="">Not scheduled</option>
+                          {WEEKDAY_NAMES.map((n, i) => <option key={n} value={i}>{n}</option>)}
+                        </Select>
+                      </Field>
+                    )}
                   </div>
-                  <p className="text-xs text-muted">Saved as the plan “{planName(program || "Program", d.name || "Day")}”.</p>
                   {d.rows.map((r) => {
                     const p = problemsOf(r);
+                    const st = statusOf(r);
                     return (
-                      <div key={r.key} className={cx("space-y-2 rounded-xl border p-3", p.length ? "border-down/50" : "border-line")} data-testid="import-row" data-ready={p.length === 0}>
-                        <p className="text-xs text-muted">From the plan: <span className="font-mono">{r.source}</span></p>
-                        <Field label="Exercise" hint={r.matched ? `Matched: ${r.matched}` : "Not matched for certain: choose one"}>
+                      <div key={r.key} className={cx("space-y-2 rounded-xl border p-3", st === "skipped" ? "border-line opacity-70" : p.length ? "border-down/50" : "border-line")} data-testid="import-row" data-ready={p.length === 0} data-status={st}>
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="min-w-0 text-xs text-muted">From the plan: <span className="font-mono break-words">{r.source}</span></p>
+                          <span className={cx("shrink-0 rounded-full px-2 py-0.5 text-xs font-semibold", st === "matched" ? "bg-up/12 text-up" : st === "needs" ? "bg-down/12 text-down" : "bg-surface-2 text-muted")} data-testid="import-row-status">{STATUS_LABEL[st]}</span>
+                        </div>
+                        <Field label="Exercise" hint={st === "matched" ? `Matched: ${r.matched}` : st === "skipped" ? "Left out: it won't be saved." : st === "chosen" ? `The plan says “${r.name}”; you chose ${nameOf(r)}.` : offersChoice(r.name) ? "The plan gives a choice: pick the one you'll do, or skip it." : "Not matched for certain: choose one, or skip it."}>
                           <Select value={r.choice} onChange={(e) => setRow(d.key, r.key, { choice: e.target.value })} data-testid="import-exercise">
                             <option value="">Choose…</option>
                             {r.suggestions.length > 0 && <optgroup label="Suggested">{r.suggestions.map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</optgroup>}
                             <optgroup label="Library">{(library ?? []).map((x) => <option key={x.id} value={x.id}>{x.name}</option>)}</optgroup>
                             <option value="new">New exercise: {title(r.name).slice(0, 60)}</option>
+                            <option value={SKIP}>Skip: don&apos;t save this exercise</option>
                           </Select>
                         </Field>
                         {r.choice === "new" && (
@@ -247,8 +285,37 @@ export function PlanImport() {
                   <Button variant="ghost" size="sm" onClick={() => setDays(days.filter((x) => x.key !== d.key))}>Remove this day</Button>
                 </Card>
               ))}
+              <Card className="space-y-3 p-4" data-testid="import-summary">
+                <p className="font-semibold">Before you save</p>
+                <p className="text-sm" data-testid="import-counts">
+                  {counts.matched} matched · {counts.chosen} chosen by you · {counts.skipped} skipped{counts.needs ? ` · ${counts.needs} still to confirm` : ""}
+                </p>
+                {all.some((r) => statusOf(r) === "chosen" || statusOf(r) === "skipped") && (
+                  <ul className="space-y-1 text-sm" data-testid="import-choices">
+                    {days.flatMap((d) => d.rows.filter((r) => statusOf(r) === "chosen" || statusOf(r) === "skipped").map((r) => (
+                      <li key={r.key} className="break-words"><span className="text-muted">{d.name}: “{r.name}” →</span> {statusOf(r) === "skipped" ? <em>skipped</em> : nameOf(r)}</li>
+                    )))}
+                  </ul>
+                )}
+                <label className="flex items-start gap-2 text-sm">
+                  <input type="checkbox" className="mt-1" checked={schedule} onChange={(e) => setSchedule(e.target.checked)} data-testid="import-schedule" />
+                  <span>Also add these days to my weekly schedule. <span className="text-muted">Otherwise the program is saved under My programs, and your schedule stays as it is.</span></span>
+                </label>
+                {schedule && (
+                  <div className="text-sm" data-testid="import-schedule-preview">
+                    {proposed.length === 0 ? <p className="text-down">Choose a day of the week for each day you want scheduled, above.</p> : (
+                      <ul className="space-y-1">
+                        {proposed.map((x) => (
+                          <li key={x.day}><strong>{WEEKDAY_NAMES[x.weekday]}</strong>: {x.day}{x.already.length > 0 && <span className="text-muted"> (added beside {x.already.join(", ")}, which stay{x.already.length >= 3 ? "; that day is full, so this one won't be added" : ""})</span>}</li>
+                        ))}
+                      </ul>
+                    )}
+                    <p className="mt-1 text-xs text-muted">Nothing already on your schedule is removed or replaced.</p>
+                  </div>
+                )}
+              </Card>
               <p className="text-sm text-muted" data-testid="import-status">{issues.length ? `${issues.length} exercise${issues.length === 1 ? " needs" : "s need"} something before saving.` : "Everything is filled in. Check it, then save."}</p>
-              <Button disabled={!ready || Boolean(busy)} onClick={save} data-testid="import-save">Save {days.length} plan{days.length === 1 ? "" : "s"}</Button>
+              <Button disabled={!ready || Boolean(busy)} onClick={save} data-testid="import-save">Save program ({kept.length} day{kept.length === 1 ? "" : "s"})</Button>
             </>
           )}
         </>

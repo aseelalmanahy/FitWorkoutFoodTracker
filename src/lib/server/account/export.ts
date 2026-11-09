@@ -98,6 +98,7 @@ export async function buildExport(userId: string, verifiedHash: string, now = ne
 
     const counts = await Promise.all([
       tx.exercise.count({ where: { userId } }),
+      tx.workoutProgram.count({ where: { userId } }),
       tx.workoutTemplate.count({ where: { userId } }),
       tx.templateExercise.count({ where: { template: { userId } } }),
       tx.scheduleSlot.count({ where: { userId } }),
@@ -122,6 +123,7 @@ export async function buildExport(userId: string, verifiedHash: string, now = ne
       select: { ...fields("WorkoutTemplate"), exercises: { select: { ...fields("TemplateExercise"), exercise: { select: refFields } }, orderBy: { position: "asc" } } },
       orderBy: { createdAt: "asc" },
     }) as unknown as Row[];
+    const programs = await tx.workoutProgram.findMany({ where: { userId }, select: fields("WorkoutProgram"), orderBy: { createdAt: "asc" } }) as Row[];
     const schedule = await tx.scheduleSlot.findMany({ where: { userId }, select: fields("ScheduleSlot"), orderBy: [{ weekday: "asc" }, { position: "asc" }] }) as Row[];
     const sessions = await tx.workoutSession.findMany({
       where: { userId },
@@ -173,6 +175,7 @@ export async function buildExport(userId: string, verifiedHash: string, now = ne
       account: exportRow("User", user),
       profile: profile ? exportRow("Profile", profile) : null,
       customExercises: exercises.map((e) => exportRow("Exercise", e)),
+      workoutPrograms: programs.map((p) => exportRow("WorkoutProgram", p)),
       workoutPlans: templates.map((t) => ({
         ...exportRow("WorkoutTemplate", t),
         exercises: (t.exercises as Row[]).map((e) => ({ ...exportRow("TemplateExercise", e), exercise: exerciseRef(e.exercise as Row, userId) })),

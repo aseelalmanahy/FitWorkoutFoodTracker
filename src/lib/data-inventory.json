@@ -13,6 +13,7 @@
     "Profile": "profile",
     "BodyMetric": "profile",
     "Exercise": "training",
+    "WorkoutProgram": "training",
     "WorkoutTemplate": "training",
     "TemplateExercise": "training",
     "ScheduleSlot": "training",

@@ -89,6 +89,13 @@ export const templateSchema = z.object({
 });
 export type TemplateInput = z.infer<typeof templateSchema>;
 
+/** UI-01: a program's name and its workout days, in order (the person's own plans). */
+const programName = z.string().trim().min(1).max(60);
+const programDays = z.array(id).min(1).max(14).refine((ids) => new Set(ids).size === ids.length, "A plan can be in a program once");
+export const createProgramSchema = z.strictObject({ name: programName, templateIds: programDays });
+export const updateProgramSchema = z.strictObject({ name: programName.optional(), templateIds: programDays.optional() })
+  .refine((p) => p.name !== undefined || p.templateIds !== undefined, "Nothing to change");
+
 export const scheduleSchema = z.object({
   days: z
     .array(z.array(id).max(3))

@@ -69,6 +69,9 @@ async function seed({ user, tag }) {
     ] } },
     include: { exercises: true },
   });
+  // UI-01: the plan is the first day of an imported program.
+  const program = await prisma.workoutProgram.create({ data: { userId: id, name: `Program ${tag}`, origin: "import" } });
+  await prisma.workoutTemplate.update({ where: { id: template.id }, data: { programId: program.id, programPosition: 0 } });
   const slot = await prisma.scheduleSlot.create({ data: { userId: id, weekday: 2, templateId: template.id, position: 1 } });
   const done = await prisma.workoutSession.create({
     data: { userId: id, templateId: template.id, name: `Done ${tag}`, status: "COMPLETED", startedAt: new Date("2026-01-05T10:00:00Z"), endedAt: new Date("2026-01-05T11:00:00Z"), notes: `Session notes ${tag}`, exercises: { create: [
@@ -120,6 +123,7 @@ async function ownedIds(id) {
     AccountToken: await ids(prisma.accountToken, { OR: [{ userId: id }, ...(email ? [{ email }] : [])] }),
     Profile: (await prisma.profile.findMany({ where: { userId: id }, select: { userId: true } })).map((r) => r.userId),
     Exercise: await ids(prisma.exercise, { userId: id }),
+    WorkoutProgram: await ids(prisma.workoutProgram, { userId: id }),
     WorkoutTemplate: await ids(prisma.workoutTemplate, { userId: id }),
     TemplateExercise: await ids(prisma.templateExercise, { template: { userId: id } }),
     ScheduleSlot: await ids(prisma.scheduleSlot, { userId: id }),

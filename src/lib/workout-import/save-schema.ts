@@ -35,10 +35,12 @@ export const importDaySchema = z.strictObject({
 export const importSaveSchema = z.strictObject({
   programName: z.string().trim().min(1).max(60),
   days: z.array(importDaySchema).min(1).max(SAVE_LIMITS.maxDays),
+  /** UI-01: put the days on the weekly schedule. Off unless the person asks: importing alone never changes the schedule. */
+  schedule: z.boolean().default(false),
 });
 export type ImportSave = z.infer<typeof importSaveSchema>;
 
-/** One plan per day, named after the program and the day, within the 80 characters a plan name may have. */
+/** How imported days were named before programs (UI-01). Plans saved then keep these names. */
 export const planName = (program: string, day: string) => `${program} – ${day}`.slice(0, 80).trim();
 
 /** A stated weight in pounds, as kilograms, to two decimals. Only ever applied to a weight the plan states in pounds. */

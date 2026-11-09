@@ -10,10 +10,12 @@ export const metadata = { title: "Weekly schedule" };
 
 export default async function SchedulePage() {
   const { user, profile } = await requireProfile();
-  const [plans, schedule] = await Promise.all([
-    prisma.workoutTemplate.findMany({ where: { userId: user.id }, select: { id: true, name: true }, orderBy: { name: "asc" } }),
+  const [rows, schedule] = await Promise.all([
+    prisma.workoutTemplate.findMany({ where: { userId: user.id }, select: { id: true, name: true, program: { select: { name: true } } }, orderBy: [{ program: { name: "asc" } }, { programPosition: "asc" }, { name: "asc" }] }),
     getSchedule(user.id),
   ]);
+  // UI-01: a program's day is named with its program, so "Day 1" from two programs can't be confused.
+  const plans = rows.map((p) => ({ id: p.id, name: p.program ? `${p.name} (${p.program.name})` : p.name }));
   return (
     <Page width="focused">
       <PageHeader title="Weekly schedule" subtitle="Assign plans to days. Days without a plan are rest days." back="/workouts" />

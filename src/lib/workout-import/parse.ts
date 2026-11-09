@@ -46,7 +46,8 @@ const clean = (line: string) => line
 // Sets x reps, optionally a range: "3x8", "3 x 8-10", "4 sets of 12", "3 sets x 10 reps", "3x 8 to 12".
 const SETS_REPS = /\b(\d{1,2})\s*(?:x|sets?\s*(?:of|x)?)\s*(\d{1,3})(?:\s*(?:-|to)\s*(\d{1,3}))?(?:\s*reps?)?\b/i;
 const SETS_ONLY = /\b(\d{1,2})\s*sets?\b/i;
-const SETS_SPECIAL = /\b(\d{1,2})\s*(?:x|sets?\s*(?:of|x)?)\s*(amrap|max|failure|to failure|\d+\s*(?:s|sec|secs|seconds|min|mins|minutes)\b)/i;
+// IM-02: a time, or a range of times ("3 sets x 30-60 seconds"), is a timed set, never a number of repetitions.
+const SETS_SPECIAL = /\b(\d{1,2})\s*(?:x|sets?\s*(?:of|x)?)\s*(amrap|max|failure|to failure|\d+(?:\s*(?:-|to)\s*\d+)?\s*(?:s|sec|secs|seconds|min|mins|minutes)\b)/i;
 const WEIGHT = /(?:@\s*)?\b(\d{1,4}(?:[.,]\d{1,2})?)\s*(kg|kgs|kilos?|kilograms?|lb|lbs|pounds?)\b/i;
 // The whole number, then not a unit or percent: without the first lookahead, "@ 70%" would backtrack to read "7".
 const BARE_AT = /@\s*(\d{1,4}(?:[.,]\d{1,2})?)(?![\d.,])(?!\s*(?:%|kg|kgs|kilo|lb|lbs|pound|rpe))/i;
