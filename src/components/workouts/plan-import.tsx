@@ -6,7 +6,7 @@ import { api, ApiError, newIdempotencyKey, SAVE_TIMEOUT_MS } from "@/lib/client/
 import { extractPlan } from "@/lib/client/plan-extract";
 import { PlanFileError } from "@/lib/workout-import/documents";
 import { matchExercise, type LibraryExercise } from "@/lib/workout-import/match";
-import type { Draft } from "@/lib/workout-import/parse";
+import type { Draft, DraftExercise } from "@/lib/workout-import/parse";
 import { EQUIPMENT, MUSCLE_GROUPS, planName, poundsToKg, SAVE_LIMITS, type ImportSave } from "@/lib/workout-import/save-schema";
 import { Button, Card, ErrorText, Field, Input, Select, Textarea, cx } from "@/components/ui";
 
@@ -24,19 +24,22 @@ let seq = 0;
 const key = () => `k${++seq}`;
 const s = (v: number | null) => (v === null ? "" : String(v));
 
+/** A row for the review, matched against the library; nothing missing is filled in. */
+function toRow(e: Pick<DraftExercise, "name" | "source" | "sets" | "repsMin" | "repsMax" | "weight" | "restSeconds" | "notes" | "group">, library: LibraryExercise[]): Row {
+  const m = matchExercise(e.name, library);
+  return {
+    key: key(), source: e.source, name: e.name, matched: m.kind === "exact" ? m.exercise.name : null,
+    suggestions: m.kind === "choose" ? m.suggestions : [], choice: m.kind === "exact" ? m.exercise.id : "",
+    newMuscle: "", newEquipment: "", sets: s(e.sets), repsMin: s(e.repsMin), repsMax: s(e.repsMax),
+    weight: e.weight ? String(e.weight.value) : "", unit: e.weight?.unit ?? "kg", rest: s(e.restSeconds),
+    notes: [...(e.group ? [`Superset ${e.group}`] : []), ...e.notes].join("; "),
+  };
+}
+
 function toDays(draft: Draft, library: LibraryExercise[]): Day[] {
   return draft.days.slice(0, SAVE_LIMITS.maxDays).map((d) => ({
     key: key(), name: d.name, weekday: d.weekday === null ? "" : String(d.weekday), notes: d.notes.join("\n"),
-    rows: d.exercises.slice(0, SAVE_LIMITS.maxExercisesPerDay).map((e) => {
-      const m = matchExercise(e.name, library);
-      return {
-        key: key(), source: e.source, name: e.name, matched: m.kind === "exact" ? m.exercise.name : null,
-        suggestions: m.kind === "choose" ? m.suggestions : [], choice: m.kind === "exact" ? m.exercise.id : "",
-        newMuscle: "", newEquipment: "", sets: s(e.sets), repsMin: s(e.repsMin), repsMax: s(e.repsMax),
-        weight: e.weight ? String(e.weight.value) : "", unit: e.weight?.unit ?? "kg", rest: s(e.restSeconds),
-        notes: [...(e.group ? [`Superset ${e.group}`] : []), ...e.notes].join("; "),
-      };
-    }),
+    rows: d.exercises.slice(0, SAVE_LIMITS.maxExercisesPerDay).map((e) => toRow(e, library)),
   }));
 }
 
@@ -77,7 +80,7 @@ export function PlanImport() {
 
   async function choose(file: File | undefined) {
     if (!file || !library) return;
-    setError(null); setDraft(null); setDays([]); setSaved(null);
+    setError(null); setDraft(null); setDays([]); setSaved(null); setAdded(new Set());
     setBusy(`Reading ${file.name}…`);
     try {
       const { draft: d } = await extractPlan(file, readImage);
@@ -96,6 +99,22 @@ export function PlanImport() {
   const ready = program.trim().length > 0 && days.length > 0 && days.every((d) => d.name.trim() && d.rows.length > 0) && issues.length === 0;
   const setDay = (k: string, patch: Partial<Day>) => setDays((ds) => ds.map((d) => (d.key === k ? { ...d, ...patch } : d)));
   const setRow = (dk: string, rk: string, patch: Partial<Row>) => setDays((ds) => ds.map((d) => (d.key === dk ? { ...d, rows: d.rows.map((r) => (r.key === rk ? { ...r, ...patch } : r)) } : d)));
+  // Recovery when a page's day labels weren't read: start a new day at this exercise; the rest of the day moves with it.
+  const splitDay = (dk: string, rk: string) => setDays((ds) => ds.flatMap((d) => {
+    const at = d.key === dk ? d.rows.findIndex((r) => r.key === rk) : -1;
+    if (at <= 0 || ds.length >= SAVE_LIMITS.maxDays) return [d];
+    return [{ ...d, rows: d.rows.slice(0, at) }, { key: key(), name: `Day ${ds.length + 1}`, weekday: "", notes: "", rows: d.rows.slice(at) }];
+  }));
+  // Recovery for a line that wasn't read as an exercise: add it to the last day, with nothing filled in that wasn't read.
+  const addLine = (line: string) => {
+    if (!library) return;
+    const row = toRow({ name: line.replace(/^[^A-Za-z]+/, "").slice(0, 120), source: line, sets: null, repsMin: null, repsMax: null, weight: null, restSeconds: null, notes: [], group: null }, library);
+    setDays((ds) => (ds.length === 0
+      ? [{ key: key(), name: "Day 1", weekday: "", notes: "", rows: [row] }]
+      : ds.map((d, i) => (i === ds.length - 1 && d.rows.length < SAVE_LIMITS.maxExercisesPerDay ? { ...d, rows: [...d.rows, row] } : d))));
+    setAdded((a) => new Set(a).add(line));
+  };
+  const [added, setAdded] = useState<Set<string>>(new Set());
 
   async function save() {
     if (!ready) return;
@@ -153,7 +172,19 @@ export function PlanImport() {
             <Card className="space-y-2 p-4 text-sm" data-testid="import-warnings">
               {draft.warnings.map((w, i) => <p key={i} className="text-down">{w}</p>)}
               {draft.unparsed.length > 0 && (
-                <details><summary>{draft.unparsed.length} line{draft.unparsed.length === 1 ? " wasn't" : "s weren't"} read as exercises</summary><ul className="mt-1 list-disc pl-5 text-muted">{draft.unparsed.slice(0, 50).map((u, i) => <li key={i}>{u}</li>)}</ul></details>
+                <details open={days.length === 0}>
+                  <summary>{draft.unparsed.length} line{draft.unparsed.length === 1 ? " wasn't" : "s weren't"} read as exercises</summary>
+                  <ul className="mt-1 space-y-1 pl-1 text-muted" data-testid="import-unparsed">
+                    {draft.unparsed.slice(0, 50).map((u, i) => (
+                      <li key={i} className="flex items-center justify-between gap-2">
+                        <span className="min-w-0 break-words">{u}</span>
+                        {/[A-Za-z]{3}/.test(u) && (added.has(u)
+                          ? <span className="shrink-0 text-xs">Added</span>
+                          : <Button variant="ghost" size="sm" className="shrink-0" onClick={() => addLine(u)} data-testid="import-add-line">Add as an exercise</Button>)}
+                      </li>
+                    ))}
+                  </ul>
+                </details>
               )}
             </Card>
           )}
@@ -203,7 +234,12 @@ export function PlanImport() {
                         {r.unit === "lb" && r.weight.trim() && /^\d/.test(r.weight) && <p className="text-xs text-muted">Saved as {poundsToKg(Number(r.weight.replace(",", ".")))} kg.</p>}
                         <Field label="Notes"><Textarea rows={2} maxLength={1000} value={r.notes} onChange={(e) => setRow(d.key, r.key, { notes: e.target.value })} data-testid="import-notes" /></Field>
                         {p.length > 0 && <p className="text-xs text-down" data-testid="import-row-problems">Needs: {p.join(", ")}.</p>}
-                        <Button variant="ghost" size="sm" onClick={() => setDay(d.key, { rows: d.rows.filter((x) => x.key !== r.key) })}>Remove this exercise</Button>
+                        <div className="flex flex-wrap gap-1">
+                          <Button variant="ghost" size="sm" onClick={() => setDay(d.key, { rows: d.rows.filter((x) => x.key !== r.key) })}>Remove this exercise</Button>
+                          {d.rows[0]?.key !== r.key && days.length < SAVE_LIMITS.maxDays && (
+                            <Button variant="ghost" size="sm" onClick={() => splitDay(d.key, r.key)} data-testid="import-split-day">Start a new day here</Button>
+                          )}
+                        </div>
                       </div>
                     );
                   })}

@@ -139,17 +139,82 @@ async function hostile(browser) {
   step(`chromium: a zip bomb (declared and real size), an encrypted document, a program named .pdf, HTML named .pdf (read as text, not run), an 11 MB file, a broken PDF and a stray ZIP are refused in the browser; nothing was sent`);
 }
 
+/**
+ * IMG-01: a small three-day table image, laid out like the owner's real one that failed (day | exercise | sets & reps,
+ * 420 px wide, text about 10 px). It's read into an editable draft, nothing is saved until confirmed, a line read
+ * without its sets can be added and must then be filled in, a day can be split, and the confirmed plans are saved.
+ */
+async function tableImage(browser, engine) {
+  const sharp = require("sharp");
+  const { user, page, sent } = await signedIn(browser, `img${engine}`);
+  const DAYS = [["MONDAY", ["Barbell Bench Press", "Dumbbell Incline Press", "Cable Fly"]], ["WEDNESDAY", ["Seated Cable Row", "Face Pull", "Hammer Curl", "Barbell Curl"]], ["FRIDAY", ["Romanian Deadlift", "Leg Press"]]];
+  const lines = [[[10, "DAY"], [120, "WORKOUT"], [300, "SETS & REPS"]]];
+  for (const [day, ex] of DAYS) ex.forEach((e, i) => lines.push([...(i === 0 ? [[10, day]] : []), [120, e], [300, "3 sets of 8-12 reps"]]));
+  lines.push([[120, "Seated Leg Curl"]]); // a row whose sets weren't printed
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="420" height="${(lines.length + 3) * 16}"><rect width="100%" height="100%" fill="#fff"/>${lines.map((cells, i) => cells.map(([x, t]) => `<text x="${x}" y="${(i + 2) * 16}" font-family="Arial" font-size="10" fill="#111">${t.replace(/&/g, "&amp;")}</text>`).join("")).join("")}</svg>`;
+  await choose(page, "three-day.jpg", await sharp(Buffer.from(svg)).jpeg({ quality: 85 }).toBuffer(), "image/jpeg");
+
+  const days = page.getByTestId("import-day");
+  assert.equal(await days.count(), 3, `${engine}: three days`);
+  for (const [i, [day, ex]] of DAYS.entries()) {
+    const d = days.nth(i);
+    assert.equal(await d.getByTestId("import-day-name").inputValue(), day);
+    assert.equal(await d.getByTestId("import-day-weekday").inputValue(), String([0, 2, 4][i]), `${day}: on its weekday`);
+    const r = d.getByTestId("import-row");
+    assert.equal(await r.count(), ex.length, `${day}: ${ex.length} exercises`);
+    for (let k = 0; k < ex.length; k++) {
+      const row = r.nth(k);
+      assert.deepEqual([await row.getByTestId("import-sets").inputValue(), await row.getByTestId("import-reps-min").inputValue(), await row.getByTestId("import-reps-max").inputValue()], ["3", "8", "12"], `${day} ${ex[k]}: 3 x 8-12`);
+      assert.match(await row.innerText(), new RegExp(`Matched: ${ex[k]}`), `${day}: ${ex[k]} matched`);
+    }
+  }
+  assert.deepEqual(sent.map((r) => r.path), ["/api/workouts/import/ocr"], `${engine}: read once, nothing saved yet`);
+  assert.equal(await prisma.workoutTemplate.count({ where: { userId: user.id } }), 0);
+
+  // The row without sets: listed, added on request, and then it must be filled in before anything can be saved.
+  await page.getByTestId("import-warnings").locator("summary").click(); // the list is folded when days were found
+  const unread = await page.getByTestId("import-unparsed").innerText();
+  assert.match(unread, /Seated Leg Curl/, `${engine}: the line without sets is listed, not dropped or guessed`);
+  await page.getByTestId("import-unparsed").locator("li", { hasText: "Seated Leg Curl" }).getByTestId("import-add-line").click();
+  const added = days.nth(2).getByTestId("import-row").last();
+  assert.match(await added.innerText(), /Matched: Seated Leg Curl/);
+  assert.equal(await added.getByTestId("import-sets").inputValue(), "", "its sets aren't invented");
+  assert.equal(await page.getByTestId("import-save").isDisabled(), true, "nothing can be saved with a row incomplete");
+  await added.getByTestId("import-sets").fill("3");
+  await added.getByTestId("import-reps-min").fill("10");
+  await added.getByTestId("import-reps-max").fill("12");
+
+  // A day split, as when a page's day labels weren't read: Wednesday's last two become their own day.
+  await days.nth(1).getByTestId("import-row").nth(2).getByTestId("import-split-day").click();
+  assert.equal(await days.count(), 4, "split into a new day");
+  assert.equal(await days.nth(2).getByTestId("import-row").count(), 2);
+  await days.nth(2).getByTestId("import-day-name").fill("Arms");
+
+  await page.getByTestId("import-program").fill(`Three-day ${engine}`);
+  await page.getByTestId("import-save").click();
+  await page.getByTestId("import-saved").waitFor({ timeout: 20000 });
+  const saved = await prisma.workoutTemplate.findMany({ where: { userId: user.id }, include: { exercises: { orderBy: { position: "asc" }, include: { exercise: true } } } });
+  assert.deepEqual(saved.map((t) => [t.name.replace(`Three-day ${engine} – `, ""), t.exercises.map((e) => `${e.exercise.name} ${e.targetSets}x${e.targetRepsMin}-${e.targetRepsMax}`)]).sort(), [
+    ["Arms", ["Hammer Curl 3x8-12", "Barbell Curl 3x8-12"]],
+    ["FRIDAY", ["Romanian Deadlift 3x8-12", "Leg Press 3x8-12", "Seated Leg Curl 3x10-12"]],
+    ["MONDAY", ["Barbell Bench Press 3x8-12", "Dumbbell Incline Press 3x8-12", "Cable Fly 3x8-12"]],
+    ["WEDNESDAY", ["Seated Cable Row 3x8-12", "Face Pull 3x8-12"]],
+  ].sort());
+  step(`${engine}: IMG-01 a small three-day table image read into 3 days, 9 exercises at 3 x 8-12 on their weekdays; a row without sets added and filled in by hand; a day split; saved only on confirmation`);
+}
+
 (async () => {
   await target.verifyServer();
   const chromium = await playwright.chromium.launch(target.launchOptions("chromium"));
   try {
     await fullImport(chromium);
     await everyFormat(chromium, "chromium");
+    await tableImage(chromium, "chromium");
     await hostile(chromium);
   } finally { await chromium.close(); }
   for (const engine of ["firefox", "webkit"]) {
     const browser = await playwright[engine].launch(target.launchOptions(engine));
-    try { await everyFormat(browser, engine); } finally { await browser.close(); }
+    try { await everyFormat(browser, engine); await tableImage(browser, engine); } finally { await browser.close(); }
   }
   console.log("ALL WORKOUT IMPORT CHECKS PASSED");
 })().catch((e) => { console.error(e); process.exitCode = 1; }).finally(() => prisma.$disconnect());

@@ -47,7 +47,7 @@ export async function extractPlan(file: File, readImage: (image: Blob) => Promis
     return { kind, draft: better(parseWorkoutText(t, { fallbackName }), parseWorkoutTable(rows, { fallbackName })), imagesRead: 0 };
   }
   if (kind === "xlsx") return { kind, draft: parseWorkoutTable(await readXlsx(bytes, inflate), { fallbackName }), imagesRead: 0 };
-  if (kind === "image") return { kind, draft: parseWorkoutText(await readImage(file), { fallbackName }), imagesRead: 1 };
+  if (kind === "image") return { kind, draft: parseWorkoutText(await readImage(file), { fallbackName, ocr: true }), imagesRead: 1 };
 
   // PDF: the text layer where there is one; a page without one is drawn and read as an image.
   let session;
@@ -73,7 +73,8 @@ export async function extractPlan(file: File, readImage: (image: Blob) => Promis
       lines.push(...(await readImage(blob)).split(/\r?\n/));
       imagesRead++;
     }
-    const draft = better(parseWorkoutText(lines.join("\n"), { fallbackName }), parseWorkoutTable(rows, { fallbackName }));
+    // Recognized pages get the OCR corrections; a PDF whose pages all have text doesn't need them.
+    const draft = better(parseWorkoutText(lines.join("\n"), { fallbackName, ocr: imagesRead > 0 }), parseWorkoutTable(rows, { fallbackName }));
     if (session.pageCount > imagesRead && imagesRead >= MAX_OCR_PAGES) draft.warnings.push(`Only the first ${MAX_OCR_PAGES} scanned pages were read.`);
     return { kind, draft, imagesRead };
   } finally {

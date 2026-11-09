@@ -117,10 +117,90 @@ function isDayHeader(line: string): boolean {
   return DAY_HEADER.test(line) || (/:$/.test(line) && /[A-Za-z]{3}/.test(line) && !NOTE_LINE.test(line) && line.split(" ").length <= 6);
 }
 
+// --- Text read from an image (OCR) -------------------------------------------------------------------------------
+// A photo or screenshot of a plan is usually a table: a day column, an exercise column and a sets-and-reps column.
+// The recognizer keeps wide gaps between columns (3 or more spaces), so a row can be split into its cells before the
+// usual line rules run. Its usual confusions are corrected only where they sit next to the numbers they belong to
+// ("3 sots of B-12 reps" is "3 sets of 8-12 reps"); anything else it reads stays as written, for the person to check.
+// None of this applies to typed text or documents, which aren't misread.
+
+const SPLIT_WEEKDAY = new RegExp(`\\b(?:${["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"].map((d) => d.split("").join(" ?")).join("|")})\\b`, "gi");
+const REPS_CELL = /^\d{1,3}(?:\s*-\s*\d{1,3})?$/;
+
+/** The recognizer's common misreads, fixed only inside a sets-and-reps phrase or a weekday name. */
+export function fixOcrConfusions(raw: string): string {
+  return raw
+    .replace(SPLIT_WEEKDAY, (m) => m.replace(/ /g, "")) // "MON DAY", "FRID AY"
+    .replace(/\|(?=[a-z])/g, "I") // "|ncline"
+    .replace(/[‐-―−]/g, "-")
+    .replace(/\b(\d{1,2})\s*s[aeo0]ts?(?=\s|$|\s*of)/gi, "$1 sets") // "3 sots", "3sets"
+    .replace(/\b(sets?\s*of|x)\s*[Bb](?=\s*(?:-|to)\s*\d)/gi, "$1 8") // "of B-12"
+    .replace(/\b((?:sets?\s*of|x)\s*\d{1,3})\s*[:;]\s*(\d{1,3})\b/gi, "$1-$2"); // "of 8:12"
+}
+
+/** A recognized exercise name without the marks around it: bullets, a logo's letters, a watermark before a "|". */
+function cleanOcrName(name: string): string {
+  const afterBar = name.includes("|") ? name.slice(name.lastIndexOf("|") + 1) : name;
+  return afterBar.replace(/^[^A-Za-z]+/, "").replace(/^(?:[a-z]\s+)+(?=[A-Z])/, "").trim();
+}
+
+/**
+ * One recognized line as the lines the parser understands: a row's day cell becomes its own day line, the cell next
+ * to the sets and reps becomes the exercise, and any other cell on the row (a logo, a watermark) is set aside.
+ * Separate sets and reps columns ("BENCH PRESS   3   6-8") are read as "3 x 6-8".
+ */
+export function splitOcrRow(raw: string): { lines: string[]; setAside: string[] } {
+  const cells = fixOcrConfusions(raw).split(/\s{3,}/).map((c) => c.trim()).filter(Boolean);
+  if (cells.length >= 2 && REPS_CELL.test(cells.at(-1)!)) {
+    const prev = cells.at(-2)!;
+    const reps = cells.at(-1)!.replace(/\s/g, "");
+    if (/^\d{1,2}$/.test(prev) && cells.length >= 3) cells.splice(-2, 2, `${prev} x ${reps}`);
+    else {
+      const m = /^(.*[A-Za-z].*?)\s+(\d{1,2})$/.exec(prev);
+      if (m) cells.splice(-2, 2, m[1], `${m[2]} x ${reps}`);
+    }
+  }
+  const setsAt = cells.findIndex((c, i) => i > 0 && /^\d{1,2}\s*(?:x|sets?\b)/i.test(c));
+  if (setsAt < 1) {
+    const one = cells.join(" ");
+    const ex = parseExerciseLine(one);
+    // A whole row in one cell: still drop a bullet or a logo's letters before the name.
+    if (ex) {
+      const line = clean(one);
+      const at = line.indexOf(ex.name);
+      const name = cleanOcrName(ex.name);
+      if (at >= 0 && name) return { lines: [`${name}${line.slice(at + ex.name.length)}`], setAside: [] };
+    }
+    return { lines: [one], setAside: [] };
+  }
+  const lines: string[] = [];
+  const setAside: string[] = [];
+  for (const lead of cells.slice(0, setsAt - 1)) {
+    if (isDayHeader(clean(lead)) && weekdayOrNumbered(lead)) lines.push(lead);
+    else setAside.push(lead);
+  }
+  lines.push(`${cleanOcrName(cells[setsAt - 1])} ${cells.slice(setsAt).join(" ")}`);
+  return { lines, setAside };
+}
+const weekdayOrNumbered = (s: string) => weekdayOf(s) !== null || /^(?:day|session|workout|week)\s*\d/i.test(clean(s));
+
+export interface ParseOptions {
+  fallbackName?: string | null;
+  /** The text was read from an image, so it gets the corrections above. */
+  ocr?: boolean;
+}
+
 /** Lines of text, as a plan's PDF, document, OCR or typed text gives them. */
-export function parseWorkoutText(text: string, { fallbackName = null }: { fallbackName?: string | null } = {}): Draft {
-  const lines = text.split(/\r?\n/).slice(0, IMPORT_LIMITS.maxLines);
+export function parseWorkoutText(text: string, { fallbackName = null, ocr = false }: ParseOptions = {}): Draft {
   const draft: Draft = { programName: null, days: [], unparsed: [], warnings: [] };
+  let lines = text.split(/\r?\n/).slice(0, IMPORT_LIMITS.maxLines);
+  if (ocr) {
+    lines = lines.flatMap((raw) => {
+      const { lines: out, setAside } = splitOcrRow(raw);
+      draft.unparsed.push(...setAside.filter((c) => /[A-Za-z]{2}/.test(c)).map((c) => c.slice(0, 300)));
+      return out;
+    });
+  }
   let day: DraftDay | null = null;
   const openDay = (name: string) => {
     if (draft.days.length >= IMPORT_LIMITS.maxDays) { draft.warnings.push(`Only the first ${IMPORT_LIMITS.maxDays} days are read.`); return null; }
@@ -141,14 +221,18 @@ export function parseWorkoutText(text: string, { fallbackName = null }: { fallba
       continue;
     }
     if (isDayHeader(line)) { openDay(line); continue; }
-    if (!draft.programName && draft.days.length === 0 && line.length <= 80 && /[A-Za-z]{3}/.test(line)) { draft.programName = line; continue; }
+    // A recognized title must read as words: a logo's stray letters ("Eid \") aren't the program's name.
+    const titleLike = !ocr || ((line.match(/[A-Za-z]/g) ?? []).length >= 0.6 * line.replace(/\s/g, "").length && /[A-Za-z]{3,}\W+[A-Za-z]{3,}/.test(line));
+    if (!draft.programName && draft.days.length === 0 && line.length <= 80 && /[A-Za-z]{3}/.test(line) && titleLike) { draft.programName = line; continue; }
     const current = day as DraftDay | null;
-    if (current && (NOTE_LINE.test(line) || current.exercises.length > 0)) { current.notes.push(line.slice(0, 300)); continue; }
+    // From an image, only a labelled note is a note: other stray text (a watermark, a caption) is listed instead.
+    if (current && (NOTE_LINE.test(line) || (!ocr && current.exercises.length > 0))) { current.notes.push(line.slice(0, 300)); continue; }
     draft.unparsed.push(line.slice(0, 300));
   }
   draft.programName ??= fallbackName;
   draft.days = draft.days.filter((d) => d.exercises.length > 0);
   if (draft.days.length === 0) draft.warnings.push("No exercises with sets and repetitions were found. Check the file, or type the plan in.");
+  if (draft.days.length === 0 && ocr) draft.warnings.push("The image's text couldn't be read clearly. A sharper or larger image may work better. Any line below that names an exercise can be added, and its sets and reps filled in by hand.");
   const unitless = draft.days.flatMap((d) => d.exercises).filter((e) => e.notes.some((n) => /with no unit/.test(n))).length;
   if (unitless) draft.warnings.push(`${unitless} weight or rest value${unitless === 1 ? " has" : "s have"} no unit, so ${unitless === 1 ? "it was" : "they were"} left empty and kept in the notes.`);
   return draft;

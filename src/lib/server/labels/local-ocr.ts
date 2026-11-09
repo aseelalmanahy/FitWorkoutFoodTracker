@@ -3,6 +3,7 @@ import path from "node:path";
 import type { LabelExtraction } from "@/lib/label-extraction";
 import { LabelExtractionError, type LabelExtractor, type LabelImage } from "./extractor";
 import { mergeReadings, parseLabelText } from "./text-parse";
+import { parseWorkoutText } from "@/lib/workout-import/parse";
 
 /**
  * Label reading on this server, with no paid service and no network request (AI-01): tesseract.js 6.0.1 with its
@@ -84,11 +85,22 @@ export function createLocalLabelExtractor(): LabelExtractor {
 
 const letters = (s: string) => (s.match(/[A-Za-z]/g) ?? []).length;
 export const MAX_PLAN_TEXT_CHARS = 20_000;
+/**
+ * A plan image narrower than this is enlarged to it before reading. A phone-saved plan is often about 400 px wide,
+ * with text 7 px tall: read at that size, a real three-day plan gave 0 exercises; enlarged to 1200 px (Lanczos), 17
+ * of its 18 rows read correctly. Wider images are read as they are (up to the upload's own limits).
+ */
+export const PLAN_OCR_MIN_WIDTH = 1200;
+
+/** Exercise rows a reading gives: how orientations are compared. Text read sideways is letters, not exercises. */
+const exerciseRows = (text: string) => parseWorkoutText(text, { ocr: true }).days.reduce((n, d) => n + d.exercises.length, 0);
 
 /**
  * Phase 3: the plain text of a workout plan's page, photo or screenshot, by the same on-device worker and with no
- * network request. Upright first; a photo taken sideways is tried in the other orientations only if little was read.
- * Returns text only: nothing is interpreted, stored or logged here.
+ * network request. Upright first; a photo taken sideways is tried in the other orientations only if the upright
+ * reading gave no exercise rows. Readings are compared by the exercise rows they give, then by letters (a sideways
+ * reading can have more stray letters than a short upright plan). Each orientation is prepared in one lossless pass:
+ * rotated, enlarged if small, grey and normalized, as PNG. Returns text only: nothing is stored or logged here.
  */
 export async function recognizePlanText(bytes: Uint8Array, signal: AbortSignal): Promise<string> {
   let w: Worker;
@@ -98,18 +110,23 @@ export async function recognizePlanText(bytes: Uint8Array, signal: AbortSignal):
     throw new LabelExtractionError("unavailable");
   }
   const sharp = (await import("sharp")).default;
-  let best = "";
+  const meta = await sharp(bytes).metadata();
+  let best = { text: "", rows: 0 };
   for (const angle of ORIENTATIONS) {
     if (signal.aborted) throw new LabelExtractionError("timeout");
-    const prepared = await sharp(bytes).rotate(angle).grayscale().normalize().png().toBuffer();
+    const width = (angle % 180 === 0 ? meta.width : meta.height) ?? PLAN_OCR_MIN_WIDTH;
+    const pipeline = sharp(bytes).rotate(angle);
+    if (width < PLAN_OCR_MIN_WIDTH) pipeline.resize({ width: PLAN_OCR_MIN_WIDTH, kernel: "lanczos3" });
+    const prepared = await pipeline.grayscale().normalize().png().toBuffer();
     let text: string;
     try {
       text = (await w.recognize(prepared)).data.text;
     } catch {
       throw new LabelExtractionError("unavailable");
     }
-    if (letters(text) > letters(best)) best = text;
-    if (letters(best) >= 40) break;
+    const rows = exerciseRows(text);
+    if (rows > best.rows || (rows === best.rows && letters(text) > letters(best.text))) best = { text, rows };
+    if (best.rows > 0) break;
   }
-  return best.slice(0, MAX_PLAN_TEXT_CHARS);
+  return best.text.slice(0, MAX_PLAN_TEXT_CHARS);
 }
