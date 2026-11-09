@@ -2,7 +2,7 @@
 
 **DRAFT, for owner and legal review. Not legal advice and not an approved notice.**
 
-The live privacy notice is in `src/lib/legal/notice.ts`, version `draft-2026-11-06b`. Nothing in this document changes it. Putting any of this wording into the notice is gate **NOTICE-B**. That needs the owner's decision and a legal review, and the notice gets a new version and hash when it changes.
+The live privacy notice is in `src/lib/legal/notice.ts`. **On 2026-11-08 the fact-checked wording of sections 1–5 and 7 was put into it, as version `draft-2026-11-08`** (still `status: "draft"`, no review recorded), so the owner and a lawyer review the page people will actually see at `/privacy`. Each open question below stays in the notice as a visible `[TO CONFIRM: …]` gap. Section 6 keeps the existing Anthropic paragraph (now adding that package and plan images never go to a third party), and section 8 waits on Decision 12 and S-14. Finalising the notice is still gate **NOTICE-B**: the owner's decisions, a real legal review, then a commit that sets `status: "final"` with the review's date, reviewer and text hash.
 
 Each section below has three parts:
 

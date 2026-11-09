@@ -27,7 +27,7 @@ export const DRAFT_MARKER = "[TO CONFIRM";
 const gap = (what: string) => `${DRAFT_MARKER}: ${what}]`;
 
 export const NOTICE: Notice = {
-  version: "draft-2026-11-06b",
+  version: "draft-2026-11-08",
   status: "draft",
   review: null,
   names: {
@@ -42,8 +42,12 @@ export const NOTICE: Notice = {
         "Your email address, a hash of your password (never the password itself), and your sign-in sessions. Links we email you are stored only as a hash, with the address they were sent to.",
         "Your name and date of birth, your units and time zone, and any other details you choose to add to your profile: sex, height, weight, goal weight, goal, activity level, experience and training days. Those others are optional.",
         "What you log: your dated body-weight entries, custom exercises, plans, your schedule, workouts, sets, repetitions, weights, effort ratings and notes, custom foods, your food diary and any nutrition targets.",
+        `If you add your gyms, we store the names you give them, the kinds of equipment and any machines you list, and which gym and machine you used in a workout. We don't use your location. A gym name you choose may say where you train, so you can use any name you like. Your gyms are visible only to you. ${gap("free-text location wording")}`,
+        `If you send feedback, we keep what you wrote, the type of feedback you chose, the page you sent it from, and whether we've dealt with it. We use it only to find and fix problems and decide what to improve. Please don't include health details or anything about other people in feedback. ${gap("feedback retention, and who can read it")}`,
+        "Some things are read on your device and never leave it: barcodes from your camera, and workout-plan documents you import (PDF text, Word, Excel, CSV or text files). Only a barcode's digits are sent, to look up the product. Only the plan you confirm is saved, as workout plans in your account.",
+        `Some photos need our server to read the words on them: a package with no readable barcode, and a photo or screenshot of a workout plan. Those images go to our server only, are read there, and aren't stored or logged. ${gap("transient processing wording")}`,
         "Which version of this notice was current when your account was created, and when that was.",
-        "Your browser keeps a sign-in cookie, and a cookie that remembers this device for 90 days, so that someone else's failed logins can't lock you out. Neither holds your password.",
+        "Your browser keeps a sign-in cookie, and a cookie that remembers this device for 90 days, so that someone else's failed logins can't lock you out. Neither holds your password. Your browser also remembers which gym you picked for your next workout, as an internal ID only, until you sign out.",
         gap("whether birth date, weight and food count as health data, and what follows from that"),
       ],
     },
@@ -59,7 +63,8 @@ export const NOTICE: Notice = {
       heading: "Who else receives data",
       paragraphs: [
         "When you search for a food, scan a barcode or open a food's details, the search text, barcode or food id goes to USDA FoodData Central or Open Food Facts. Your name and account details don't.",
-        "Label and meal photos go to Anthropic to be read, but only when the settings for that feature are present. A real deployment refuses to start with those settings today.",
+        "If a package photo has no readable barcode, the words read from it are searched at USDA FoodData Central and Open Food Facts, the same way as if you'd typed them. The photo itself isn't sent to them. Nothing is added to your log until you choose a product and an amount, and nutrition values always come from the product record you choose, never from the photo.",
+        "Label and meal photos go to Anthropic to be read, but only when the settings for that feature are present. A real deployment refuses to start with those settings today. Package photos and workout-plan images are never sent to a third party.",
         `The hosting provider and database provider hold what's described above, and the email provider receives your address and the links we send you. ${gap("each provider's name, location and agreement, Decision 5")}`,
       ],
     },
@@ -74,7 +79,7 @@ export const NOTICE: Notice = {
     {
       heading: "Your choices",
       paragraphs: [
-        "You can download your data and delete your account yourself, from your account page. Deleting removes your account and what you've logged straight away. Shared exercise and food information stays.",
+        "You can download your data and delete your account yourself, from your account page. Your download includes everything you've logged or set up, including your gyms, the equipment and machines you listed, which exercises you swapped in a workout, and your feedback. Deleting removes your account and all of that straight away. Shared exercise and food information stays.",
         `A backup can keep a copy until it expires, and restoring one could bring a deleted account back. ${gap("how this is handled, S-14")}`,
         gap("rights and timing that apply in the chosen country, and how to complain"),
       ],
