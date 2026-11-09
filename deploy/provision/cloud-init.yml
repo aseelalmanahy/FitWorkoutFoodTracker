@@ -1,0 +1,67 @@
+#cloud-config
+# Provisioning for a fresh Ubuntu 24.04 server (Hetzner Cloud: paste into "Cloud config" at creation; limit 32 KiB).
+# Replace the one placeholder: the deploy user's SSH PUBLIC key. Nothing secret goes in here.
+# Then, as the deploy user: put the repository's deploy/ folder in /opt/fitworkoutfoodtracker/deploy, add
+# production.env and single-server.env there (mode 600), and run ./deploy.sh <tag>. See docs/PHASE_4_0_3_DEPLOYMENT.md.
+#
+# What it does: a non-root deploy user with key-only SSH; no root or password login; a host firewall allowing only SSH,
+# HTTP and HTTPS (with Hetzner's Cloud Firewall in front, configured the same way); automatic security updates; Docker
+# from Docker's own repository; a 2 GB swap file as a safety margin; and the nightly encrypted backup timer.
+users:
+  - name: deploy
+    groups: [sudo]
+    shell: /bin/bash
+    sudo: "ALL=(ALL) NOPASSWD:/usr/bin/systemctl start fit-backup.service, /usr/bin/systemctl status fit-backup.service"
+    lock_passwd: true
+    ssh_authorized_keys:
+      - ssh-ed25519 REPLACE_WITH_THE_DEPLOY_PUBLIC_KEY deploy
+disable_root: true
+ssh_pwauth: false
+package_update: true
+package_upgrade: true
+packages: [ca-certificates, curl, gnupg, ufw, fail2ban, unattended-upgrades, age, rclone, jq]
+write_files:
+  - path: /etc/ssh/sshd_config.d/10-fit.conf
+    content: |
+      PermitRootLogin no
+      PasswordAuthentication no
+      KbdInteractiveAuthentication no
+      AllowUsers deploy
+  - path: /etc/apt/apt.conf.d/20auto-upgrades
+    content: |
+      APT::Periodic::Update-Package-Lists "1";
+      APT::Periodic::Unattended-Upgrade "1";
+  - path: /etc/docker/daemon.json
+    content: |
+      { "log-driver": "json-file", "log-opts": { "max-size": "20m", "max-file": "5" }, "live-restore": true }
+  - path: /etc/systemd/system/fit-backup.service
+    content: |
+      [Unit]
+      Description=FitWorkoutFoodTracker encrypted database backup
+      After=docker.service
+      [Service]
+      Type=oneshot
+      User=root
+      ExecStart=/opt/fitworkoutfoodtracker/deploy/backup.sh
+  - path: /etc/systemd/system/fit-backup.timer
+    content: |
+      [Unit]
+      Description=Nightly FitWorkoutFoodTracker backup
+      [Timer]
+      OnCalendar=*-*-* 03:15:00 UTC
+      RandomizedDelaySec=900
+      Persistent=true
+      [Install]
+      WantedBy=timers.target
+runcmd:
+  - [sh, -c, "fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile && echo '/swapfile none swap sw 0 0' >> /etc/fstab"]
+  - [sh, -c, "sysctl -w vm.swappiness=10 && echo 'vm.swappiness=10' > /etc/sysctl.d/90-fit.conf"]
+  - [sh, -c, "install -m 0755 -d /etc/apt/keyrings && curl -fsSL https://download.docker.com/linux/ubuntu/gpg -o /etc/apt/keyrings/docker.asc && chmod a+r /etc/apt/keyrings/docker.asc"]
+  - [sh, -c, "echo \"deb [arch=$(dpkg --print-architecture) signed-by=/etc/apt/keyrings/docker.asc] https://download.docker.com/linux/ubuntu $(. /etc/os-release && echo $VERSION_CODENAME) stable\" > /etc/apt/sources.list.d/docker.list"]
+  - [sh, -c, "apt-get update && apt-get install -y docker-ce docker-ce-cli containerd.io docker-compose-plugin"]
+  - [usermod, -aG, docker, deploy]
+  - [sh, -c, "ufw default deny incoming && ufw default allow outgoing && ufw limit 22/tcp && ufw allow 80/tcp && ufw allow 443/tcp && ufw allow 443/udp && ufw --force enable"]
+  - [sh, -c, "install -d -o deploy -g deploy -m 0750 /opt/fitworkoutfoodtracker && install -d -m 0700 /var/backups/fitworkoutfoodtracker"]
+  - [systemctl, daemon-reload]
+  - [systemctl, enable, --now, fit-backup.timer]
+  - [systemctl, restart, ssh]

@@ -19,6 +19,8 @@ ENV NODE_ENV=production
 COPY scripts/migrate-approved.cjs ./scripts/migrate-approved.cjs
 COPY scripts/lib/approved-migrations.cjs ./scripts/lib/approved-migrations.cjs
 COPY prisma/approved-migrations.json ./prisma/approved-migrations.json
+# Staging only, run by hand: one synthetic account at a reserved test domain (see the script).
+COPY scripts/create-staging-account.cjs ./scripts/create-staging-account.cjs
 CMD ["node", "scripts/migrate-approved.cjs"]
 
 FROM node:24.21.0-bookworm-slim AS runner

@@ -25,6 +25,8 @@ qa-test-accounts.local.md
 
 # The production environment file, kept on the server only
 deploy/production.env
+deploy/single-server.env
+deploy/.deployed-tag
 
 # The demo account password, from scripts/demo-account.cjs
 demo-account.local.md

@@ -1,0 +1,85 @@
+# Option A (BETA_HOSTING.md): one server runs the app, PostgreSQL and Caddy. An overlay on compose.production.yml, which
+# stays the template for an external managed database. Staging and production use the same files, each on its own
+# server with its own env files. Nothing here is a real value; deploy/deploy.sh is how it's run:
+#   docker compose -f compose.production.yml -f compose.single-server.yml \
+#     --env-file production.env --env-file single-server.env up -d
+#
+# PostgreSQL is reached only on the internal network, over TLS (the app's preflight requires TLS for any database not
+# on loopback), with the least-privilege roles of database-roles.sql made on first start by postgres/10-roles.sh.
+# Memory, as measured in G1 on Linux (S-13): the app peaks at about 1.36 GB within its 2048 MB limit; with PostgreSQL
+# at 768 MB and Caddy at 256 MB, the limits total about 3.1 GB, which a 4 GB server holds with the system beside it.
+services:
+  app:
+    image: ${APP_IMAGE_REPO:?set APP_IMAGE_REPO}:${APP_IMAGE_TAG:?set APP_IMAGE_TAG}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  migrate:
+    image: ${APP_IMAGE_REPO:?set APP_IMAGE_REPO}-migrate:${APP_IMAGE_TAG:?set APP_IMAGE_TAG}
+    depends_on:
+      db:
+        condition: service_healthy
+
+  db:
+    # Pin by digest at the first real deployment, as the Dockerfile's base images are to be.
+    image: postgres:18-bookworm
+    restart: unless-stopped
+    environment:
+      POSTGRES_PASSWORD: ${POSTGRES_SUPERUSER_PASSWORD:?set POSTGRES_SUPERUSER_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB:?set POSTGRES_DB}
+      # Read once, by postgres/10-roles.sh, when the volume is first initialised.
+      FIT_MIGRATOR_PASSWORD: ${FIT_MIGRATOR_PASSWORD:?set FIT_MIGRATOR_PASSWORD}
+      FIT_APP_PASSWORD: ${FIT_APP_PASSWORD:?set FIT_APP_PASSWORD}
+    command:
+      - postgres
+      - -c
+      - ssl=on
+      - -c
+      - ssl_cert_file=/etc/ssl/certs/ssl-cert-snakeoil.pem
+      - -c
+      - ssl_key_file=/etc/ssl/private/ssl-cert-snakeoil.key
+      - -c
+      - password_encryption=scram-sha-256
+      # Sized for a 4 GB server shared with the app. One app instance with Prisma's pool needs few connections.
+      - -c
+      - shared_buffers=256MB
+      - -c
+      - effective_cache_size=1GB
+      - -c
+      - work_mem=8MB
+      - -c
+      - maintenance_work_mem=64MB
+      - -c
+      - max_connections=40
+      # Slow statements only, and never their parameters, so personal data stays out of the log.
+      - -c
+      - log_min_duration_statement=2000
+      - -c
+      - log_parameter_max_length=0
+      - -c
+      - log_parameter_max_length_on_error=0
+    volumes:
+      - pgdata:/var/lib/postgresql
+      - ./postgres/10-roles.sh:/docker-entrypoint-initdb.d/10-roles.sh:ro
+    # No ports: reached only by the app and the migrate step, on the internal network.
+    expose:
+      - "5432"
+    networks: [internal]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d \"$${POSTGRES_DB}\""]
+      interval: 5s
+      timeout: 5s
+      retries: 30
+    security_opt:
+      - no-new-privileges:true
+    shm_size: 256mb
+    mem_limit: 768m
+    logging:
+      driver: json-file
+      options:
+        max-size: "20m"
+        max-file: "5"
+
+volumes:
+  pgdata:

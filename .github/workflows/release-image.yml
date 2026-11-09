@@ -1,0 +1,45 @@
+# Publishes the two release images to GitHub's container registry, tagged with the commit, for deploy/deploy.sh:
+#   ghcr.io/<owner>/fitworkoutfoodtracker:<sha>          the app (with the on-device meal model)
+#   ghcr.io/<owner>/fitworkoutfoodtracker-migrate:<sha>  the guarded migration step
+# Run by hand only (Actions -> Release image -> Run workflow), by the owner, once a commit is approved for staging or
+# production. The images carry no secret (G1 scans every layer), and their approved-migrations.json is the committed
+# one: a migration not approved there is refused on the server by the migrate step itself.
+name: Release image
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: write
+
+concurrency:
+  group: release-image
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Names
+        id: n
+        run: |
+          repo="ghcr.io/$(echo "${{ github.repository_owner }}" | tr '[:upper:]' '[:lower:]')/fitworkoutfoodtracker"
+          echo "repo=$repo" >> "$GITHUB_OUTPUT"
+          echo "tag=$(git rev-parse --short=12 HEAD)" >> "$GITHUB_OUTPUT"
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - name: Build and push
+        run: |
+          docker build --build-arg WITH_MEAL_MODEL=1 --target runner -t "${{ steps.n.outputs.repo }}:${{ steps.n.outputs.tag }}" .
+          docker build --target migrate -t "${{ steps.n.outputs.repo }}-migrate:${{ steps.n.outputs.tag }}" .
+          docker push "${{ steps.n.outputs.repo }}:${{ steps.n.outputs.tag }}"
+          docker push "${{ steps.n.outputs.repo }}-migrate:${{ steps.n.outputs.tag }}"
+          echo "Published tag ${{ steps.n.outputs.tag }}. On the server: ./deploy.sh ${{ steps.n.outputs.tag }}" >> "$GITHUB_STEP_SUMMARY"

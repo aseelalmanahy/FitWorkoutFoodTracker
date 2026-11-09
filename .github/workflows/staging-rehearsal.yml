@@ -1,0 +1,240 @@
+# The staging rehearsal (G3, on a disposable machine): the single-server stack exactly as a server runs it
+# (compose.production.yml + compose.single-server.yml, deploy.sh, smoke.sh, backup.sh, restore.sh), on a GitHub-hosted
+# Ubuntu runner, from an EMPTY PostgreSQL to a deployed, HTTPS-served app, with synthetic data only.
+# Every password is generated here, masked, and discarded with the runner. The only change from a real server: Caddy
+# uses its internal CA (compose.ci.yml, made here), as a runner has no public name for Let's Encrypt.
+#
+# MIG-FB and MIG-GYM: the guarded migrate step refuses migrations that aren't in prisma/approved-migrations.json. This
+# job first proves that refusal on the committed list, then records the two migrations in the RUNNER'S copy of the list
+# only, after checking their reviewed hashes. That approval is scoped to this disposable database; it is not committed
+# and is not a production approval.
+name: Staging rehearsal
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/multi-gym-exercise-alternatives]
+    paths:
+      - .github/workflows/staging-rehearsal.yml
+      - deploy/**
+      - Dockerfile
+      - prisma/**
+      - scripts/migrate-approved.cjs
+      - scripts/lib/approved-migrations.cjs
+      - scripts/create-staging-account.cjs
+      - scripts/staging-journey.cjs
+
+permissions:
+  contents: read
+
+concurrency:
+  group: staging-rehearsal
+  cancel-in-progress: false
+
+env:
+  APP_IMAGE_REPO: fitworkoutfoodtracker-ci
+  HOST: staging.fitworkoutfoodtracker.test
+  BACKUP_DIR: ${{ github.workspace }}/../backups
+  SMOKE_EMAIL: smoke@staging.example.com
+
+jobs:
+  rehearse:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Tools and the staging name
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq age > /dev/null
+          echo "127.0.0.1 $HOST" | sudo tee -a /etc/hosts > /dev/null
+          nproc; free -m; docker version --format 'docker {{.Server.Version}}'; docker compose version
+
+      - name: Disposable secrets and env files (never printed)
+        working-directory: deploy
+        run: |
+          pw() { openssl rand -base64 60 | tr -dc 'A-Za-z0-9' | cut -c1-40; }
+          SU=$(pw); MIG=$(pw); APW=$(pw); SMOKE=$(pw)
+          for s in "$SU" "$MIG" "$APW" "$SMOKE"; do echo "::add-mask::$s"; done
+          age-keygen -o "$RUNNER_TEMP/backup.key" 2> /dev/null
+          RECIPIENT=$(age-keygen -y "$RUNNER_TEMP/backup.key")
+          cat > single-server.env <<EOF
+          APP_IMAGE_REPO=$APP_IMAGE_REPO
+          POSTGRES_DB=fitworkoutfoodtracker
+          POSTGRES_SUPERUSER_PASSWORD=$SU
+          FIT_MIGRATOR_PASSWORD=$MIG
+          FIT_APP_PASSWORD=$APW
+          BACKUP_AGE_RECIPIENT=$RECIPIENT
+          BACKUP_RCLONE_REMOTE=
+          BACKUP_RETENTION_DAYS=14
+          EOF
+          cat > production.env <<EOF
+          APP_IMAGE_TAG=set-by-deploy
+          APP_DOMAIN=$HOST
+          APP_ORIGIN=https://$HOST
+          APP_DATABASE_URL=postgresql://fit_app:$APW@db:5432/fitworkoutfoodtracker?sslmode=require&connection_limit=10
+          MIGRATION_DATABASE_URL=postgresql://fit_migrator:$MIG@db:5432/fitworkoutfoodtracker?sslmode=require
+          REGISTRATION_ALLOWLIST=
+          FDC_API_KEY=
+          OFF_CONTACT=
+          LABEL_OCR=local
+          MEAL_RECOGNITION=local
+          EOF
+          chmod 600 single-server.env production.env
+          { echo "SMOKE_PASSWORD=$SMOKE"; echo "FIT_APP_PASSWORD=$APW"; echo "FIT_MIGRATOR_PASSWORD=$MIG"; } >> "$GITHUB_ENV"
+          # Caddy with its internal CA, otherwise the real deploy/Caddyfile unchanged.
+          sed 's/^{\$APP_DOMAIN} {$/{$APP_DOMAIN} {\n\ttls internal/' Caddyfile > Caddyfile.ci
+          grep -q 'tls internal' Caddyfile.ci
+          printf 'services:\n  proxy:\n    volumes:\n      - ./Caddyfile.ci:/etc/caddy/Caddyfile:ro\n' > compose.ci.yml
+
+      - name: Images (the committed approval list first, for the refusal check)
+        run: |
+          docker build -q --target migrate -t "$APP_IMAGE_REPO-migrate:unapproved" .
+          node -e '
+            const fs = require("fs"), c = require("crypto");
+            const reviewed = { "20261108120000_feedback": "23a3268b9948508ef54fb73022815355323cd4db7eaea963f6b7dbe9699f4b5b",
+                               "20261109120000_multi_gym": "16e04fa8c38bcf3457ea1bfdb9ce66b0e23d1dd2aebae2b2e0738d9a572bbc5d" };
+            const f = "prisma/approved-migrations.json", list = JSON.parse(fs.readFileSync(f, "utf8"));
+            for (const [m, h] of Object.entries(reviewed)) {
+              const got = c.createHash("sha256").update(fs.readFileSync(`prisma/migrations/${m}/migration.sql`, "utf8").replace(/\r\n/g, "\n")).digest("hex");
+              if (got !== h) { console.error(`${m}: hash ${got} is not the reviewed one`); process.exit(1); }
+              if (!list.approved.includes(m)) list.approved.push(m);
+              list.sha256[m] = h;
+            }
+            list.note = "CI RUNNER ONLY: recorded for the disposable staging rehearsal database. Not committed; not a production approval.";
+            fs.writeFileSync(f, JSON.stringify(list, null, 2));
+            console.log("disposable approval recorded on this runner for", Object.keys(reviewed).join(", "));'
+          docker build -q --build-arg WITH_MEAL_MODEL=1 --target runner -t "$APP_IMAGE_REPO:ci-a" .
+          docker build -q --target migrate -t "$APP_IMAGE_REPO-migrate:ci-a" .
+          # A release that can't start, for the rollback check.
+          printf 'FROM %s\nCMD ["node", "-e", "process.exit(1)"]\n' "$APP_IMAGE_REPO:ci-a" | docker build -q -t "$APP_IMAGE_REPO:ci-bad" -
+          docker tag "$APP_IMAGE_REPO-migrate:ci-a" "$APP_IMAGE_REPO-migrate:ci-bad"
+          docker images --format '{{.Repository}}:{{.Tag}} {{.Size}}' | grep "$APP_IMAGE_REPO"
+
+      - name: An empty PostgreSQL, TLS only, least-privilege roles
+        working-directory: deploy
+        run: |
+          dc() { APP_IMAGE_TAG="${T:-ci-a}" docker compose -f compose.production.yml -f compose.single-server.yml -f compose.ci.yml --env-file production.env --env-file single-server.env "$@"; }
+          psql_() { dc exec -T db psql -U postgres -d fitworkoutfoodtracker -X -At -v ON_ERROR_STOP=1 -c "$1"; }
+          dc up -d db
+          for i in $(seq 1 60); do [ "$(docker inspect -f '{{.State.Health.Status}}' "$(dc ps -q db)")" = healthy ] && break; sleep 2; done
+          test "$(psql_ 'SHOW ssl')" = on && echo "PASS  TLS on" || { echo "FAIL  TLS on"; exit 1; }
+          test "$(psql_ "SELECT string_agg(rolname, ',' ORDER BY rolname) FROM pg_roles WHERE rolname LIKE 'fit\_%'")" = "fit_app,fit_migrator" && echo "PASS  roles fit_app and fit_migrator" || { echo "FAIL  roles fit_app and fit_migrator"; exit 1; }
+          test "$(psql_ "SELECT count(*) FROM pg_tables WHERE schemaname = 'public'")" = 0 && echo "PASS  the database starts empty" || { echo "FAIL  the database starts empty"; exit 1; }
+          hba=$(psql_ 'SHOW hba_file')
+          dc exec -T db grep -Eq '^hostssl[[:space:]]+all[[:space:]]+all[[:space:]]+all[[:space:]]+scram-sha-256' "$hba" && echo "PASS  network rule is hostssl" || { echo "FAIL  network rule is hostssl"; exit 1; }
+          ! dc exec -T db grep -Eq '^host[[:space:]]+all[[:space:]]+all[[:space:]]+all' "$hba" && echo "PASS  and no network rule without TLS remains" || { echo "FAIL  and no network rule without TLS remains"; exit 1; }
+          NET=fitworkoutfoodtracker_internal
+          if docker run --rm --network "$NET" postgres:18-bookworm psql "postgresql://fit_app:$FIT_APP_PASSWORD@db:5432/fitworkoutfoodtracker?sslmode=disable" -Atc 'select 1' > /dev/null 2>&1; then echo "FAIL  a connection without TLS was accepted"; exit 1; fi
+          echo "PASS  a connection without TLS is refused"
+          test "$(docker run --rm --network "$NET" postgres:18-bookworm psql "postgresql://fit_app:$FIT_APP_PASSWORD@db:5432/fitworkoutfoodtracker?sslmode=require" -Atc 'select 1')" = 1 && echo "PASS  the app role connects over TLS" || { echo "FAIL  the app role connects over TLS"; exit 1; }
+          set +e; T=unapproved dc --profile migrate run --rm migrate; rc=$?; set -e
+          test "$rc" = 4 && echo "PASS  the guarded migrate step refuses the unapproved migrations (exit 4)" || { echo "FAIL  the guarded migrate step refuses the unapproved migrations (exit 4)"; exit 1; }
+          test "$(psql_ "SELECT to_regclass('public._prisma_migrations') IS NULL")" = t && echo "PASS  and applied nothing" || { echo "FAIL  and applied nothing"; exit 1; }
+
+      - name: First deploy (empty database -> all migrations -> app -> HTTPS -> smoke)
+        working-directory: deploy
+        env:
+          DEPLOY_EXTRA_COMPOSE: compose.ci.yml
+          SMOKE_CURL_OPTS: --insecure
+          SMOKE_EMAIL: ""
+        run: ./deploy.sh ci-a --no-pull
+
+      - name: Schema, privileges and the migration history
+        working-directory: deploy
+        run: |
+          dc() { APP_IMAGE_TAG=ci-a docker compose -f compose.production.yml -f compose.single-server.yml -f compose.ci.yml --env-file production.env --env-file single-server.env "$@"; }
+          psql_() { dc exec -T db psql -U postgres -d fitworkoutfoodtracker -X -At -v ON_ERROR_STOP=1 -c "$1"; }
+          want=$(ls -d ../prisma/migrations/2*/ | wc -l)
+          got=$(psql_ 'SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL')
+          test "$got" = "$want" && echo "PASS  all $got migrations applied, from empty" || { echo "FAIL  all $got migrations applied, from empty"; exit 1; }
+          test "$(psql_ "SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace WHERE n.nspname = 'public' AND contype = 'f' AND NOT convalidated")" = 0 && echo "PASS  every foreign key validated ($(psql_ "SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace WHERE n.nspname = 'public' AND contype = 'f'"))" || { echo "FAIL  a foreign key is not validated"; exit 1; }
+          test "$(psql_ "SELECT count(*) FROM pg_tables WHERE schemaname = 'public' AND tableowner <> 'fit_migrator'")" = 0 && echo "PASS  fit_migrator owns every table" || { echo "FAIL  fit_migrator owns every table"; exit 1; }
+          test "$(psql_ "SELECT has_table_privilege('fit_app', '_prisma_migrations', 'INSERT,UPDATE,DELETE,TRUNCATE')")" = f && echo "PASS  fit_app can't change the migration history" || { echo "FAIL  fit_app can't change the migration history"; exit 1; }
+          test "$(psql_ "SELECT has_schema_privilege('fit_app', 'public', 'CREATE')")" = f && echo "PASS  fit_app can't change the schema" || { echo "FAIL  fit_app can't change the schema"; exit 1; }
+          test "$(psql_ "SELECT has_table_privilege('fit_app', '\"User\"', 'SELECT,INSERT,UPDATE,DELETE')")" = t && echo "PASS  fit_app has rows" || { echo "FAIL  fit_app has rows"; exit 1; }
+          test "$(psql_ "SELECT bool_and(s.ssl) FROM pg_stat_ssl s JOIN pg_stat_activity a USING (pid) WHERE a.usename = 'fit_app'")" = t && echo "PASS  the app's connections use TLS" || { echo "FAIL  the app's connections use TLS"; exit 1; }
+          dc --profile migrate run --rm --entrypoint sh migrate -c 'node node_modules/prisma/build/index.js migrate diff --from-url "$DATABASE_URL" --to-schema-datamodel prisma/schema.prisma --exit-code' && echo "PASS  no drift from schema.prisma" || { echo "FAIL  no drift from schema.prisma"; exit 1; }
+          dc --profile migrate run --rm migrate && echo "PASS  the migrate step again: nothing pending, history still protected" || { echo "FAIL  the migrate step again: nothing pending, history still protected"; exit 1; }
+
+      - name: HTTPS with a verified chain, a synthetic account, smoke, and the user journey
+        working-directory: deploy
+        run: |
+          dc() { APP_IMAGE_TAG=ci-a docker compose -f compose.production.yml -f compose.single-server.yml -f compose.ci.yml --env-file production.env --env-file single-server.env "$@"; }
+          dc exec -T proxy cat /data/caddy/pki/authorities/local/root.crt > "$RUNNER_TEMP/caddy-root.crt"
+          curl -sS --fail --cacert "$RUNNER_TEMP/caddy-root.crt" "https://$HOST/api/health" > /dev/null && echo "PASS  TLS chain verifies against the proxy's CA" || { echo "FAIL  TLS chain verifies against the proxy's CA"; exit 1; }
+          set +e; dc --profile migrate run --rm --entrypoint node migrate scripts/create-staging-account.cjs --email=someone@gmail.com; rc=$?; set -e
+          test "$rc" = 4 && echo "PASS  a real address is refused for a staging account" || { echo "FAIL  a real address is refused for a staging account"; exit 1; }
+          STAGING_ACCOUNT_PASSWORD="$SMOKE_PASSWORD" dc --profile migrate run --rm -e STAGING_ACCOUNT_PASSWORD --entrypoint node migrate scripts/create-staging-account.cjs "--email=$SMOKE_EMAIL"
+          SMOKE_CACERT="$RUNNER_TEMP/caddy-root.crt" ./smoke.sh "https://$HOST"
+          NODE_EXTRA_CA_CERTS="$RUNNER_TEMP/caddy-root.crt" STAGING_EMAIL="$SMOKE_EMAIL" STAGING_PASSWORD="$SMOKE_PASSWORD" node ../scripts/staging-journey.cjs "https://$HOST"
+
+      - name: Data survives restarts
+        working-directory: deploy
+        run: |
+          dc() { APP_IMAGE_TAG=ci-a docker compose -f compose.production.yml -f compose.single-server.yml -f compose.ci.yml --env-file production.env --env-file single-server.env "$@"; }
+          psql_() { dc exec -T db psql -U postgres -d fitworkoutfoodtracker -X -At -v ON_ERROR_STOP=1 -c "$1"; }
+          before=$(psql_ "SELECT (SELECT count(*) FROM \"User\") || '/' || (SELECT count(*) FROM \"GymLocation\") || '/' || (SELECT count(*) FROM \"WorkoutSession\") || '/' || (SELECT count(*) FROM \"FoodEntry\")")
+          dc restart db
+          dc restart app
+          for i in $(seq 1 60); do [ "$(docker inspect -f '{{.State.Health.Status}}' "$(dc ps -q app)")" = healthy ] && break; sleep 3; done
+          after=$(psql_ "SELECT (SELECT count(*) FROM \"User\") || '/' || (SELECT count(*) FROM \"GymLocation\") || '/' || (SELECT count(*) FROM \"WorkoutSession\") || '/' || (SELECT count(*) FROM \"FoodEntry\")")
+          echo "users/gyms/workouts/food entries: before $before, after $after"
+          test "$before" = "$after" && echo "PASS  rows unchanged across database and app restarts" || { echo "FAIL  rows unchanged across database and app restarts"; exit 1; }
+          SMOKE_CACERT="$RUNNER_TEMP/caddy-root.crt" ./smoke.sh "https://$HOST"
+
+      - name: Encrypted backup, then a verified restore into a new database
+        working-directory: deploy
+        run: |
+          dc() { APP_IMAGE_TAG=ci-a docker compose -f compose.production.yml -f compose.single-server.yml -f compose.ci.yml --env-file production.env --env-file single-server.env "$@"; }
+          ./backup.sh
+          f=$(ls -t "$BACKUP_DIR"/fitworkoutfoodtracker-*.dump.age | head -1)
+          head -c 22 "$f" | grep -q 'age-encryption.org/v1' && echo "PASS  the backup is age-encrypted" || { echo "FAIL  the backup is age-encrypted"; exit 1; }
+          if dc exec -T db pg_restore --list < "$f" > /dev/null 2>&1; then echo "FAIL  the encrypted file is readable as a dump"; exit 1; fi
+          echo "PASS  without the key it can't be read"
+          ./restore.sh "$f" "$RUNNER_TEMP/backup.key" restore_check
+          live=$(dc exec -T db psql -U postgres -d fitworkoutfoodtracker -X -At -c 'SELECT count(*) FROM "User"')
+          copy=$(dc exec -T db psql -U postgres -d restore_check -X -At -c 'SELECT count(*) FROM "User"')
+          test "$live" = "$copy" && echo "PASS  the restored copy matches ($copy accounts)" || { echo "FAIL  the restored copy matches ($copy accounts)"; exit 1; }
+          set +e; ./restore.sh "$f" "$RUNNER_TEMP/backup.key" fitworkoutfoodtracker; rc=$?; set -e
+          test "$rc" = 4 && echo "PASS  a restore over the live database is refused" || { echo "FAIL  a restore over the live database is refused"; exit 1; }
+          dc exec -T db dropdb -U postgres restore_check && echo "PASS  restore_check dropped" || { echo "FAIL  restore_check dropped"; exit 1; }
+
+      - name: A release that can't start is rolled back
+        working-directory: deploy
+        env:
+          DEPLOY_EXTRA_COMPOSE: compose.ci.yml
+          SMOKE_CURL_OPTS: --insecure
+        run: |
+          set +e; ./deploy.sh ci-bad --no-pull | tee "$RUNNER_TEMP/rollback.log"; rc=${PIPESTATUS[0]}; set -e
+          test "$rc" = 1 && grep -q 'ROLLED BACK to ci-a' "$RUNNER_TEMP/rollback.log" && echo "PASS  ci-bad failed its health check and ci-a is back" || { echo "FAIL  ci-bad failed its health check and ci-a is back"; exit 1; }
+          test "$(cat .deployed-tag)" = ci-a && echo "PASS  the deployed tag is still ci-a" || { echo "FAIL  the deployed tag is still ci-a"; exit 1; }
+          SMOKE_CACERT="$RUNNER_TEMP/caddy-root.crt" ./smoke.sh "https://$HOST"
+
+      - name: Memory, log privacy, and a clean stop
+        working-directory: deploy
+        run: |
+          dc() { APP_IMAGE_TAG=ci-a docker compose -f compose.production.yml -f compose.single-server.yml -f compose.ci.yml --env-file production.env --env-file single-server.env "$@"; }
+          docker stats --no-stream --format '{{.Name}} {{.MemUsage}} {{.CPUPerc}}' | grep fitworkoutfoodtracker
+          logs=$(dc logs --no-color 2>&1)
+          for s in "$SMOKE_PASSWORD" "$FIT_APP_PASSWORD" "$FIT_MIGRATOR_PASSWORD" "$SMOKE_EMAIL"; do
+            if grep -qF -- "$s" <<< "$logs"; then echo "FAIL  a password or the account's address is in the container logs"; exit 1; fi
+          done
+          echo "PASS  no password or account address in any container's log"
+          start=$(date +%s); dc stop -t 30 app; took=$(( $(date +%s) - start ))
+          code=$(docker inspect -f '{{.State.ExitCode}}' "$(dc ps -aq app)")
+          [ "$took" -lt 30 ] && { [ "$code" = 0 ] || [ "$code" = 143 ]; } && echo "PASS  the app stops cleanly (exit $code in ${took}s)" || { echo "FAIL  the app stops cleanly (exit $code in ${took}s)"; exit 1; }
+
+      - name: State on failure
+        if: failure()
+        working-directory: deploy
+        run: |
+          APP_IMAGE_TAG=ci-a docker compose -f compose.production.yml -f compose.single-server.yml -f compose.ci.yml --env-file production.env --env-file single-server.env ps -a || true
+          APP_IMAGE_TAG=ci-a docker compose -f compose.production.yml -f compose.single-server.yml -f compose.ci.yml --env-file production.env --env-file single-server.env logs --no-color --tail 80 || true
