@@ -4,15 +4,18 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { api, ApiError } from "@/lib/client/api";
-import { Button, Card, ErrorText, Field, Input } from "@/components/ui";
+import { Button, Card, ErrorText, Field, Input, buttonClass } from "@/components/ui";
+import { ConfirmDialog } from "@/components/confirm-dialog";
 import { DeleteProgramButton } from "@/components/workouts/manage-actions";
 
 type DayRow = { id: string; name: string; exercises: number; weekdays: string };
 
 /**
- * UI-01: one program's page. Rename it, reorder its days, take a day out (it stays, as an individual plan), or
- * delete the program (every day stays, as an individual plan). UI-06: set it as the active program. None of this
- * changes a plan's exercises or any logged workout.
+ * UI-01: one program's page. Rename it, reorder its days, remove a day from the program (it stays, as an individual
+ * plan), or delete the program (every day stays, as an individual plan). UI-06: set it as the active program. None of
+ * this changes a plan's exercises or any logged workout. UI-05 (owner report): removing a day asks first, and nothing
+ * is sent until the person confirms. UI-09: on a phone, each day's name gets the full width and its actions sit on a
+ * row of their own, at touch size.
  */
 export function ProgramManager({ id, name: initialName, days: initialDays, active = false }: { id: string; name: string; days: DayRow[]; active?: boolean }) {
   const router = useRouter();
@@ -21,6 +24,7 @@ export function ProgramManager({ id, name: initialName, days: initialDays, activ
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<DayRow | null>(null);
 
   async function patch(body: { name?: string; templateIds?: string[] }, done: string) {
     setBusy(true); setError(null); setNote(null);
@@ -41,21 +45,13 @@ export function ProgramManager({ id, name: initialName, days: initialDays, activ
     [next[i], next[i + by]] = [next[i + by], next[i]];
     if (await patch({ templateIds: next.map((d) => d.id) }, "Order saved.")) setDays(next);
   }
-  async function takeOut(day: DayRow) {
+  /** Runs only from the confirmation. The last day isn't offered: the program would be empty (Delete keeps it). */
+  async function removeFromProgram(day: DayRow) {
     const next = days.filter((d) => d.id !== day.id);
-    if (next.length === 0) return ungroup();
-    if (await patch({ templateIds: next.map((d) => d.id) }, `“${day.name}” is now an individual plan.`)) setDays(next);
-  }
-  async function ungroup() {
-    if (!confirm("Ungroup this program? Its days stay, as individual plans, with their schedule and history.")) return;
-    setBusy(true); setError(null);
-    try {
-      await api("DELETE", `/api/programs/${id}`);
-      router.replace("/workouts");
-      router.refresh();
-    } catch (e) {
-      setError(e instanceof ApiError ? e.message : "That couldn't be done. Try again.");
-      setBusy(false);
+    if (next.length === 0) return;
+    if (await patch({ templateIds: next.map((d) => d.id) }, `“${day.name}” was removed from the program. It's now an individual plan.`)) {
+      setDays(next);
+      setRemoving(null);
     }
   }
 
@@ -70,18 +66,24 @@ export function ProgramManager({ id, name: initialName, days: initialDays, activ
       <Card className="divide-y divide-line">
         <ol>
           {days.map((d, i) => (
-            <li key={d.id} className="flex flex-wrap items-center gap-3 px-4 py-3" data-testid="program-page-day">
-              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-surface-2 text-xs font-semibold" aria-hidden>{i + 1}</span>
-              <span className="min-w-0 flex-1">
-                <span className="line-clamp-2 font-medium break-words">{d.name}</span>
-                <span className="block text-xs text-muted">{d.exercises} exercise{d.exercises === 1 ? "" : "s"} · {d.weekdays}</span>
-              </span>
-              <span className="flex shrink-0 items-center gap-1">
-                <Button variant="ghost" size="sm" aria-label={`Move ${d.name} up`} disabled={busy || i === 0} onClick={() => move(i, -1)}>↑</Button>
-                <Button variant="ghost" size="sm" aria-label={`Move ${d.name} down`} disabled={busy || i === days.length - 1} onClick={() => move(i, 1)}>↓</Button>
-                <Link href={`/workouts/plans/${d.id}`} className="px-2 text-sm font-medium text-accent-ink">Edit</Link>
-                <Button variant="ghost" size="sm" disabled={busy} onClick={() => takeOut(d)} data-testid="program-take-out">Take out</Button>
-              </span>
+            <li key={d.id} className="flex flex-col gap-3 px-4 py-3 lg:flex-row lg:items-center" data-testid="program-page-day">
+              <div className="flex min-w-0 flex-1 items-start gap-3">
+                <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-surface-2 text-xs font-semibold" aria-hidden>{i + 1}</span>
+                <span className="min-w-0 flex-1">
+                  <span className="block font-medium [overflow-wrap:anywhere]" data-testid="program-day-name">{d.name}</span>
+                  <span className="block text-sm text-muted">{d.exercises} exercise{d.exercises === 1 ? "" : "s"} · {d.weekdays}</span>
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2 pl-10 lg:shrink-0 lg:pl-0" data-testid="program-day-actions">
+                <span className="flex gap-2" role="group" aria-label={`Reorder ${d.name}`}>
+                  <Button variant="secondary" className="min-w-11 px-3" aria-label={`Move ${d.name} up`} title="Move up" disabled={busy || i === 0} onClick={() => move(i, -1)}><span aria-hidden>↑</span></Button>
+                  <Button variant="secondary" className="min-w-11 px-3" aria-label={`Move ${d.name} down`} title="Move down" disabled={busy || i === days.length - 1} onClick={() => move(i, 1)}><span aria-hidden>↓</span></Button>
+                </span>
+                <Link href={`/workouts/plans/${d.id}`} className={buttonClass("secondary", "md")} aria-label={`Edit ${d.name}`}>Edit</Link>
+                {days.length > 1 && (
+                  <Button variant="ghost" disabled={busy} onClick={() => { setError(null); setRemoving(d); }} aria-label={`Remove ${d.name} from the program`} data-testid="program-remove">Remove from program</Button>
+                )}
+              </div>
             </li>
           ))}
         </ol>
@@ -93,7 +95,20 @@ export function ProgramManager({ id, name: initialName, days: initialDays, activ
         <Link href={`/workouts/programs/${id}/activate`} className="inline-flex h-10 items-center rounded-xl bg-accent px-4 text-sm font-semibold text-accent-fg" data-testid="program-activate">{active ? "Change its weekdays" : "Set as active"}</Link>
         <DeleteProgramButton id={id} name={initialName} plans={days.length} active={active} after="/workouts" size="md" />
       </div>
-      <p className="text-xs text-muted">Taking out a day or deleting the program keeps every plan, its place on your schedule and its workout history.{active ? " A day taken out stays on your schedule, marked as outside your active program, until you remove it." : ""}</p>
+      <p className="text-xs text-muted">Removing a workout from the program, or deleting the program, keeps every plan, its place on your schedule and its workout history.{active ? " A workout removed from the program stays on your schedule, marked as outside your active program, until you change that day." : ""}</p>
+      <ConfirmDialog open={removing !== null} title={removing ? `Remove ${removing.name} from ${initialName}?` : ""} confirmLabel="Remove from program" danger={false}
+        busy={busy} error={removing ? error : null} onConfirm={() => removing && void removeFromProgram(removing)} onCancel={() => { setRemoving(null); setError(null); }} testId="program-remove-dialog">
+        {removing && <>
+          <p>It leaves this program and becomes an individual plan. Nothing is deleted:</p>
+          <ul className="list-disc space-y-0.5 pl-5">
+            <li>the workout plan and its {removing.exercises} exercise{removing.exercises === 1 ? "" : "s"} stay as they are;</li>
+            <li>{removing.weekdays === "Not scheduled" ? "it isn't on your weekly schedule, and that doesn't change" : `its place on your weekly schedule (${removing.weekdays}) stays`};</li>
+            <li>every completed workout and its exercise history stay.</li>
+          </ul>
+          {active && removing.weekdays !== "Not scheduled" && <p>Because this is your active program, the schedule will mark it as outside the program until you change that day.</p>}
+          <p>You can add it back to a program later.</p>
+        </>}
+      </ConfirmDialog>
     </div>
   );
 }

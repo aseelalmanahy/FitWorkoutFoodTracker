@@ -13,18 +13,25 @@ const INDIVIDUAL = "__individual";
 /** A modal built on the native <dialog>: focus stays inside, Escape cancels, focus returns to the opener. */
 function Modal({ open, title, onClose, children, testId }: { open: boolean; title: string; onClose: () => void; children: React.ReactNode; testId: string }) {
   const ref = useRef<HTMLDialogElement>(null);
+  const headingRef = useRef<HTMLHeadingElement>(null);
   const titleId = useId();
   useEffect(() => {
     const d = ref.current;
     if (!d) return;
-    if (open && !d.open) d.showModal();
+    if (open && !d.open) {
+      d.showModal();
+      // UI-03 (owner report): showModal() focuses the first control, which in the chooser is the first workout's radio.
+      // Its focus ring looked like a selection, and one Space or arrow key checked it. Focus the title instead, so
+      // nothing is focused, or chosen, until the person picks.
+      headingRef.current?.focus();
+    }
     if (!open && d.open) d.close();
   }, [open]);
   return (
     <dialog ref={ref} aria-labelledby={titleId} data-testid={testId} onCancel={(e) => { e.preventDefault(); onClose(); }}
       className="m-auto w-[min(30rem,calc(100vw-2rem))] rounded-2xl border border-line bg-surface p-0 text-fg shadow-xl backdrop:bg-black/40">
       <div className="max-h-[85vh] space-y-3 overflow-y-auto p-5">
-        <h2 id={titleId} className="text-lg font-bold">{title}</h2>
+        <h2 id={titleId} ref={headingRef} tabIndex={-1} className="text-lg font-bold outline-none">{title}</h2>
         {children}
       </div>
     </dialog>

@@ -62,6 +62,7 @@ export function ActivateProgram({ programId, programName, days, proposed, curren
       <section aria-labelledby="days-title">
         <h2 id="days-title" className="mb-2 font-semibold">1. Choose the days for each workout</h2>
         <p className="mb-3 text-sm text-muted">Suggested from your current schedule, or spread across the week. Change any of them. A workout with no day stays in the program and can still be started at any time.</p>
+        <p className="mb-3 text-sm font-medium text-fg" data-testid="activate-help">Select one or more days. Select a day again to remove it.</p>
         <div className="space-y-2">
           {days.map((d, i) => (
             <Card key={d.id} className="p-4" data-testid="activate-day">
