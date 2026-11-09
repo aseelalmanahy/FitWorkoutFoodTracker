@@ -9,7 +9,7 @@
 //   4. the startup preflight refuses weak settings: a weak database password, and an http origin
 //   5. migrations with the migrate image; then the app, read-only, no capabilities, 1536 MB, as in Compose
 //   6. /api/health; sign-in; one label scan and one meal photo, read on-device
-//   7. memory (cgroup, current and peak) after each step; two exports at once at MAX_EXPORT_ROWS, and one over it (413)
+//   7. memory (cgroup, current and peak) after each step; an export at MAX_EXPORT_ROWS while a second is refused, one over it (413)
 //   8. docker stop: a clean exit within its grace period
 // Nothing touches this machine's PostgreSQL service, its databases or its env files; every container, network and
 // image it makes is named fit-g1-* and removed at the end (the built images are kept only with --keep-images).
@@ -176,7 +176,7 @@ async function waitHealthy(name, seconds) {
       record(step, r.status === 200 && json.processing === "server", { note: `${r.status}, ${Date.now() - t0} ms, processing ${json.processing}`, memory: memory() });
     }
 
-    // 7. The worst case the export allows: two accounts at the row limit exporting at once (MAX_CONCURRENT_EXPORTS),
+    // 7. The worst case the export allows: an account at the row limit exporting while a second is refused
     //    after the meal model is loaded, within the container's memory and without crashing the process (S-13). Then
     //    an account just over the limit is refused with 413, rather than loaded.
     const maxRows = Number(fs.readFileSync(path.join(ROOT, "src", "lib", "server", "account", "export.ts"), "utf8").match(/MAX_EXPORT_ROWS = ([\d_]+)/)[1].replace(/_/g, ""));
@@ -194,10 +194,12 @@ async function waitHealthy(name, seconds) {
     seed("g1user", maxRows); seed("g1user2", maxRows);
     const t0 = Date.now();
     const both = await Promise.all([exportAs(cookie), exportAs(cookie2)]);
+    const statuses = both.map((b) => b.status).sort().join(",");
+    const second = both.find((b) => b.status === 429) ? await exportAs(both[0].status === 429 ? cookie : cookie2) : { status: 0, bytes: 0 };
     const m = memory();
     const alive = docker(["inspect", "-f", "{{.State.Running}} {{.State.OOMKilled}} {{.RestartCount}}", APP]).stdout.trim();
-    record(`7. two exports at once at the ${maxRows.toLocaleString("en")}-row limit, within 1536 MB, process alive`, both.every((b) => b.status === 200) && m.peakMB < 1536 && alive === "true false 0",
-      { note: `${both.map((b) => `${b.status}, ${Math.round(b.bytes / 2 ** 20)} MiB`).join("; ")} in ${Math.round((Date.now() - t0) / 1000)} s; running/oom/restarts ${alive}`, memory: m });
+    record(`7. an export at the ${maxRows.toLocaleString("en")}-row limit while a second is refused (429), then the second; under 1536 MB, process alive`, statuses === "200,429" && second.status === 200 && m.peakMB < 1536 && alive === "true false 0",
+      { note: `at once: ${statuses}; then ${second.status}, ${Math.round(second.bytes / 2 ** 20)} MiB; ${Math.round((Date.now() - t0) / 1000)} s; running/oom/restarts ${alive}`, memory: m });
     const cookie3 = await signIn("g1user3", "g1-third@example.invalid");
     seed("g1user3", maxRows + 1);
     const over = await exportAs(cookie3);

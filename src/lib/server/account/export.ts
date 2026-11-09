@@ -12,11 +12,15 @@ export const EXPORT_VERSION = 1;
 /**
  * Far beyond years of real use, and a bound on what one request can load. Measured (S-13, G1 on Linux, 2026-11-09):
  * in the production container (1536 MB, Node's default heap of about 770 MB there), one export of 249,000 rows
- * exhausted the heap and crashed the whole app. G1 now checks two exports at this limit at once, the worst case.
+ * exhausted the heap and crashed the whole app. G1 checks an export at this limit while a second one is refused.
  */
 export const MAX_EXPORT_ROWS = 100_000;
 export const MAX_EXPORT_BYTES = 128 * 1024 * 1024;
-const MAX_CONCURRENT_EXPORTS = 2;
+/**
+ * One at a time in the process. Measured in G1: with the meal model loaded the container uses about 850 MB, and each
+ * export at the row limit adds about 280 MB, so two at once reached the 1536 MB ceiling. A second gets 429 and retries.
+ */
+export const MAX_CONCURRENT_EXPORTS = 1;
 
 const DATE_ONLY = new Set(["birthDate", "date", "effectiveFrom"]);
 const TOO_LARGE = "This account has too much data to export in one file. Contact support.";

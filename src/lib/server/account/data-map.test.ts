@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 import dataMap from "@/lib/account-data-map.json";
-import { MAX_EXPORT_BYTES, exportFilename, exportRow, exportValue, serializeExport, withExportSlot } from "./export";
+import { MAX_CONCURRENT_EXPORTS, MAX_EXPORT_BYTES, exportFilename, exportRow, exportValue, serializeExport, withExportSlot } from "./export";
 import { deleteAccountSchema, accountPasswordSchema } from "@/lib/validation";
 
 type Entry = { deletion: string; export: string[]; excluded: Record<string, string> };
@@ -114,11 +114,13 @@ describe("export limits", () => {
     await expect(withExportSlot("u1", async () => 2)).resolves.toBe(2);
   });
   it("bounds how many run at once across people", async () => {
+    expect(MAX_CONCURRENT_EXPORTS).toBe(1); // measured in G1 (S-13): two at the row limit reached the container's ceiling
     const releases: (() => void)[] = [];
-    const running = ["a", "b"].map((u) => withExportSlot(u, () => new Promise<void>((r) => releases.push(r))));
-    await expect(withExportSlot("c", async () => 1)).rejects.toThrow(/already running/);
+    const running = Array.from({ length: MAX_CONCURRENT_EXPORTS }, (_, i) => withExportSlot(`p${i}`, () => new Promise<void>((r) => releases.push(r))));
+    await expect(withExportSlot("someone-else", async () => 1)).rejects.toThrow(/already running/);
     releases.forEach((r) => r());
     await Promise.all(running);
+    await expect(withExportSlot("someone-else", async () => 1)).resolves.toBe(1); // the slot is free again
   });
 });
 
