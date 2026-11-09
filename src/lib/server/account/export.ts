@@ -9,8 +9,12 @@ type Model = keyof typeof dataMap;
 
 export const EXPORT_FORMAT = "fitworkoutfoodtracker-export";
 export const EXPORT_VERSION = 1;
-/** Judgement, not measurement: far beyond years of real use, and a bound on what one request can load. */
-export const MAX_EXPORT_ROWS = 250_000;
+/**
+ * Far beyond years of real use, and a bound on what one request can load. Measured (S-13, G1 on Linux, 2026-11-09):
+ * in the production container (1536 MB, Node's default heap of about 770 MB there), one export of 249,000 rows
+ * exhausted the heap and crashed the whole app. G1 now checks two exports at this limit at once, the worst case.
+ */
+export const MAX_EXPORT_ROWS = 100_000;
 export const MAX_EXPORT_BYTES = 128 * 1024 * 1024;
 const MAX_CONCURRENT_EXPORTS = 2;
 

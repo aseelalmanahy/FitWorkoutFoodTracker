@@ -9,7 +9,7 @@
 //   4. the startup preflight refuses weak settings: a weak database password, and an http origin
 //   5. migrations with the migrate image; then the app, read-only, no capabilities, 1536 MB, as in Compose
 //   6. /api/health; sign-in; one label scan and one meal photo, read on-device
-//   7. memory (cgroup, current and peak) after each step, and during an export of 249,000 seeded rows
+//   7. memory (cgroup, current and peak) after each step; two exports at once at MAX_EXPORT_ROWS, and one over it (413)
 //   8. docker stop: a clean exit within its grace period
 // Nothing touches this machine's PostgreSQL service, its databases or its env files; every container, network and
 // image it makes is named fit-g1-* and removed at the end (the built images are kept only with --keep-images).
@@ -176,15 +176,32 @@ async function waitHealthy(name, seconds) {
       record(step, r.status === 200 && json.processing === "server", { note: `${r.status}, ${Date.now() - t0} ms, processing ${json.processing}`, memory: memory() });
     }
 
-    // 7. Export of a large account, within the limit.
-    psql(`INSERT INTO "FoodEntry" (id, "userId", date, "mealType", "foodName", "basisUnit", "kcalPer100", "proteinPer100", "servingLabel", "servingAmount", quantity, kcal, protein, "updatedAt")
-      SELECT 'g1-' || g, 'g1user', date '2020-01-01' + (g % 2400), (ARRAY['BREAKFAST','LUNCH','DINNER','SNACK']::"MealType"[])[1 + g % 4], 'Rehearsal food ' || g, 'G', 250, 10, '100 g', 100, 1, 250, 10, now()
-      FROM generate_series(1, 249000) g`);
+    // 7. The worst case the export allows: two accounts at the row limit exporting at once (MAX_CONCURRENT_EXPORTS),
+    //    after the meal model is loaded, within the container's memory and without crashing the process (S-13). Then
+    //    an account just over the limit is refused with 413, rather than loaded.
+    const maxRows = Number(fs.readFileSync(path.join(ROOT, "src", "lib", "server", "account", "export.ts"), "utf8").match(/MAX_EXPORT_ROWS = ([\d_]+)/)[1].replace(/_/g, ""));
+    const seed = (userId, n) => psql(`INSERT INTO "FoodEntry" (id, "userId", date, "mealType", "foodName", "basisUnit", "kcalPer100", "proteinPer100", "servingLabel", "servingAmount", quantity, kcal, protein, "updatedAt")
+      SELECT '${userId}-' || g, '${userId}', date '2020-01-01' + (g % 2400), (ARRAY['BREAKFAST','LUNCH','DINNER','SNACK']::"MealType"[])[1 + g % 4], 'Rehearsal food ' || g, 'G', 250, 10, '100 g', 100, 1, 250, 10, now()
+      FROM generate_series(1, ${n}) g`);
+    const signIn = async (userId, email) => {
+      psql(`INSERT INTO "User" (id, email, "passwordHash", "updatedAt") VALUES ('${userId}', '${email}', '${pwHash}', now())`);
+      psql(`INSERT INTO "Profile" ("userId", name, "birthDate", "updatedAt") VALUES ('${userId}', 'G1 rehearsal', date '1990-01-01', now())`);
+      const r = await fetch(`${BASE}/api/auth/login`, { method: "POST", headers: { ...headers(), "Content-Type": "application/json" }, body: JSON.stringify({ email, password: USER_PW }), redirect: "manual" });
+      return r.headers.getSetCookie().find((c) => c.startsWith("fit_session="))?.split(";")[0] ?? "";
+    };
+    const exportAs = async (c) => { const r = await fetch(`${BASE}/api/account/export`, { method: "POST", headers: { ...headers(c), "Content-Type": "application/json" }, body: JSON.stringify({ password: USER_PW }) }); return { status: r.status, bytes: r.ok ? (await r.arrayBuffer()).byteLength : 0 }; };
+    const cookie2 = await signIn("g1user2", "g1-second@example.invalid");
+    seed("g1user", maxRows); seed("g1user2", maxRows);
     const t0 = Date.now();
-    const ex = await fetch(`${BASE}/api/account/export`, { method: "POST", headers: { ...headers(cookie), "Content-Type": "application/json" }, body: JSON.stringify({ password: USER_PW }) });
-    const bytes = ex.ok ? (await ex.arrayBuffer()).byteLength : 0;
+    const both = await Promise.all([exportAs(cookie), exportAs(cookie2)]);
     const m = memory();
-    record("7. export of 249,000 rows within 1536 MB", ex.status === 200 && m.peakMB < 1536 && docker(["inspect", "-f", "{{.State.OOMKilled}}", APP]).stdout.trim() === "false", { note: `${ex.status}, ${Math.round(bytes / 2 ** 20)} MiB in ${Math.round((Date.now() - t0) / 1000)} s`, memory: m });
+    const alive = docker(["inspect", "-f", "{{.State.Running}} {{.State.OOMKilled}} {{.RestartCount}}", APP]).stdout.trim();
+    record(`7. two exports at once at the ${maxRows.toLocaleString("en")}-row limit, within 1536 MB, process alive`, both.every((b) => b.status === 200) && m.peakMB < 1536 && alive === "true false 0",
+      { note: `${both.map((b) => `${b.status}, ${Math.round(b.bytes / 2 ** 20)} MiB`).join("; ")} in ${Math.round((Date.now() - t0) / 1000)} s; running/oom/restarts ${alive}`, memory: m });
+    const cookie3 = await signIn("g1user3", "g1-third@example.invalid");
+    seed("g1user3", maxRows + 1);
+    const over = await exportAs(cookie3);
+    record("7b. an account over the limit is refused with 413, not loaded", over.status === 413 && (await fetch(`${BASE}/api/health`)).ok, { note: String(over.status) });
 
     // 8. Shutdown.
     const [, stopS] = timed(() => docker(["stop", "-t", "30", APP]));
