@@ -81,4 +81,61 @@ describe("groupProgressByProgram (UI-02)", () => {
   it("returns nothing for no workouts", () => {
     expect(groupProgressByProgram([], TZ)).toEqual([]);
   });
+
+  describe("exercise details", () => {
+    const sessions = () => [
+      session("2026-11-01T14:00:00Z", PPL, [["bench", null, [set(40, 10, true), set(60, 8)]]]),
+      session("2026-11-03T14:00:00Z", PPL, [["bench", "hammer", [set(120, 10)]]]),
+      session("2026-11-05T14:00:00Z", PPL, [["bench", null, [set(62.5, 8), set(62.5, 8)]]]),
+    ];
+    const byDate = (g: ReturnType<typeof groupProgressByProgram>) => g[0].months[0].workouts.map((w) => w.exercises[0]); // newest first
+
+    it("keeps the logged sets, warm-ups marked", () => {
+      const first = byDate(groupProgressByProgram(sessions(), TZ)).at(-1)!;
+      expect(first.sets).toEqual([set(40, 10, true), set(60, 8)]);
+    });
+
+    it("finds the previous comparable workout strictly before, in the same machine context", () => {
+      const ss = sessions();
+      const [latest, onMachine, first] = byDate(groupProgressByProgram(ss, TZ));
+      expect(latest.previous).toMatchObject({ sessionId: ss[0].id, date: ss[0].startedAt });
+      expect(latest.previous!.summary.topWeightKg).toBe(60);
+      expect(onMachine.previous).toBeNull();
+      expect(first.previous).toBeNull();
+    });
+
+    it("exposes the numerical deltas of the comparison", () => {
+      const latest = byDate(groupProgressByProgram(sessions(), TZ))[0];
+      expect(latest.status).toBe("improved");
+      expect(latest.comparison!.deltas).toMatchObject({ weightKg: 2.5, reps: null, sets: 1, totalReps: 8 });
+      expect(latest.comparison!.deltas.volumeKg).toBeCloseTo(62.5 * 16 - 60 * 8);
+    });
+
+    it("gives history as of each date: newest first, capped, and a later result never changes an earlier row", () => {
+      const base = [
+        session("2026-11-01T14:00:00Z", PPL, [["bench", null, [set(60, 8)]]]),
+        session("2026-11-03T14:00:00Z", PPL, [["bench", null, [set(60, 8)]]]),
+        session("2026-11-05T14:00:00Z", PPL, [["bench", null, [set(65, 8)]]]),
+      ];
+      const before = byDate(groupProgressByProgram(base, TZ));
+      const later = session("2026-11-07T14:00:00Z", PPL, [["bench", null, [set(30, 5)]]]);
+      const after = byDate(groupProgressByProgram([...base, later], TZ));
+      expect(after.slice(1)).toEqual(before); // older rows, history and badges are untouched
+      expect(before[0].history.map((h) => h.status)).toEqual(["improved", "matched", "first"]);
+      expect(after[0].history.map((h) => h.status)).toEqual(["decreased", "improved", "matched", "first"]);
+      const many = Array.from({ length: 8 }, (_, i) => session(`2026-10-${String(i + 1).padStart(2, "0")}T14:00:00Z`, PPL, [["bench", null, [set(50 + i, 8)]]]));
+      expect(byDate(groupProgressByProgram(many, TZ))[0].history).toHaveLength(5);
+    });
+
+    it("keeps machines apart in previous and history", () => {
+      const g = groupProgressByProgram([
+        session("2026-11-01T14:00:00Z", PPL, [["press", "hammer", [set(120, 10)]]]),
+        session("2026-11-03T14:00:00Z", PPL, [["press", null, [set(60, 10)]]]),
+        session("2026-11-05T14:00:00Z", PPL, [["press", "hammer", [set(125, 10)]]]),
+      ], TZ);
+      const latest = byDate(g)[0];
+      expect(latest.previous!.summary.topWeightKg).toBe(120);
+      expect(latest.history.map((h) => h.summary.topWeightKg)).toEqual([125, 120]);
+    });
+  });
 });

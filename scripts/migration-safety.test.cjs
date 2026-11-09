@@ -12,7 +12,7 @@ const { unapprovedMigrations } = require("./lib/approved-migrations.cjs");
 
 const ROOT = path.join(__dirname, "..");
 const MIGRATIONS = path.join(ROOT, "prisma", "migrations");
-const PENDING = ["20261108120000_feedback", "20261109120000_multi_gym", "20261110120000_workout_programs"];
+const PENDING = ["20261108120000_feedback", "20261109120000_multi_gym", "20261110120000_workout_programs", "20261111120000_active_program"];
 
 test("every migration on disk is either approved or named as pending, and the pending ones aren't approved", () => {
   const list = JSON.parse(fs.readFileSync(path.join(ROOT, "prisma", "approved-migrations.json"), "utf8"));
@@ -27,7 +27,7 @@ test("the production image's migration step refuses, applying nothing, while a m
   // An address nothing listens on, so a step that tried to migrate would fail differently, and no database is reached.
   const r = spawnSync(process.execPath, [path.join(__dirname, "migrate-approved.cjs")], { cwd: ROOT, env: { ...process.env, DATABASE_URL: "postgresql://none:SECRETPW@127.0.0.1:1/production" }, encoding: "utf8", timeout: 30_000 });
   assert.equal(r.status, 4, r.stderr);
-  assert.match(r.stderr, /REFUSED \(nothing was applied\): not approved for this database: 20261108120000_feedback, 20261109120000_multi_gym, 20261110120000_workout_programs/);
+  assert.match(r.stderr, /REFUSED \(nothing was applied\): not approved for this database: 20261108120000_feedback, 20261109120000_multi_gym, 20261110120000_workout_programs, 20261111120000_active_program/);
   assert.doesNotMatch(`${r.stdout}${r.stderr}`, /SECRETPW|prisma migrate|Datasource/);
   const docker = fs.readFileSync(path.join(ROOT, "Dockerfile"), "utf8");
   // The guarded step first, and the exercise seed only after it succeeded (&&), so a refusal still exits 4 alone.
@@ -44,7 +44,7 @@ test("the review database isn't migrated while a migration isn't approved, befor
     const r = spawnSync(process.execPath, ["--env-file=.env.review", path.join(__dirname, "local-db.cjs"), "--init", "--confirm=fitdb_review"], { cwd: dir, env, encoding: "utf8", timeout: 30_000 });
     const out = `${r.stdout}${r.stderr}`;
     assert.equal(r.status, 4, out);
-    assert.match(out, /not approved for fitdb_review: 20261108120000_feedback, 20261109120000_multi_gym, 20261110120000_workout_programs/);
+    assert.match(out, /not approved for fitdb_review: 20261108120000_feedback, 20261109120000_multi_gym, 20261110120000_workout_programs, 20261111120000_active_program/);
     assert.doesNotMatch(out, /SECRETPW/);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
@@ -153,4 +153,14 @@ test("the workout-programs migration (UI-01) only adds: a new table and two null
   assert.match(sql, /CREATE TABLE "WorkoutProgram"/);
   // Ungrouping or deleting a program keeps its plans: the plan's link is cleared, never the plan.
   assert.match(sql, /"WorkoutTemplate_programId_fkey"[^;]+REFERENCES "WorkoutProgram"\("id"\) ON DELETE SET NULL/);
+});
+
+test("the active-program migration (UI-06) only adds one nullable, unique column; deleting the program clears it", () => {
+  const sql = fs.readFileSync(path.join(MIGRATIONS, "20261111120000_active_program", "migration.sql"), "utf8");
+  const statements = sql.replace(/ON (DELETE|UPDATE) (SET NULL|CASCADE|RESTRICT|NO ACTION)/g, "").replace(/^--.*$/gm, "");
+  assert.doesNotMatch(statements, /\bDROP\b|\bTRUNCATE\b|\bDELETE\b|\bUPDATE\s+"|\bRENAME\b|ALTER COLUMN|SET NOT NULL|SET DEFAULT|CREATE TABLE/i);
+  const added = [...sql.matchAll(/ADD COLUMN\s+"(\w+)"\s+([^,;\n]+)/g)].map((m) => [m[1], m[2].trim()]);
+  assert.deepEqual(added, [["activeProgramId", "TEXT"]], "one nullable column, so no program is made active");
+  assert.match(sql, /CREATE UNIQUE INDEX "Profile_activeProgramId_key"/);
+  assert.match(sql, /"Profile_activeProgramId_fkey"[^;]+REFERENCES "WorkoutProgram"\("id"\) ON DELETE SET NULL/);
 });

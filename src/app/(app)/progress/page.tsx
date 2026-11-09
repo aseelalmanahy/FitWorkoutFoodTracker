@@ -3,10 +3,10 @@ import { prisma } from "@/lib/server/db";
 import { requireProfile } from "@/lib/server/profile";
 import { getAllExerciseSessions } from "@/lib/server/workouts";
 import { overviewByExercise } from "@/lib/progress-overview";
-import { groupProgressByProgram } from "@/lib/progress-programs";
-import { compareToPrevious, summarizeSets } from "@/lib/overload";
+import { groupProgressByProgram, type ProgressExerciseRow } from "@/lib/progress-programs";
+import { compareToPrevious, summarizeSets, type ExerciseSummary } from "@/lib/overload";
 import { formatLocalDate } from "@/lib/time";
-import { formatMass, type UnitSystem } from "@/lib/units";
+import { formatMass, formatVolume, type UnitSystem } from "@/lib/units";
 import { MUSCLE_LABELS } from "@/lib/labels";
 import { ButtonLink, Card, EmptyState, PageHeader, cx } from "@/components/ui";
 import { OverloadBadge } from "@/components/overload-badge";
@@ -100,30 +100,26 @@ async function ProgramsView({ userId, timeZone, unitSystem }: { userId: string; 
                     </summary>
                     <ol className="divide-y divide-line">
                       {m.workouts.map((w) => (
-                        <li key={w.sessionId} className="px-4 py-3" data-testid="progress-workout">
-                          <Link href={`/workouts/history/${w.sessionId}`} className="flex items-baseline justify-between gap-3">
-                            <span className="min-w-0 truncate font-medium">{w.name}</span>
-                            <span className="num shrink-0 text-xs text-muted">{formatLocalDate(w.date, timeZone)}</span>
-                          </Link>
-                          {w.exercises.length === 0 ? (
-                            <p className="mt-1 text-xs text-muted">No exercises logged</p>
-                          ) : (
-                            <ul className="mt-2 space-y-1.5">
-                              {w.exercises.map((e) => (
-                                <li key={`${e.exerciseId}:${e.gymEquipmentId ?? ""}`} data-testid="progress-exercise">
-                                  <Link href={e.gymEquipmentId ? `/progress/${e.exerciseId}?machine=${e.gymEquipmentId}` : `/progress/${e.exerciseId}`} className="flex min-w-0 items-center gap-2 text-sm">
-                                    <span className="min-w-0 flex-1">
-                                      <span className="block truncate">{e.name}{e.machineName ? <span className="text-muted"> · {e.machineName}</span> : null}</span>
-                                      <span className="num block truncate text-xs text-muted">
-                                        {e.summary.workingSets === 0 ? "No working sets" : <>{e.summary.workingSets} set{e.summary.workingSets === 1 ? "" : "s"}{e.summary.topWeightKg > 0 && <> · top {formatMass(e.summary.topWeightKg, unitSystem)} × {e.summary.repsAtTopWeight}</>}</>}
-                                      </span>
-                                    </span>
-                                    {e.status && <OverloadBadge status={e.status} />}
-                                  </Link>
-                                </li>
-                              ))}
-                            </ul>
-                          )}
+                        <li key={w.sessionId} data-testid="progress-workout">
+                          <details className="group/workout">
+                            <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 [&::-webkit-details-marker]:hidden">
+                              <ChevronRight width={14} height={14} className="shrink-0 text-muted transition group-open/workout:rotate-90" aria-hidden />
+                              <span className="min-w-0 flex-1 truncate font-medium">{w.name}</span>
+                              <span className="num shrink-0 text-xs text-muted">{formatLocalDate(w.date, timeZone)}</span>
+                            </summary>
+                            <div className="px-4 pb-3">
+                              <Link href={`/workouts/history/${w.sessionId}`} className="text-xs font-medium text-accent-ink">Open this workout</Link>
+                              {w.exercises.length === 0 ? (
+                                <p className="mt-1 text-xs text-muted">No exercises logged</p>
+                              ) : (
+                                <ul className="mt-2 space-y-1.5">
+                                  {w.exercises.map((e) => (
+                                    <ExerciseRow key={`${e.exerciseId}:${e.gymEquipmentId ?? ""}`} e={e} date={w.date} timeZone={timeZone} unitSystem={unitSystem} />
+                                  ))}
+                                </ul>
+                              )}
+                            </div>
+                          </details>
                         </li>
                       ))}
                     </ol>
@@ -136,6 +132,76 @@ async function ProgramsView({ userId, timeZone, unitSystem }: { userId: string; 
       </div>
       <p className="mt-4 text-xs text-muted">Workouts are grouped by each plan’s current program. Each exercise’s status compares that workout with your previous workout of the same exercise, on the same machine or none, as in Exercise progress.</p>
     </>
+  );
+}
+
+const summaryLine = (m: ExerciseSummary, unitSystem: UnitSystem) =>
+  m.workingSets === 0 ? "No working sets" : `${m.workingSets} set${m.workingSets === 1 ? "" : "s"}${m.topWeightKg > 0 ? ` · top ${formatMass(m.topWeightKg, unitSystem)} × ${m.repsAtTopWeight}` : ` · ${m.totalReps} reps`}`;
+
+const signed = (n: number, text: string) => (n > 0 ? `+${text}` : n < 0 ? `−${text.replace(/^-/, "")}` : text);
+
+/** One exercise of a workout date; opens in place to show the logged sets, the previous comparable workout and the comparison. */
+function ExerciseRow({ e, date, timeZone, unitSystem }: { e: ProgressExerciseRow; date: Date; timeZone: string; unitSystem: UnitSystem }) {
+  const chart = e.gymEquipmentId ? `/progress/${e.exerciseId}?machine=${e.gymEquipmentId}` : `/progress/${e.exerciseId}`;
+  const d = e.comparison?.deltas;
+  return (
+    <li data-testid="progress-exercise">
+      <details className="group/exercise rounded-xl border border-line">
+        <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm [&::-webkit-details-marker]:hidden">
+          <span className="min-w-0 flex-1">
+            <span className="block truncate">{e.name}{e.machineName ? <span className="text-muted"> · {e.machineName}</span> : null}</span>
+            <span className="num block truncate text-xs text-muted">{summaryLine(e.summary, unitSystem)}</span>
+          </span>
+          {e.status && <OverloadBadge status={e.status} />}
+          <ChevronRight width={14} height={14} className="shrink-0 text-muted transition group-open/exercise:rotate-90" aria-hidden />
+        </summary>
+        <div className="space-y-3 border-t border-line px-3 py-3 text-sm" data-testid="progress-exercise-details">
+          <div>
+            <p className="num text-xs text-muted">{formatLocalDate(date, timeZone)}{e.machineName ? ` · ${e.machineName}` : ""}</p>
+            <ol className="num mt-1 space-y-0.5">
+              {e.sets.map((st, i) => (
+                <li key={i}>
+                  Set {i + 1}: {st.weightKg > 0 ? `${formatMass(st.weightKg, unitSystem)} × ${st.reps}` : `${st.reps} reps`}
+                  {st.isWarmup && <span className="ml-1.5 rounded-full bg-surface-2 px-1.5 py-0.5 text-[11px] text-muted">Warm-up</span>}
+                </li>
+              ))}
+            </ol>
+          </div>
+          <div data-testid="progress-exercise-previous">
+            <p className="text-xs font-semibold uppercase tracking-wide text-muted">Previous comparable workout</p>
+            {e.previous && e.comparison && d ? (
+              <>
+                <p className="num mt-1">{formatLocalDate(e.previous.date, timeZone)}: {summaryLine(e.previous.summary, unitSystem)}</p>
+                <p className="mt-1 text-xs text-muted">{e.comparison.headline}</p>
+                <ul className="num mt-1 flex flex-wrap gap-x-4 gap-y-0.5 text-xs">
+                  <li>Top weight {signed(d.weightKg, formatMass(d.weightKg, unitSystem))}</li>
+                  <li>Reps at top weight {d.reps === null ? "n/a (weight changed)" : signed(d.reps, String(d.reps))}</li>
+                  <li>Volume {signed(d.volumeKg, formatVolume(d.volumeKg, unitSystem))}</li>
+                  <li>Sets {signed(d.sets, String(d.sets))}</li>
+                </ul>
+              </>
+            ) : (
+              <p className="mt-1 text-xs text-muted">{e.status ? "None: this is the first logged workout of this exercise" + (e.machineName ? " on this machine." : " with no machine.") : "No working sets to compare."}</p>
+            )}
+          </div>
+          {e.history.length > 0 && (
+            <div data-testid="progress-exercise-history">
+              <p className="text-xs font-semibold uppercase tracking-wide text-muted">Recent history</p>
+              <ul className="num mt-1 space-y-1">
+                {e.history.map((h) => (
+                  <li key={h.sessionId} className="flex items-center gap-2 text-xs">
+                    <span className="shrink-0">{formatLocalDate(h.date, timeZone)}</span>
+                    <span className="min-w-0 flex-1 truncate text-muted">{summaryLine(h.summary, unitSystem)}</span>
+                    <OverloadBadge status={h.status} />
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
+          <Link href={chart} className="inline-block text-sm font-medium text-accent-ink" data-testid="progress-exercise-chart">View full exercise chart</Link>
+        </div>
+      </details>
+    </li>
   );
 }
 

@@ -4,7 +4,7 @@
 # Every password is generated here, masked, and discarded with the runner. The only change from a real server: Caddy
 # uses its internal CA (compose.ci.yml, made here), as a runner has no public name for Let's Encrypt.
 #
-# MIG-FB, MIG-GYM and MIG-PROG: the guarded migrate step refuses migrations that aren't in prisma/approved-migrations.json. This
+# MIG-FB, MIG-GYM, MIG-PROG and MIG-ACTIVE: the guarded migrate step refuses migrations that aren't in prisma/approved-migrations.json. This
 # job first proves that refusal on the committed list, then records those migrations in the RUNNER'S copy of the list
 # only, after checking their reviewed hashes. That approval is scoped to this disposable database; it is not committed
 # and is not a production approval.
@@ -101,7 +101,8 @@ jobs:
             const fs = require("fs"), c = require("crypto");
             const reviewed = { "20261108120000_feedback": "23a3268b9948508ef54fb73022815355323cd4db7eaea963f6b7dbe9699f4b5b",
                                "20261109120000_multi_gym": "16e04fa8c38bcf3457ea1bfdb9ce66b0e23d1dd2aebae2b2e0738d9a572bbc5d",
-                               "20261110120000_workout_programs": "a60c205f9d86e66f2960388795b651d9e629923ccaf6d3f48e75540e15ec25ea" };
+                               "20261110120000_workout_programs": "a60c205f9d86e66f2960388795b651d9e629923ccaf6d3f48e75540e15ec25ea",
+                               "20261111120000_active_program": "047ef513a357233fa3d89c3dccb0bfd10411afac55cb433bb5016a55cd89bf8b" };
             const f = "prisma/approved-migrations.json", list = JSON.parse(fs.readFileSync(f, "utf8"));
             for (const [m, h] of Object.entries(reviewed)) {
               const got = c.createHash("sha256").update(fs.readFileSync(`prisma/migrations/${m}/migration.sql`, "utf8").replace(/\r\n/g, "\n")).digest("hex");

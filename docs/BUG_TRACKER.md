@@ -2,11 +2,19 @@
 
 **User-facing defects found by the owner or by hands-on testing, and where each stands.** The full defect history, including engineering defects, stays in [DECISION_REGISTER.md](DECISION_REGISTER.md) §7; release evidence stays in [RELEASE_ACCEPTANCE.md](RELEASE_ACCEPTANCE.md). "Fixed" means fixed and verified by tests; **only the owner's own confirmation is acceptance**.
 
+**States** (from 2026-11-09): OPEN → IN PROGRESS → FIXED / PENDING OWNER REVIEW → VERIFIED / CLOSED. Only the owner moves an item to VERIFIED / CLOSED.
+
 | ID | Found by | Defect | Severity | Status | Evidence |
 |---|---|---|---|---|---|
+| **UI-03** | Owner, 2026-11-09 | Weekly schedule controls were unclear: Add workout filled in the first plan by itself; Move and Remove weren't self-explanatory; plans from different programs were mixed | High | **FIXED / PENDING OWNER REVIEW**. Live once MIG-ACTIVE is approved for `fitdb_test` | See "UI-03 to UI-08" below |
+| **UI-04** | Owner, 2026-11-09 | Weekly schedule layout was broken: workout selectors shrank to tiny empty boxes, the Move control took most of the row, names couldn't be read | High | **FIXED / PENDING OWNER REVIEW**. Live with UI-03 | See below |
+| **UI-05** | Owner, 2026-11-09 | Program and plan management actions (edit, delete) were hard to find | Medium | **FIXED / PENDING OWNER REVIEW**. Live with UI-03 | See below |
+| **UI-06** | Owner, 2026-11-09 | No single active training program: the weekly schedule could mix plans from any program, and nothing said which program it followed | High | **FIXED / PENDING OWNER REVIEW**. **Needs MIG-ACTIVE approved for `fitdb_test`** | See below |
+| **UI-07** | Owner, 2026-11-09 | Nutrition: no way to jump to a date other than one day at a time | Medium | **FIXED / PENDING OWNER REVIEW**. Live with UI-03 | See below |
+| **UI-08** | Owner, 2026-11-09 | Nutrition history: only whole weeks, one at a time; no custom date range | Medium | **FIXED / PENDING OWNER REVIEW**. Live with UI-03 | See below |
 | **UI-01** | Owner, 2026-11-09 | Imported plans were mixed with unrelated plans: each imported day became its own plan named "Program – Day", listed among the person's own plans, and was put on the weekly schedule whenever the file named a weekday | High | **Fixed** in `bd86e47`; owner review pending | See below |
 | **IM-02** | Owner, 2026-11-09 | A text import ("workout 1.txt") saved exercises that weren't in the file | High | **Fixed** in `bd86e47` (cause found and closed); owner review pending | See below |
-| **UI-02** | Owner, 2026-11-09 | Progress had no view by program: workouts couldn't be followed program by program and month by month | Medium: a missing view, nothing wrong | **Built** as an added view; owner review pending | See below |
+| **UI-02** | Owner, 2026-11-09 | Progress had no view by program: workouts couldn't be followed program by program and month by month; then (2026-11-09) no expandable exercise history | Medium: a missing view, nothing wrong | **FIXED / PENDING OWNER REVIEW**: the view in `418fdc7` (on 3400 now); the expandable history live with UI-03 | See below |
 | **IMG-01** | Owner, 2026-11-09 | A real plan image gave "No exercises with sets and repetitions were found" | High | **Fixed** in `2411496`, `7fec302`. The owner confirmed the reading works; **full acceptance is still separate** | [DECISION_REGISTER.md](DECISION_REGISTER.md) §7 |
 | CON-01 | Owner, 2026-11-09 (Chrome console) | "Banner not shown: beforeinstallpromptevent.preventDefault() called" | None: an information message, by design | **Not a defect, no change.** The install flow was verified | See below |
 | CON-02 | Owner, 2026-11-09 (Chrome console) | Repeated "A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received" | None for the app: it comes from a browser extension | **Not an app defect, no change.** Reproduced only with an extension | See below |
@@ -127,3 +135,94 @@ Checked on 2026-11-09 against http://localhost:3400 (`fd6f67b`), as the demo acc
 **Limits.**
 - A workout from a plan that was later moved to another program shows under the plan's current program, not the one it had then.
 - With years of workouts, the view lists them all, by month, with only the latest month open.
+
+## UI-03 to UI-08, and the rest of UI-02 (consolidated owner fixes, 2026-11-09)
+
+Built on `feature/ux-consolidated`, then integrated into `feature/multi-gym-exercise-alternatives`. Reviewed by `product-strategy-agent` for UI-06 (MODIFY). Its points are adopted:
+- check the preview is still current;
+- clear "active" on deletion, keeping the schedule;
+- never remove a schedule entry without confirmation;
+- an editable default spread;
+- no automatic choice for the demo account;
+- say why standalone plans aren't offered while a program is active.
+
+**UI-06, one active program.**
+- **Data:** `Profile.activeProgramId`, nullable and unique, cleared if that program is deleted. It comes from migration `20261111120000_active_program` (**MIG-ACTIVE**), which only adds; no program is made active by it.
+- **Nothing is ever chosen for the person.** On Workouts, "Choose your active program" asks once.
+- **Set as active** opens a preview:
+  - each workout day gets weekdays, kept from the current schedule where it has some, otherwise spread (3 days: Mon, Wed, Fri); all of them can be changed;
+  - every schedule entry that would be removed or added is listed;
+  - nothing changes until it's confirmed.
+- **Confirmation** sets the program and the schedule in one transaction. It's refused if the schedule changed since the preview, or if a day would hold more than 3 workouts.
+- **On Workouts:**
+  - the active program is shown first, then other programs, then individual plans;
+  - This week names the active program, and flags any entry from outside it.
+- **While a program is active,** only its workouts can be added to the schedule, enforced on the server as well. Entries already on the schedule may stay.
+- **Deleting the active program** keeps its plans and the schedule, and leaves no program active.
+- Completed workouts and progress are never changed.
+
+**UI-03/UI-04, weekly schedule.**
+- Each day shows its workouts by name (wrapping), program and exercise count, with labelled **Change**, **Move** and **Remove** buttons, or "Rest day".
+- **Add workout** opens a chooser with nothing preselected: program, then workout.
+- A day holds one workout by default. **Add another workout to this day** (up to 3) is a separate, deliberate link.
+- **Move** offers the other weekdays, with full days disabled.
+- **Remove** takes a workout off the schedule only.
+- Everything is a draft until **Save schedule**. **Discard changes** returns to the saved week, and leaving with unsaved changes warns.
+- The dialogs are native `<dialog>` elements: Escape closes them and focus returns to the opener. Changes are announced to screen readers.
+
+**UI-05, management.**
+- Every individual plan and program day has **Start**, **Edit** and **Delete**. Every program has **Set as active**, **Manage** and **Delete**.
+- Every deletion opens a dialog that says:
+  - which schedule days lose the plan;
+  - how many logged workouts stay;
+  - that a workout in progress carries on.
+- Deleting a program keeps its plans, as individual plans.
+- The program page has the same Set as active and Delete.
+
+**UI-02, completed.** Program, then month, then **workout date**, each collapsible; then the exercises actually performed. An exercise expands to show:
+- its logged sets, with warm-ups marked, and the machine;
+- the previous comparable workout (same exercise and machine context, strictly before that date) and the numerical comparison;
+- its recent history, with each badge **as it stood on its own date**;
+- a link to the full chart.
+
+The Improved/Down/Matched/Baseline badges and the Exercise progress cards are unchanged; that view's code is byte-for-byte identical. Workouts are still grouped by each plan's *current* program, as the page says.
+
+**UI-07, Nutrition day.**
+- Previous day | the date (opens a calendar) | next day.
+- **Jump to today** whenever another day is shown.
+- Days after today can't be chosen, and an empty day loads like any other.
+
+**UI-08, Nutrition history.**
+- Previous week | the period (opens a calendar with Start and End) | next week. **Back to this week** whenever another period is shown.
+- A custom range of up to 92 days drives the averages (the existing logged-day rules), the day list and the daily chart, which is labelled by date when longer than a week.
+- A reversed, invalid, future or over-long range is refused with the reason, and this week is shown instead.
+- The trend stays an **8-week** chart, labelled with the exact weeks it covers (ending with the period's last day).
+- Error messages use neutral colours, keeping the rule that nutrition never shows "down" colours.
+
+**Verified (disposable data only; nothing on the demo account was changed by tests).**
+- **Unit tests** passed for the activation rules, the period rules and the Progress history (as of each date, separate per machine).
+- **API tests** (`workout-import-api`, 13 of 13) cover:
+  - a preview that changes nothing;
+  - a stale preview refused, with nothing removed;
+  - too many workouts on a day, and plans outside the program, refused;
+  - a confirmation that sets both the schedule and the active program;
+  - the schedule limited to the active program's workouts;
+  - another person's program refused;
+  - deleting the active program, and deleting a plan with history and a workout in progress.
+- **New browser suite `ux-e2e`:**
+  - in Chromium, Firefox and WebKit: activation with its preview, and the schedule editor (add with nothing preselected, Escape, discard, change, move, remove, save);
+  - in Chromium: UI-02 expansion, UI-05 dialogs, the UI-07 calendar and UI-08 ranges;
+  - at 375 px: a long name wraps, and nothing scrolls sideways.
+- Results of the wider regression are in [PROJECT_STATUS.md](PROJECT_STATUS.md) and the delivery report.
+
+**Database.** MIG-ACTIVE was rehearsed on a restored copy of the backup `fitdb_test-pre-mig-active-20261109T203220Z.dump`, in the throwaway cluster. Results:
+- every existing row in 20 tables was unchanged;
+- 0 of 4,801 profiles active;
+- no drift from the schema.
+
+**It isn't applied to `fitdb_test` without the owner's approval.**
+
+**Limits.**
+- A workout's program in Progress is its plan's *current* program.
+- A day taken out of the active program stays on the schedule, flagged, until removed.
+- A program with more than 7 days gets no suggested weekday for its 8th day onwards; the person can add one.

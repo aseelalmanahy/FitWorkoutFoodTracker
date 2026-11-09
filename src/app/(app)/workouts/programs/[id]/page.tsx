@@ -10,7 +10,7 @@ export const metadata = { title: "Program" };
 
 export default async function ProgramPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
-  const { user } = await requireProfile();
+  const { user, profile } = await requireProfile();
   const program = (await getPrograms(user.id).then((ps) => ps.find((p) => p.id === id))) ?? notFound();
   const days = program.templates.map((t) => ({
     id: t.id, name: t.name, exercises: t.exercises.length,
@@ -18,8 +18,8 @@ export default async function ProgramPage({ params }: { params: Promise<{ id: st
   }));
   return (
     <Page>
-      <PageHeader title={program.name} subtitle={`${days.length} workout day${days.length === 1 ? "" : "s"}${program.origin === "import" ? " · Imported" : ""}`} back="/workouts" />
-      <ProgramManager key={`${program.id}:${program.name}:${days.map((d) => d.id).join()}`} id={program.id} name={program.name} days={days} />
+      <PageHeader title={program.name} subtitle={`${program.id === profile.activeProgramId ? "Active program · " : ""}${days.length} workout day${days.length === 1 ? "" : "s"}${program.origin === "import" ? " · Imported" : ""}`} back="/workouts" />
+      <ProgramManager key={`${program.id}:${program.name}:${days.map((d) => d.id).join()}`} id={program.id} name={program.name} days={days} active={program.id === profile.activeProgramId} />
     </Page>
   );
 }

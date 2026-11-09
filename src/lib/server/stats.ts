@@ -7,7 +7,7 @@ export async function getSchedule(userId: string) {
   const slots = await prisma.scheduleSlot.findMany({
     where: { userId },
     orderBy: [{ weekday: "asc" }, { position: "asc" }],
-    include: { template: { select: { id: true, name: true, program: { select: { name: true } }, _count: { select: { exercises: true } } } } },
+    include: { template: { select: { id: true, name: true, programId: true, program: { select: { name: true } }, _count: { select: { exercises: true } } } } },
   });
   const days: (typeof slots)[] = Array.from({ length: 7 }, () => []);
   for (const s of slots) days[s.weekday].push(s);

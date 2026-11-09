@@ -149,9 +149,13 @@ model Profile {
   timezone              String              @default("UTC")
   /// Unused: nothing reads or writes it. Kept until dropping it is separately approved.
   calorieTargetOverride Int?
+  /// UI-06: the one training program that drives the weekly schedule. Null when none is chosen; set only when the
+  /// person confirms "Set as active". Deleting that program clears it and leaves the schedule as it is.
+  activeProgramId       String?             @unique
   updatedAt             DateTime            @updatedAt
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user          User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+  activeProgram WorkoutProgram? @relation(fields: [activeProgramId], references: [id], onDelete: SetNull)
 }
 
 // ─── Exercise library ───────────────────────────────────────────────────────
@@ -219,6 +223,7 @@ model WorkoutProgram {
 
   user      User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   templates WorkoutTemplate[]
+  activeFor Profile?
 
   @@index([userId])
 }

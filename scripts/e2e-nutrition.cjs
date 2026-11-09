@@ -251,7 +251,7 @@ const SHOTS = (process.env.SHOTS_DIR || require("os").tmpdir()) + "/";
 
   // Phase 1 regression: workouts page still renders
   await page.goto(BASE + "/workouts");
-  await page.getByText("My programs").waitFor(); // UI-01: the page's plan section, renamed
+  await page.getByRole("heading", { name: "Active program" }).waitFor(); // UI-06: the page's plan sections start with the active program
   step("Phase 1 workouts page still renders");
 
   assert.deepEqual(errors, [], "browser errors: " + errors.join("\n"));

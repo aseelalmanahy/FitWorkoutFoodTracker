@@ -1,5 +1,5 @@
 {
-  "note": "Migrations the owner has approved for databases that keep data: fitdb_review and production, each with the SHA-256 of its migration.sql (line endings normalised) at approval. migrate deploy applies every folder in prisma/migrations, so scripts/migrate-approved.cjs (also npm run db:deploy) and local-db.cjs refuse those databases while any folder is missing from this list or its file no longer matches. Disposable test databases are not limited by it. Pending: 20261108120000_feedback (MIG-FB), 20261109120000_multi_gym (MIG-GYM), 20261110120000_workout_programs (MIG-PROG).",
+  "note": "Migrations the owner has approved for databases that keep data: fitdb_review and production, each with the SHA-256 of its migration.sql (line endings normalised) at approval. migrate deploy applies every folder in prisma/migrations, so scripts/migrate-approved.cjs (also npm run db:deploy) and local-db.cjs refuse those databases while any folder is missing from this list or its file no longer matches. Disposable test databases are not limited by it. Pending: 20261108120000_feedback (MIG-FB), 20261109120000_multi_gym (MIG-GYM), 20261110120000_workout_programs (MIG-PROG), 20261111120000_active_program (MIG-ACTIVE).",
   "approved": [
     "20261103155557_init",
     "20261103155823_profile_timezone",

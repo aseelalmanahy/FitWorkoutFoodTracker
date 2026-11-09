@@ -5,15 +5,16 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 import { api, ApiError } from "@/lib/client/api";
 import { Button, Card, ErrorText, Field, Input } from "@/components/ui";
+import { DeleteProgramButton } from "@/components/workouts/manage-actions";
 
 type DayRow = { id: string; name: string; exercises: number; weekdays: string };
 
 /**
  * UI-01: one program's page. Rename it, reorder its days, take a day out (it stays, as an individual plan), or
- * ungroup it (every day stays, as an individual plan). None of this changes a plan's exercises, the schedule or any
- * logged workout.
+ * delete the program (every day stays, as an individual plan). UI-06: set it as the active program. None of this
+ * changes a plan's exercises or any logged workout.
  */
-export function ProgramManager({ id, name: initialName, days: initialDays }: { id: string; name: string; days: DayRow[] }) {
+export function ProgramManager({ id, name: initialName, days: initialDays, active = false }: { id: string; name: string; days: DayRow[]; active?: boolean }) {
   const router = useRouter();
   const [name, setName] = useState(initialName);
   const [days, setDays] = useState(initialDays);
@@ -87,11 +88,12 @@ export function ProgramManager({ id, name: initialName, days: initialDays }: { i
       </Card>
       {note && <p role="status" className="text-sm text-muted">{note}</p>}
       <ErrorText>{error}</ErrorText>
-      <div className="flex flex-wrap gap-3">
-        <Link href="/workouts/schedule" className="inline-flex h-10 items-center rounded-xl bg-surface-2 px-4 text-sm font-medium">Put days on my schedule</Link>
-        <Button variant="ghost" disabled={busy} onClick={ungroup} data-testid="program-ungroup">Ungroup program</Button>
+      <div className="flex flex-wrap items-center gap-3">
+        {/* UI-06: the schedule follows the active program, set with a preview and a confirmation. */}
+        <Link href={`/workouts/programs/${id}/activate`} className="inline-flex h-10 items-center rounded-xl bg-accent px-4 text-sm font-semibold text-accent-fg" data-testid="program-activate">{active ? "Change its weekdays" : "Set as active"}</Link>
+        <DeleteProgramButton id={id} name={initialName} plans={days.length} active={active} after="/workouts" size="md" />
       </div>
-      <p className="text-xs text-muted">Taking out a day or ungrouping keeps every plan, its schedule and its workout history.</p>
+      <p className="text-xs text-muted">Taking out a day or deleting the program keeps every plan, its place on your schedule and its workout history.{active ? " A day taken out stays on your schedule, marked as outside your active program, until you remove it." : ""}</p>
     </div>
   );
 }

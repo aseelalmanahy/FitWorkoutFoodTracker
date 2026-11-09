@@ -53,12 +53,17 @@ let describeFailure = async () => {};
 
   // Schedule: put Upper Body on every day so "today" has it
   await page.goto(BASE + '/workouts/schedule');
-  const adds = page.getByRole('button', { name: '+ Add workout' });
-  const n = await adds.count();
-  for (let i = 0; i < n; i++) await page.getByRole('button', { name: '+ Add workout' }).first().click();
+  // UI-03: adding opens a chooser with nothing selected; the plan is chosen on purpose, then confirmed.
+  for (const day of ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']) {
+    await page.getByRole('button', { name: `Add a workout to ${day}` }).click();
+    const chooser = page.getByTestId('schedule-chooser');
+    if (await chooser.getByRole('button', { name: 'Choose' }).isEnabled()) throw new Error('a workout was preselected');
+    await chooser.getByRole('radio', { name: /Upper Body/ }).check();
+    await chooser.getByRole('button', { name: 'Choose' }).click();
+  }
   // remove Sat & Sun to have 5 planned
-  await page.getByRole('button', { name: 'Remove Upper Body' }).nth(6).click();
-  await page.getByRole('button', { name: 'Remove Upper Body' }).nth(5).click();
+  await page.getByRole('button', { name: 'Remove Upper Body from Saturday' }).click();
+  await page.getByRole('button', { name: 'Remove Upper Body from Sunday' }).click();
   await page.getByRole('button', { name: 'Save schedule' }).click();
   await page.waitForURL('**/workouts');
   await page.screenshot({ path: SHOTS + '04-workouts.png', fullPage: true });
@@ -135,7 +140,7 @@ let describeFailure = async () => {};
   assert.match(summary, /Weight increased/);
   assert.match(summary, /Fewer reps at the same weight/);
 
-  await page.goto(BASE + '/progress');
+  await page.goto(BASE + '/progress?view=exercises'); // UI-02: the exercise cards are the Exercise progress view
   await page.screenshot({ path: SHOTS + '09-progress.png', fullPage: true });
   await page.getByText('Dumbbell Incline Press').click();
   await page.waitForURL('**/progress/**');

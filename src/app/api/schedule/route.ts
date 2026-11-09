@@ -17,6 +17,16 @@ export const PUT = route(async (req, { user }) => {
   const ids = [...new Set(days.flat())];
   const owned = await prisma.workoutTemplate.count({ where: { userId: user.id, id: { in: ids } } });
   if (owned !== ids.length) throw new HttpError(400, "Unknown workout plan in schedule");
+  // UI-06: with an active program, only its workouts can be added. Assignments already on the schedule may stay, so
+  // saving never forces a silent removal.
+  const profile = await prisma.profile.findUnique({ where: { userId: user.id }, select: { activeProgramId: true } });
+  if (profile?.activeProgramId) {
+    const allowed = new Set([
+      ...(await prisma.workoutTemplate.findMany({ where: { userId: user.id, programId: profile.activeProgramId }, select: { id: true } })).map((t) => t.id),
+      ...(await prisma.scheduleSlot.findMany({ where: { userId: user.id }, select: { templateId: true } })).map((s) => s.templateId),
+    ]);
+    if (ids.some((id) => !allowed.has(id))) throw new HttpError(400, "Only workouts from your active program can be added to the schedule. Change the active program first.");
+  }
   await prisma.$transaction([
     prisma.scheduleSlot.deleteMany({ where: { userId: user.id } }),
     prisma.scheduleSlot.createMany({

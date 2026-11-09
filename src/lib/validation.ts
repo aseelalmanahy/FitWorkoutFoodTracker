@@ -96,6 +96,12 @@ export const createProgramSchema = z.strictObject({ name: programName, templateI
 export const updateProgramSchema = z.strictObject({ name: programName.optional(), templateIds: programDays.optional() })
   .refine((p) => p.name !== undefined || p.templateIds !== undefined, "Nothing to change");
 
+/** UI-06: confirm a program as the active one, with the weekdays chosen in its preview and that preview's version. */
+export const activateProgramSchema = z.strictObject({
+  weekdays: z.record(id, z.array(z.number().int().min(0).max(6)).max(7)),
+  version: z.string().min(1).max(40),
+});
+
 export const scheduleSchema = z.object({
   days: z
     .array(z.array(id).max(3))

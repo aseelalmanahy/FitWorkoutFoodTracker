@@ -303,6 +303,26 @@ On http://localhost:3400. The Exercise progress cards and badges are meant to lo
 | P.5 | Exercise progress | Look at it | The same cards and badges as before: Improved green, Down orange, Matched blue, Baseline neutral. A card opens its exercise |
 | P.6 | Body weight | Tap it | The weight log opens |
 | P.7 | Progress, on a phone width | Look at it | All three tabs visible, and no sideways scrolling |
+| P.8 | Training programs → a month → a workout date → an exercise | Tap each in turn | The exercise opens in place: its sets, the machine if any, the previous comparable workout with the change in numbers, recent history with each badge as it was then, and **View full exercise chart** |
+
+## UI-03 to UI-08: schedule, active program, management and nutrition dates
+
+On http://localhost:3400, once MIG-ACTIVE is applied. Your existing schedule is **left exactly as it is** until you confirm an active program, and that preview lists every change first. Choose **Cancel** in the preview if you only want to look.
+
+| # | Where | Do this | What should happen |
+|---|---|---|---|
+| A.1 | Workouts | Look at it | "Choose your active program", and "No active program chosen" under This week. Nothing was chosen for you |
+| A.2 | A program → **Set as active** | Look, change a day's weekday chips, then **Cancel** | Each workout with its suggested days; the exact entries that would be removed and added. Cancel changes nothing |
+| A.3 | The same, then **Make “…” active** | Confirm | Workouts shows it as **Active program**; This week says "From your active program …" and matches its days |
+| A.4 | Weekly schedule (Edit schedule) | Look at it | Each day: the workout's full name, its program and exercise count, and **Change**, **Move**, **Remove**; empty days say Rest day |
+| A.5 | Weekly schedule → **Add workout** on a rest day | Look at the chooser | Nothing is selected; **Choose** is disabled until you pick one. Only your active program's workouts are offered, and the page says why |
+| A.6 | Weekly schedule | Change one, move one, remove one; then **Discard changes** | "Unsaved changes" while editing; Discard returns to the saved week. Nothing is saved until **Save schedule** |
+| A.7 | Weekly schedule, on a phone | Look at it | Names wrap; the three buttons are full-size; no sideways scrolling |
+| A.8 | Workouts → an individual plan or a program day → **Delete** | Read it, then **Cancel** | It says which schedule days lose it and that logged workouts stay. Cancel deletes nothing. (Try deleting only a plan you don't need.) |
+| A.9 | Workouts → a program → **Delete** | Read it, then Cancel | Its plans stay as individual plans, with their schedule and history; if active, no program will be active |
+| N.1 | Nutrition → the date in the middle | Pick another day, then **Jump to today** | That day's meals and totals load; Jump to today returns |
+| N.2 | Nutrition → History → the period in the middle | Choose a start after the end | It says the start is after the end, and Apply is disabled |
+| N.3 | The same, with a valid range of a few weeks | Apply | "Averages for this period", that period's days and chart (labelled by date); the trend still says 8 weeks, with its dates. **Back to this week** returns |
 
 ## Known limitations
 

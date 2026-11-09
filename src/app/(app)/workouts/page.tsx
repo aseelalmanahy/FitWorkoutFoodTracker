@@ -9,6 +9,7 @@ import { summarizeSessions } from "@/lib/server/stats";
 import { ButtonLink, Card, EmptyState, PageHeader, SectionTitle, cx } from "@/components/ui";
 import { ChevronRight, PlusIcon } from "@/components/icons";
 import { StartWorkoutButton } from "@/components/workouts/start-workout-button";
+import { DeletePlanButton, DeleteProgramButton } from "@/components/workouts/manage-actions";
 import { Page } from "@/components/page";
 import { GymPicker } from "@/components/workouts/gym-picker";
 
@@ -16,10 +17,13 @@ export const metadata = { title: "Workouts" };
 
 const days = (weekdays: number[]) => (weekdays.length ? weekdays.map((d) => WEEKDAYS_SHORT[d]).join(", ") : "Not scheduled");
 
+type Program = Awaited<ReturnType<typeof getPrograms>>[number];
+type Plan = Program["templates"][number];
+
 /**
- * UI-01: the week, then the person's programs (each a group of workout days, shown once under its own name), then
- * individual plans, then recent workouts. Programs are what the person imported or grouped: nothing is grouped by
- * guessing from names. On a wide screen the week and recent workouts sit beside the plans.
+ * The week, then (UI-06) the active program, the other saved programs and individual plans, then recent workouts.
+ * Only the person chooses the active program; until they do, a one-time choice is offered. UI-05: every program and
+ * plan has visible management actions, and every deletion is confirmed with what it changes and what it keeps.
  */
 export default async function WorkoutsPage() {
   const { user, profile } = await requireProfile();
@@ -30,7 +34,7 @@ export default async function WorkoutsPage() {
     prisma.workoutTemplate.findMany({
       where: { userId: user.id, programId: null },
       orderBy: { name: "asc" },
-      include: { exercises: { orderBy: { position: "asc" }, include: { exercise: { select: { name: true } } } }, slots: { select: { weekday: true }, orderBy: { weekday: "asc" } } },
+      include: { exercises: { orderBy: { position: "asc" }, include: { exercise: { select: { name: true } } } }, slots: { select: { weekday: true }, orderBy: { weekday: "asc" } }, _count: { select: { sessions: { where: { status: "COMPLETED" } } } } },
     }),
     getPrograms(user.id),
     getSchedule(user.id),
@@ -43,7 +47,33 @@ export default async function WorkoutsPage() {
     }),
     prisma.gymLocation.findMany({ where: { userId: user.id }, orderBy: { name: "asc" }, select: { id: true, name: true } }),
   ]);
+  const activeProgram = programs.find((p) => p.id === profile.activeProgramId) ?? null;
+  const others = programs.filter((p) => p.id !== activeProgram?.id);
   const nothing = singles.length === 0 && programs.length === 0;
+  const outside = schedule.flat().filter((s) => activeProgram && s.template.programId !== activeProgram.id).length;
+
+  const planActions = (t: { id: string; name: string; slots: { weekday: number }[]; _count: { sessions: number } }, startable: boolean) => (
+    <span className="flex shrink-0 flex-wrap items-center justify-end gap-x-1 gap-y-1">
+      {!active && startable && <StartWorkoutButton source={{ templateId: t.id }} variant="secondary" size="sm">Start</StartWorkoutButton>}
+      <ButtonLink href={`/workouts/plans/${t.id}`} variant="ghost" size="sm" aria-label={`Edit ${t.name}`} data-testid="plan-edit">Edit</ButtonLink>
+      <DeletePlanButton id={t.id} name={t.name} scheduledDays={t.slots.map((s) => WEEKDAYS_SHORT[s.weekday])} workouts={t._count.sessions} inProgress={active?.templateId === t.id} />
+    </span>
+  );
+
+  const dayList = (p: Program) => (
+    <ol className="divide-y divide-line border-t border-line">
+      {p.templates.map((t: Plan, i) => (
+        <li key={t.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3" data-testid="program-day">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-surface-2 text-xs font-semibold" aria-hidden>{i + 1}</span>
+          <span className="min-w-0 flex-1 basis-40">
+            <span className="line-clamp-2 text-sm font-medium break-words" data-testid="program-day-name">{t.name}</span>
+            <span className="block truncate text-xs text-muted">{t.exercises.length} exercise{t.exercises.length === 1 ? "" : "s"} · {days(t.slots.map((s) => s.weekday))}</span>
+          </span>
+          {planActions(t, t.exercises.length > 0)}
+        </li>
+      ))}
+    </ol>
+  );
 
   return (
     <Page width="wide">
@@ -63,9 +93,10 @@ export default async function WorkoutsPage() {
 
       {/* The first row is only as tall as the week, so recent workouts sit right under it beside the taller plan column. */}
       <div className="grid gap-x-8 lg:grid-cols-2 lg:grid-rows-[auto_1fr] lg:items-start">
-        {/* This week */}
+        {/* This week: the schedule, which the active program sets */}
         <section className="min-w-0 lg:col-start-1 lg:row-start-1" aria-labelledby="week-title">
-          <SectionTitle action={<Link href="/workouts/schedule" className="text-sm font-medium text-accent-ink">Edit</Link>}><span id="week-title">This week</span></SectionTitle>
+          <SectionTitle action={<Link href="/workouts/schedule" className="text-sm font-medium text-accent-ink">Edit schedule</Link>}><span id="week-title">This week</span></SectionTitle>
+          <p className="-mt-1 mb-2 text-xs text-muted" data-testid="week-program">{activeProgram ? <>From your active program, <strong className="text-fg">{activeProgram.name}</strong>{outside ? `, plus ${outside} workout${outside === 1 ? "" : "s"} from outside it` : ""}</> : "No active program chosen"}</p>
           <Card className="divide-y divide-line" data-testid="week">
             {schedule.map((slots, d) => {
               const done = week.completedDays.has(d);
@@ -79,7 +110,9 @@ export default async function WorkoutsPage() {
                       slots.map((s) => (
                         <p key={s.id} className="min-w-0 text-sm">
                           <span className="line-clamp-1 font-medium">{s.template.name}</span>
-                          {s.template.program && <span className="line-clamp-1 text-xs text-muted">{s.template.program.name}</span>}
+                          {activeProgram && s.template.programId !== activeProgram.id
+                            ? <span className="line-clamp-1 text-xs text-down" data-testid="week-outside">Not in your active program{s.template.program ? ` (${s.template.program.name})` : ""}</span>
+                            : s.template.program && !activeProgram && <span className="line-clamp-1 text-xs text-muted">{s.template.program.name}</span>}
                         </p>
                       ))
                     )}
@@ -94,21 +127,47 @@ export default async function WorkoutsPage() {
           </Card>
         </section>
 
-        {/* Programs and individual plans */}
         <div className="min-w-0 lg:col-start-2 lg:row-span-2 lg:row-start-1">
-          <section aria-labelledby="programs-title">
-            <SectionTitle action={<span className="flex items-center gap-3"><Link href="/workouts/import" className="text-sm font-medium text-accent-ink" data-testid="import-link">Import</Link><Link href="/workouts/plans/new" className="flex items-center gap-1 text-sm font-medium text-accent-ink"><PlusIcon width={16} height={16} />New</Link></span>}>
-              <span id="programs-title">My programs</span>
+          {/* UI-06: the active program */}
+          <section aria-labelledby="active-title">
+            <SectionTitle action={<span className="flex items-center gap-3"><Link href="/workouts/import" className="text-sm font-medium text-accent-ink" data-testid="import-link">Import</Link><Link href="/workouts/plans/new" className="flex items-center gap-1 text-sm font-medium text-accent-ink"><PlusIcon width={16} height={16} />New plan</Link></span>}>
+              <span id="active-title">Active program</span>
             </SectionTitle>
-            {programs.length === 0 ? (
-              <p className="text-sm text-muted" data-testid="programs-empty">An imported plan with several days is kept here as one program. {singles.length >= 2 && <Link href="/workouts/programs/new" className="font-medium text-accent-ink">Group plans into a program</Link>}</p>
+            {activeProgram ? (
+              <Card className="overflow-hidden border-accent/40" data-testid="active-program">
+                <div className="flex flex-wrap items-start gap-3 p-4">
+                  <span className="min-w-0 flex-1 basis-48">
+                    <span className="mb-1 inline-block rounded-full bg-accent-soft px-2 py-0.5 text-[11px] font-semibold text-accent-ink">Active</span>
+                    <span className="line-clamp-2 block font-semibold break-words" data-testid="program-name">{activeProgram.name}</span>
+                    <span className="mt-0.5 block text-xs text-muted">{activeProgram.templates.length} workout day{activeProgram.templates.length === 1 ? "" : "s"} · it sets your weekly schedule</span>
+                  </span>
+                  <span className="flex flex-wrap gap-1">
+                    <ButtonLink href={`/workouts/programs/${activeProgram.id}`} variant="secondary" size="sm" data-testid="program-view">Manage</ButtonLink>
+                    <DeleteProgramButton id={activeProgram.id} name={activeProgram.name} plans={activeProgram.templates.length} active />
+                  </span>
+                </div>
+                {dayList(activeProgram)}
+              </Card>
+            ) : programs.length > 0 ? (
+              <Card className="p-4" data-testid="choose-active">
+                <p className="font-semibold">Choose your active program</p>
+                <p className="mt-1 text-sm text-muted">One program sets your weekly schedule. Use <strong className="text-fg">Set as active</strong> on one of your programs below: you&apos;ll see the schedule it would make, and confirm it, before anything changes. Until then your schedule stays as it is.</p>
+              </Card>
             ) : (
+              <p className="text-sm text-muted" data-testid="programs-empty">An imported plan with several days is kept as a program, which you can make active. {singles.length >= 2 && <Link href="/workouts/programs/new" className="font-medium text-accent-ink">Group plans into a program</Link>}</p>
+            )}
+          </section>
+
+          {/* Other saved programs */}
+          {activeProgram && others.length > 0 || (!activeProgram && programs.length > 0) ? (
+            <section aria-labelledby="programs-title">
+              <SectionTitle><span id="programs-title">{activeProgram ? "Other programs" : "My programs"}</span></SectionTitle>
               <div className="space-y-2" data-testid="programs">
-                {programs.map((p) => {
+                {(activeProgram ? others : programs).map((p) => {
                   const onSchedule = p.templates.filter((t) => t.slots.length > 0).length;
                   return (
                     <Card key={p.id} className="overflow-hidden" data-testid="program">
-                      <details open={programs.length === 1} className="group">
+                      <details className="group">
                         <summary className="flex cursor-pointer list-none items-center gap-3 p-4 [&::-webkit-details-marker]:hidden">
                           <span className="min-w-0 flex-1">
                             <span className="line-clamp-2 font-semibold break-words" data-testid="program-name">{p.name}</span>
@@ -120,33 +179,22 @@ export default async function WorkoutsPage() {
                           </span>
                           <ChevronRight width={18} height={18} className="shrink-0 text-muted transition group-open:rotate-90" aria-hidden />
                         </summary>
-                        <ol className="divide-y divide-line border-t border-line">
-                          {p.templates.map((t, i) => (
-                            <li key={t.id} className="flex items-center gap-3 px-4 py-3" data-testid="program-day">
-                              <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-surface-2 text-xs font-semibold" aria-hidden>{i + 1}</span>
-                              <span className="min-w-0 flex-1">
-                                <span className="line-clamp-2 text-sm font-medium break-words" data-testid="program-day-name">{t.name}</span>
-                                <span className="block truncate text-xs text-muted">{t.exercises.length} exercise{t.exercises.length === 1 ? "" : "s"} · {days(t.slots.map((s) => s.weekday))}</span>
-                              </span>
-                              <Link href={`/workouts/plans/${t.id}`} className="shrink-0 text-sm font-medium text-accent-ink" aria-label={`Edit ${t.name}`}>Edit</Link>
-                              {!active && t.exercises.length > 0 && <StartWorkoutButton source={{ templateId: t.id }} variant="secondary" size="sm">Start</StartWorkoutButton>}
-                            </li>
-                          ))}
-                        </ol>
-                        <div className="flex flex-wrap gap-x-5 gap-y-2 border-t border-line px-4 py-3 text-sm font-medium">
-                          <Link href={`/workouts/programs/${p.id}`} className="text-accent-ink" data-testid="program-view">View and rename</Link>
-                          <Link href="/workouts/schedule" className="text-accent-ink">Schedule</Link>
-                        </div>
+                        {dayList(p)}
                       </details>
+                      <div className="flex flex-wrap items-center gap-2 border-t border-line px-4 py-3 text-sm">
+                        <ButtonLink href={`/workouts/programs/${p.id}/activate`} size="sm" data-testid="set-active">Set as active</ButtonLink>
+                        <ButtonLink href={`/workouts/programs/${p.id}`} variant="secondary" size="sm" data-testid="program-view">Manage</ButtonLink>
+                        <DeleteProgramButton id={p.id} name={p.name} plans={p.templates.length} active={false} />
+                      </div>
                     </Card>
                   );
                 })}
               </div>
-            )}
-          </section>
+            </section>
+          ) : null}
 
           <section aria-labelledby="plans-title">
-            <SectionTitle action={singles.length >= 2 && programs.length > 0 ? <Link href="/workouts/programs/new" className="text-sm font-medium text-accent-ink">Group into a program</Link> : undefined}>
+            <SectionTitle action={singles.length >= 2 ? <Link href="/workouts/programs/new" className="text-sm font-medium text-accent-ink">Group into a program</Link> : undefined}>
               <span id="plans-title">Individual plans</span>
             </SectionTitle>
             {nothing ? (
@@ -156,15 +204,13 @@ export default async function WorkoutsPage() {
             ) : (
               <div className="grid grid-cols-1 gap-2 md:grid-cols-2 lg:grid-cols-1" data-testid="plans">
                 {singles.map((p) => (
-                  <Card key={p.id} className="flex min-w-0 items-center gap-3 p-4" data-testid="plan">
-                    <Link href={`/workouts/plans/${p.id}`} className="min-w-0 flex-1">
+                  <Card key={p.id} className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-2 p-4" data-testid="plan">
+                    <Link href={`/workouts/plans/${p.id}`} className="min-w-0 flex-1 basis-48">
                       <p className="line-clamp-2 font-semibold break-words">{p.name}</p>
                       <p className="truncate text-sm text-muted">{p.exercises.length ? p.exercises.map((e) => e.exercise.name).join(" · ") : "No exercises"}</p>
                       {p.slots.length > 0 && <p className="text-xs text-muted">{days(p.slots.map((s) => s.weekday))}</p>}
                     </Link>
-                    {!active && p.exercises.length > 0 && (
-                      <StartWorkoutButton source={{ templateId: p.id }} variant="secondary" size="sm">Start</StartWorkoutButton>
-                    )}
+                    {planActions(p, p.exercises.length > 0)}
                   </Card>
                 ))}
               </div>

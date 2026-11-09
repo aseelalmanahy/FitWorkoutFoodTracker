@@ -16,7 +16,7 @@
   },
   "Profile": {
     "deletion": "Own row deleted",
-    "export": ["name", "birthDate", "sex", "heightCm", "currentWeightKg", "goalWeightKg", "goal", "activityLevel", "experience", "workoutDaysPerWeek", "unitSystem", "timezone", "calorieTargetOverride", "updatedAt"],
+    "export": ["name", "birthDate", "sex", "heightCm", "currentWeightKg", "goalWeightKg", "goal", "activityLevel", "experience", "workoutDaysPerWeek", "unitSystem", "timezone", "calorieTargetOverride", "activeProgramId", "updatedAt"],
     "excluded": { "userId": "the owner" }
   },
   "Exercise": {

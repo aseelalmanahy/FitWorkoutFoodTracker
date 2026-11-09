@@ -165,9 +165,11 @@ async function wholeFlow(browser) {
   assert.equal(await page.locator("[data-testid=progress-tab][aria-current=page]").innerText(), "Training programs");
   assert.deepEqual(await page.getByTestId("progress-program-name").allInnerTexts(), ["Not in a program"]);
   await page.getByTestId("progress-no-programs").waitFor();
+  await page.getByTestId("progress-workout").first().locator("summary").first().click(); // a workout date opens on request
   const pressInProgram = page.getByTestId("progress-exercise").filter({ hasText: "Machine Chest Press" });
   assert.match(await pressInProgram.innerText(), /Hammer press[\s\S]*1 set · top 50 kg × 10[\s\S]*Baseline/);
-  assert.match(await pressInProgram.getByRole("link").getAttribute("href"), /\?machine=/);
+  await pressInProgram.locator("summary").first().click(); // UI-02: the exercise opens in place, with its chart link
+  assert.match(await pressInProgram.getByTestId("progress-exercise-chart").getAttribute("href"), /\?machine=/);
   assert.equal(await page.getByTestId("progress-tab").filter({ hasText: "Body weight" }).getAttribute("href"), "/progress/weight");
   step("UI-02: Training programs by default, the workout under Not in a program, its machine exercise linked");
 

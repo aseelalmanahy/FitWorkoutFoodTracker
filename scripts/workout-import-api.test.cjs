@@ -192,6 +192,81 @@ test("UI-01: plans saved earlier can be grouped by hand; nobody else's plans or 
   assert.equal((await c.post("/api/programs", { name: "Dup", templateIds: [mine[0].id, mine[0].id] })).status, 400, "a plan can't be a program's day twice");
 });
 
+test("UI-06: a program becomes active only on confirmation, with its preview; the schedule and the choice change together", async () => {
+  const { user, c } = await newUser("active");
+  const solo = await prisma.workoutTemplate.create({ data: { userId: user.id, name: "Mobility" } });
+  await prisma.scheduleSlot.create({ data: { userId: user.id, weekday: 6, templateId: solo.id } });
+  const r = await c.post("/api/workouts/import", { programName: "Push Pull Legs", days: ["Push", "Pull", "Legs"].map((name) => ({ name, weekday: null, exercises: [ex(bench.id)] })) });
+  const pid = r.body.program.id;
+  const [push, pull, legs] = r.body.templates;
+  assert.equal((await prisma.profile.findUnique({ where: { userId: user.id } })).activeProgramId, null, "importing doesn't make it active");
+  const session = await prisma.workoutSession.create({ data: { userId: user.id, templateId: push.id, name: "Push", status: "COMPLETED", endedAt: new Date(), exercises: { create: [{ exerciseId: bench.id, position: 0, sets: { create: [{ setNumber: 1, reps: 8, weightKg: 70 }] } }] } } });
+
+  // The preview changes nothing, suggests Mon/Wed/Fri, and shows the existing Sunday slot.
+  const preview = await c.call("GET", `/api/programs/${pid}/activate`);
+  assert.equal(preview.status, 200, preview.text);
+  assert.deepEqual(preview.body.proposed, { [push.id]: [0], [pull.id]: [2], [legs.id]: [4] });
+  assert.deepEqual(preview.body.current.map((s) => [s.weekday, s.name]), [[6, "Mobility"]]);
+  assert.equal(await prisma.scheduleSlot.count({ where: { userId: user.id } }), 1);
+
+  // A preview that's out of date is refused, and nothing changes.
+  await prisma.scheduleSlot.create({ data: { userId: user.id, weekday: 5, templateId: solo.id } });
+  const stale = await c.post(`/api/programs/${pid}/activate`, { weekdays: preview.body.proposed, version: preview.body.version });
+  assert.equal(stale.status, 409, stale.text);
+  assert.equal((await prisma.profile.findUnique({ where: { userId: user.id } })).activeProgramId, null);
+  assert.equal(await prisma.scheduleSlot.count({ where: { userId: user.id } }), 2, "nothing was removed");
+
+  // Too many on one day, or a plan from outside the program, is refused.
+  const fresh = (await c.call("GET", `/api/programs/${pid}/activate`)).body;
+  assert.equal((await c.post(`/api/programs/${pid}/activate`, { weekdays: { [solo.id]: [0] }, version: fresh.version })).status, 400);
+
+  // Confirmed with a changed day: the schedule is exactly the program's, and it's the active program.
+  const ok = await c.post(`/api/programs/${pid}/activate`, { weekdays: { [push.id]: [0, 3], [pull.id]: [1], [legs.id]: [] }, version: fresh.version });
+  assert.equal(ok.status, 200, ok.text);
+  assert.deepEqual(ok.body.removed.map((s) => s.weekday).sort(), [5, 6], "the removed assignments are reported");
+  const slots = await prisma.scheduleSlot.findMany({ where: { userId: user.id }, orderBy: [{ weekday: "asc" }, { position: "asc" }] });
+  assert.deepEqual(slots.map((s) => [s.weekday, s.templateId]), [[0, push.id], [1, pull.id], [3, push.id]]);
+  assert.equal((await prisma.profile.findUnique({ where: { userId: user.id } })).activeProgramId, pid);
+  assert.ok(await prisma.workoutTemplate.findUnique({ where: { id: solo.id } }), "the plan taken off the schedule still exists");
+  assert.equal((await prisma.workoutSession.findUnique({ where: { id: session.id } })).templateId, push.id, "history is untouched");
+
+  // With an active program, only its workouts can be added to the schedule.
+  const days = [[push.id], [pull.id], [], [push.id], [], [], []];
+  assert.equal((await c.call("PUT", "/api/schedule", { days: days.map((d, i) => (i === 6 ? [solo.id] : d)) })).status, 400);
+  assert.equal((await c.call("PUT", "/api/schedule", { days: days.map((d, i) => (i === 4 ? [legs.id] : d)) })).status, 200);
+
+  // Deleting the active program: no program is active, every plan and the schedule stay.
+  assert.equal((await c.call("DELETE", `/api/programs/${pid}`)).status, 200);
+  assert.equal((await prisma.profile.findUnique({ where: { userId: user.id } })).activeProgramId, null);
+  assert.equal(await prisma.scheduleSlot.count({ where: { userId: user.id } }), 4);
+  assert.equal(await prisma.workoutTemplate.count({ where: { userId: user.id } }), 4);
+});
+
+test("UI-06: nobody can preview or activate another person's program", async () => {
+  const a = await newUser("act-a");
+  const b = await newUser("act-b");
+  const r = await a.c.post("/api/workouts/import", { programName: "Mine", days: [{ name: "Day", weekday: null, exercises: [ex(bench.id)] }] });
+  const pid = r.body.program.id;
+  assert.equal((await b.c.call("GET", `/api/programs/${pid}/activate`)).status, 404);
+  assert.equal((await b.c.post(`/api/programs/${pid}/activate`, { weekdays: {}, version: "0-0" })).status, 404);
+  assert.equal((await prisma.profile.findUnique({ where: { userId: b.user.id } })).activeProgramId, null);
+});
+
+test("UI-05: deleting a plan keeps its logged workouts, and takes it off the schedule only", async () => {
+  const { user, c } = await newUser("del");
+  const plan = await prisma.workoutTemplate.create({ data: { userId: user.id, name: "Old plan", exercises: { create: [{ exerciseId: bench.id, position: 0, targetSets: 3, targetRepsMin: 8, targetRepsMax: 10 }] } } });
+  const other = await prisma.workoutTemplate.create({ data: { userId: user.id, name: "Other" } });
+  await prisma.scheduleSlot.createMany({ data: [{ userId: user.id, weekday: 0, templateId: plan.id }, { userId: user.id, weekday: 0, templateId: other.id, position: 1 }] });
+  const done = await prisma.workoutSession.create({ data: { userId: user.id, templateId: plan.id, name: "Old plan", status: "COMPLETED", endedAt: new Date(), exercises: { create: [{ exerciseId: bench.id, position: 0, sets: { create: [{ setNumber: 1, reps: 8, weightKg: 60 }] } }] } } });
+  const open = await prisma.workoutSession.create({ data: { userId: user.id, templateId: plan.id, name: "Old plan", status: "IN_PROGRESS" } });
+  assert.equal((await c.call("DELETE", `/api/templates/${plan.id}`)).status, 200);
+  assert.equal(await prisma.workoutTemplate.count({ where: { id: plan.id } }), 0);
+  assert.deepEqual((await prisma.scheduleSlot.findMany({ where: { userId: user.id } })).map((s) => s.templateId), [other.id], "only its own schedule place went");
+  const kept = await prisma.workoutSession.findUnique({ where: { id: done.id }, include: { exercises: { include: { sets: true } } } });
+  assert.equal(kept.exercises[0].sets[0].weightKg, 60, "its logged workout is kept, with its sets");
+  assert.equal((await prisma.workoutSession.findUnique({ where: { id: open.id } })).status, "IN_PROGRESS", "a workout in progress carries on");
+});
+
 test("a plan's screenshot is read as text on the server, with nothing stored; other uploads are refused", async () => {
   const { user, c } = await newUser("ocr");
   const png = await screenshot(PLAN_LINES);

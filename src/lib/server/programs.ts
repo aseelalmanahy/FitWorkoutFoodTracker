@@ -59,6 +59,8 @@ export async function getPrograms(userId: string, programId?: string) {
           id: true, name: true,
           exercises: { orderBy: { position: "asc" }, select: { targetSets: true, targetRepsMin: true, targetRepsMax: true, exercise: { select: { name: true } } } },
           slots: { select: { weekday: true }, orderBy: { weekday: "asc" } },
+          // UI-05: so deleting a plan can say how many logged workouts stay.
+          _count: { select: { sessions: { where: { status: "COMPLETED" } } } },
         },
       },
     },

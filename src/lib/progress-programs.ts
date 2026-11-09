@@ -1,4 +1,4 @@
-import { compareToPrevious, summarizeSets, type ExerciseSummary, type OverloadStatus, type SetLike } from "./overload";
+import { compareToPrevious, summarizeSets, type ExerciseSummary, type OverloadComparison, type OverloadStatus, type SetLike } from "./overload";
 import { localParts } from "./time";
 
 /**
@@ -28,7 +28,27 @@ export interface ProgressExerciseRow {
   summary: ExerciseSummary;
   /** Null when this workout has no working sets of it: there's nothing to compare. */
   status: OverloadStatus | null;
+  /** The sets actually logged in this workout (warm-ups included, marked), in order. */
+  sets: SetLike[];
+  /** The previous comparable workout (same exercise, same machine context, strictly before this one) with working sets; null if none. */
+  previous: ProgressPrevious | null;
+  /** The full comparison against `previous`; null when this workout has no working sets. */
+  comparison: OverloadComparison | null;
+  /** Recent comparable workouts up to and including this one, newest first (at most HISTORY_LIMIT), each status as computed on its own date. */
+  history: ProgressHistoryEntry[];
 }
+
+export interface ProgressPrevious {
+  sessionId: string;
+  date: Date;
+  summary: ExerciseSummary;
+}
+
+export interface ProgressHistoryEntry extends ProgressPrevious {
+  status: OverloadStatus;
+}
+
+export const HISTORY_LIMIT = 5;
 
 export interface ProgressWorkout {
   sessionId: string;
@@ -61,10 +81,13 @@ export function groupProgressByProgram(sessions: ProgressSessionInput[], timeZon
   const ordered = [...sessions].sort((a, b) => a.startedAt.getTime() - b.startedAt.getTime() || a.id.localeCompare(b.id));
   // The previous workout's summary of each exercise in each context, as the workouts are read oldest first.
   const previous = new Map<string, ExerciseSummary>();
+  // Each context's workouts with working sets so far (oldest first): only ever workouts on or before the one being read.
+  const entries = new Map<string, ProgressHistoryEntry[]>();
+  const lastWith = new Map<string, ProgressPrevious>();
   const workouts: { program: ProgressSessionInput["program"]; workout: ProgressWorkout }[] = [];
   for (const s of ordered) {
     // An exercise done twice in one workout, in the same context, is one row with all its sets (as Exercise progress).
-    const rows = new Map<string, Omit<ProgressExerciseRow, "summary" | "status"> & { sets: SetLike[] }>();
+    const rows = new Map<string, Omit<ProgressExerciseRow, "summary" | "status" | "previous" | "comparison" | "history"> & { sets: SetLike[] }>();
     for (const e of s.exercises) {
       const key = contextKey(e.exerciseId, e.gymEquipmentId);
       const row = rows.get(key);
@@ -74,9 +97,22 @@ export function groupProgressByProgram(sessions: ProgressSessionInput[], timeZon
     const exercises: ProgressExerciseRow[] = [];
     for (const [key, { sets, ...row }] of rows) {
       const summary = summarizeSets(sets);
-      const status = summary.workingSets > 0 ? compareToPrevious(previous.get(key) ?? null, summary).status : null;
+      const comparison = summary.workingSets > 0 ? compareToPrevious(previous.get(key) ?? null, summary) : null;
+      const status = comparison?.status ?? null;
+      // Mirrors compareToPrevious: a previous workout with no working sets is no comparison (Baseline).
+      const prior = (previous.get(key)?.workingSets ?? 0) > 0 ? lastWith.get(key) ?? null : null;
       previous.set(key, summary);
-      exercises.push({ ...row, summary, status });
+      let history = entries.get(key) ?? [];
+      if (status) {
+        history = [...history, { sessionId: s.id, date: s.startedAt, summary, status }];
+        entries.set(key, history);
+        lastWith.set(key, { sessionId: s.id, date: s.startedAt, summary });
+      }
+      exercises.push({
+        ...row, sets, summary, status, comparison,
+        previous: status ? prior : null,
+        history: status ? history.slice(-HISTORY_LIMIT).reverse() : [],
+      });
     }
     workouts.push({ program: s.program, workout: { sessionId: s.id, name: s.name, date: s.startedAt, exercises } });
   }
