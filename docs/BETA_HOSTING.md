@@ -50,7 +50,7 @@ A's weakness is that recovery is ours. So A is recommended only on three mandato
 
 Move to B, or another managed database, before opening the beta beyond invited testers, or if the monthly drill can't be kept up.
 
-**Expected total for the beta:** about **€14/month excl. VAT**, plus about **$12/year** for a domain. Resend's free tier is enough for an invited beta.
+**Expected total (updated 2026-11-09, RELEASE_ACCEPTANCE.md Part 11):** production on a **CX33 (8 GB, €8.99)**, chosen over the CX23 for headroom with real users, plus IPv4 (€0.50) and Object Storage (€6.49): about **€16/month excl. VAT**. Staging on a CX23: about €6.50/month. Plus about **$12/year** for the domain. Hetzner's CX plans are EU-only (Nuremberg, Falkenstein, Helsinki). Resend's free tier is enough for an invited beta.
 
 ## Proposed operating targets (PROPOSED, not approved: the owner decides at G2)
 

@@ -4,7 +4,9 @@
 
 **Code is frozen.** Development is closed. Only a reproducible critical or high-severity defect, a data-loss risk or a release-blocking regression would reopen it.
 
-**Release verdict (2026-11-09): NOT READY** for an invited beta, and not yet ready for staging.
+**Release verdict (2026-11-09, Part 11): READY FOR STAGING DEPLOYMENT, NOT YET for an invited beta.** The single-server stack passed a full staging rehearsal on a disposable Linux machine (108/108), from an empty database to HTTPS, backup, restore and automatic rollback. Deploying it needs your purchases and approvals (Part 11.5 A). The invited beta still needs production, real email, NOTICE-B, phone testing, your acceptance, the security sign-off and the merge (Part 11.5 B). Earlier verdicts below are kept as the record.
+
+**Earlier verdict:** NOT READY for an invited beta, and not yet ready for staging.
 - **What passed:** G1 on Linux (17 of 17), and the final regression at `caca244` (56/56 guarded, 2,309 unit tests).
 - **EXP-01:** verified fixed (Part 9).
 - **Database operations (Part 10):**
@@ -1113,3 +1115,138 @@ The fixed test checks both guarantees, with a negative control. It is the only c
   - **Observation WK-RSC-1:** open, Low, test environment, cause not determined. The exemption was deliberately **not** widened. The suite has no multi-gym steps; that is covered by the round trip above.
 
 **Still not authorized and not done:** `fitdb_review`'s migrations, A4, and the guarded G1 run.
+
+
+---
+
+## Part 11. Cloud deployment readiness (2026-11-09)
+
+**Owner decision (2026-11-09):**
+- Production and staging are built in the cloud, independent of the owner's computer.
+- Local A4 and `fitdb_review`'s migrations are **not** prerequisites for the cloud: a fresh cloud database has its own credentials and the guarded migration step.
+- No local Windows, Docker or backup work.
+
+**The candidate:** `feature/multi-gym-exercise-alternatives` at `d7d278d` (application code unchanged since `caca244`, which passed the full regression; the changes since are deployment files, the migrate image, CI and documentation).
+
+### 11.1 What was built
+
+| Piece | Files |
+|---|---|
+| The single-server stack: app, PostgreSQL 18 and Caddy | `deploy/compose.single-server.yml`, `deploy/postgres/10-roles.sh` (TLS only, least-privilege roles), `deploy/single-server.env.example` |
+| Deploy, with automatic rollback | `deploy/deploy.sh` (pre-deploy backup, guarded migrate step and seed, health, smoke, rollback to the previous tag; image digests recorded) |
+| Smoke test and user journey | `deploy/smoke.sh`, `scripts/staging-journey.cjs` |
+| Encrypted backup and verified restore | `deploy/backup.sh`, `deploy/restore.sh` (age, to the owner's public key; the private key never on the server; offsite by `rclone`, upload only) |
+| Server provisioning | `deploy/provision/cloud-init.yml` (deploy user, key-only SSH, ufw, unattended upgrades, Docker, swap, nightly backup timer) |
+| Synthetic staging accounts | `scripts/create-staging-account.cjs` (reserved test domains only, `*_staging` databases only; registration stays closed under the draft notice) |
+| Image publishing (by hand) | `.github/workflows/release-image.yml` (GHCR, commit-tagged, digests in the summary, release branch or `main` only, actions pinned) |
+| The rehearsal | `.github/workflows/staging-rehearsal.yml` |
+| The runbook | `docs/PHASE_4_0_3_DEPLOYMENT.md`, "Single-server deployment, option A": procedure, rollback, backup, DNS, email, oversized exports |
+
+### 11.2 Defects found and fixed this round
+
+| ID | Severity | Found by | Defect | Fix |
+|---|---|---|---|---|
+| DEP-01 | **High** (deployment-blocking) | The rehearsal | A fresh database had **0 built-in exercises**: the migrate step only migrated, and the seed ran only in local tooling. Nobody on a new server could add an exercise to a workout | The migrate image generates Prisma's client and runs `prisma/seed.ts` after the guarded step succeeds (`267a6ea`). Verified: 47 seeded, then 0 added on re-runs |
+| DEP-02 | Medium (build reliability) | G1 and the rehearsal (both failed) | `onnxruntime-node` downloaded optional **CUDA** binaries from GitHub at install; GitHub answered 504, and every release build failed | Skipped (`014d813`); the CPU runtime ships in the package. Meal photos still pass in G1; the image shrank from 2,331 to 2,003 MB |
+| DEP-03 | Medium | The rehearsal | After a rollback, Caddy kept the app out of rotation for up to 30 s, so `deploy.sh` reported **ROLLBACK ALSO FAILED** for a healthy rollback | Waits up to 60 s for the proxy to route again (`d7d278d`) |
+| SR-1 | Medium | The security review | Every deploy after the first would fail its backup: the deploy user can't write root's backup folder | The backup runs as the root systemd unit (`267a6ea`) |
+| SR-2 | Medium | The security review | `create-staging-account.cjs` could run on production, making an account that skips the notice | Refuses any database not named `*_staging` |
+| SR-3 | Medium | The security review | A compromised server could delete the offsite backups | Upload only; retention by the bucket's lifecycle rule |
+| SR-4 | Medium | The security review | Release images and actions weren't pinned | Actions pinned to SHAs; publishing from the release branch or `main` only; digests recorded at publish and deploy |
+
+The independent review found **no critical or high issue**.
+
+**Lows accepted, recorded:**
+- **Database TLS isn't authenticated.** It uses the image's snakeoil certificate with `sslmode=require`. Its exposure is the internal Docker network only. A per-server certificate and `verify-full` are a later hardening.
+- **The deploy user is root-equivalent** through the docker group. That's inherent to running Docker; SSH to it is key-only and limited to the owner's IP.
+- **The database container's environment holds the role passwords,** readable by root on the server.
+- **A restored copy** allows `fit_app` to write the migration history until the migrate step runs again (documented in `restore.sh`).
+
+### 11.3 Evidence
+
+**The staging rehearsal: [run 42569013328](https://github.com/aseelalmanahy/FitWorkoutFoodTracker/actions/runs/42569013328), at `d7d278d`. 108 checks passed, 0 failed.** It ran on a disposable Ubuntu 24.04 runner, with synthetic data and generated, masked passwords.
+
+1. **An empty PostgreSQL:**
+   - TLS on; the network rule is `hostssl`; a connection without TLS is refused;
+   - roles `fit_app` and `fit_migrator`.
+2. **The guarded step refuses the unapproved migrations** (exit 4) and applies nothing. Then, with a disposable approval recorded only in the runner's copy of the list after checking the reviewed hashes, **the first deploy runs from empty**:
+   - all 10 migrations, and the 47 built-in exercises seeded;
+   - 31 foreign keys, all validated; no drift;
+   - `fit_migrator` owns every table;
+   - `fit_app` can't change the schema or the migration history, has rows, and connects over TLS;
+   - running the migrate step again: nothing pending.
+3. **HTTPS through Caddy, with the chain verified:**
+   - headers (HSTS, CSP, nosniff, referrer policy), no `Server` header;
+   - HTTP→HTTPS redirect; 401 without a session; the identity endpoint off (404);
+   - a synthetic account signs in, with a cookie that is `Secure`, `HttpOnly` and `SameSite`;
+   - a real address is refused for a staging account.
+4. **The journey, 15 of 15:**
+   - sign in → profile → gym → a workout at the gym → exercise → set → finish;
+   - custom food → logged → the day's total (240 kcal);
+   - **the export holds the gym, the workout at it and the food entry**, and isn't cached;
+   - signed out: 401.
+5. **Restarts:** the database and the app restarted, with users, gyms, workouts and food entries unchanged (1/1/1/1).
+6. **Backup and restore:**
+   - the backup is age-encrypted (20 tables of data) and can't be read without the key;
+   - `restore.sh` restores it into a new database: 20 tables, 10 migrations, matching counts, "RESTORE VERIFIED";
+   - a restore over the live database is refused.
+7. **Rollback:** a release that can't start fails its health check, and **`deploy.sh` rolls back automatically** ("ROLLED BACK to ci-a, which is healthy"), with smoke passing afterwards.
+8. **Logs and shutdown:** no password or account address in any container's log; the app stops cleanly (exit 0).
+9. **Memory, idle after the run:** app 196 MB of 2 GB, PostgreSQL 54 MB of 768 MB, Caddy 15 MB of 256 MB.
+
+**G1 on Linux: [run 42568545382](https://github.com/aseelalmanahy/FitWorkoutFoodTracker/actions/runs/42568545382), at `267a6ea`, PASSED 17 of 17** (as in Part 9, with the new migrate image). Earlier at `014d813`: the export at the 50,000-row limit, 429, 413 and an ordinary export afterwards; the meal photo in 1.7 s.
+
+**Tests run locally this round:**
+- `deploy-config` 19/19;
+- `migration-safety` 8/8, now asserting the guarded step runs before the seed and that `migrate deploy` is never run directly;
+- the script audit 60/60, which registers both new scripts.
+
+**Not re-run:** the full guarded regression. The application code hasn't changed since `caca244` (56/56). **No real server, domain, email or phone was used.**
+
+### 11.4 Sizing
+
+| | Measured on Linux |
+|---|---|
+| App | 0.8 GB with the meal model loaded; 1.36 GB peak during an export at the limit; container limit 2 GB, heap pinned at 768 MB |
+| PostgreSQL | 54 MB idle; limit 768 MB |
+| Caddy | 15 MB; limit 256 MB |
+
+- **4 GB holds the stack's limits** (about 3.1 GB) with the system and 2 GB of swap. That's sufficient for **staging** (synthetic, a few testers).
+- **8 GB for production** removes the margin question: real users' meal photos and exports at the same time, with the database's cache growing. It's €3 a month more.
+
+### 11.5 The authorization package
+
+#### A. Staging (synthetic data only), the next step
+
+| # | Who | Action | Cost |
+|---|---|---|---|
+| A1 | **Owner** | Buy a domain, for example `fitworkoutfoodtracker.com`, at an at-cost registrar (Porkbun: $11.81/yr, checked 2026-11-08). Staging needs it: a free temporary address can't reliably get a certificate | ~$12/yr |
+| A2 | **Owner** | Create a Hetzner Cloud account and project, with a spending alert at €25/month | — |
+| A3 | **Owner** | Create the **staging** server: **CX23** (2 vCPU, 4 GB, 40 GB NVMe), **Nuremberg (nbg1) or Falkenstein (fsn1)**, Ubuntu 24.04, with `deploy/provision/cloud-init.yml` (your SSH public key put in), and a Cloud Firewall: 22 from your IP, 80 and 443 from anywhere | €5.99 + €0.50 IPv4 a month |
+| A4 | **Owner** | DNS: an A record for `staging` pointing at its IP, and a CAA record for Let's Encrypt (runbook) | — |
+| A5 | **Owner** | Approve the migrations for the cloud databases. Say "MIG-FB and MIG-GYM approved for the cloud databases". **Disclosure:** `prisma/approved-migrations.json` is shared, so recording them also lets the local tooling apply them to `fitdb_review` if someone runs it. That still needs its own explicit run, which stays your decision | — |
+| A6 | **Owner** | Create a backup key pair on your own computer (`age-keygen -o fit-backup.key`), keep the private key in your password manager, and give me the **public** key (`age1…`) | — |
+| A7 | **Claude** | After A5: record the approval in `approved-migrations.json` in a commit that names it, re-run the rehearsal on that commit, and trigger **Release image**, publishing two images to GHCR. Then the server must be able to pull them: either set the two packages to public in GitHub (the code is already public, and G1 found no secret in any layer), or `docker login ghcr.io` on the server with a read-only token | — |
+| A8 | **Owner**, with Claude's exact commands | On the server: put `deploy/` in place, fill `production.env` and `single-server.env` (`POSTGRES_DB=fitworkoutfoodtracker_staging`, generated passwords, your public key), then run `./deploy.sh <tag>`. Create the tester accounts with `create-staging-account.cjs`. The smoke test and the journey then run against `https://staging.<domain>` | — |
+| A9 | **Owner** | Phones: iPhone and Android against `https://staging.<domain>` (checklist 7.6), then MG.1–MG.15 and UX-01 there | — |
+
+- **Staging total:** **€6.49/month excl. VAT**, plus the domain.
+- **Optional:** Hetzner Object Storage (€6.49/month, 1 TB) for offsite backups; staging's synthetic data doesn't need it.
+
+#### B. Production launch (invited beta), later, separately
+
+| # | Who | Action | Cost |
+|---|---|---|---|
+| B1 | **Owner** | The **production** server: **CX33** (4 vCPU, **8 GB**, 80 GB NVMe), the same region as staging, the same provisioning and firewall; DNS `app.<domain>` | €8.99 + €0.50 IPv4 a month |
+| B2 | **Owner** | Hetzner **Object Storage** bucket for encrypted backups: a lifecycle rule to expire after 14 days, object lock if offered, and an access key on the server for upload | €6.49/month |
+| B3 | **Owner** | **Resend** (free tier: 3,000 emails/month, 100/day): verify the domain (MX and SPF on `send`, DKIM at `resend._domainkey`, DMARC optional); create a sending-only key and put it in `production.env` yourself | €0 |
+| B4 | **Owner** | **NOTICE-B** final, after legal review; until then registration stays closed on production by design | lawyer |
+| B5 | **Owner** | Acceptance: UX-01, GYM-ACCEPT, E1 on both phones (on staging), and the security sign-off (Part 1's limitations plus 11.2's lows) | — |
+| B6 | **Owner** | Approve the merge, and the production deploy | — |
+| B7 | **Claude**, after B6 | Release image for the merged commit, the deploy commands, the production smoke test, the first backup and a restore drill | — |
+
+- **Production total:** **€15.98/month excl. VAT** (server €8.99, IPv4 €0.50, Object Storage €6.49).
+- **With staging kept running:** about **€22.47/month**, plus ~$12/yr for the domain. VAT is added by country.
+- **Data residency:** Hetzner's CX plans are EU-only, so the data is held in Germany. A US region would need Hetzner's CPX/AMD plans at a higher price, and only if the owner requires it.
+
+**Not done, and not to be done without the approvals above:** no purchase, server, domain, DNS, email, image publication, merge or deployment.
