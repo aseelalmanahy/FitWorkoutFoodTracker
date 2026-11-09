@@ -257,3 +257,25 @@ export async function substitute(userId: string, sessionId: string, seId: string
     return { sessionExercise: replacement, planUpdated };
   }, { maxWait: 5_000, timeout: 15_000 });
 }
+
+/**
+ * GYM-01: back to the original exercise after a swap, in this workout only. Allowed while the replacement has no
+ * sets: the replacement row goes, the rows after it close up, and the original row (with every set it already had)
+ * becomes the one to log on again. Once sets are logged on the replacement it's refused, so no logged set is ever
+ * deleted; the original's card still takes sets. The plan isn't changed back: a plan edit asked for in the swap stays
+ * until the plan is edited.
+ */
+export async function revertSwap(userId: string, sessionId: string, replacementId: string) {
+  await ownedInProgress(userId, sessionId);
+  return prisma.$transaction(async (tx) => {
+    await lockInProgress(tx, userId, sessionId);
+    const r = await tx.sessionExercise.findFirst({ where: { id: replacementId, sessionId }, include: { _count: { select: { sets: true, substitutedBy: true } } } });
+    if (!r) throw notFound("Exercise");
+    if (!r.substitutesId) throw new HttpError(400, "This exercise wasn't swapped in, so there's nothing to switch back to.");
+    if (r._count.substitutedBy > 0) throw new HttpError(409, "This exercise was swapped again. Switch back from the latest one first.");
+    if (r._count.sets > 0) throw new HttpError(409, "Sets are logged on this exercise, so it stays, with them. You can still log sets on the original exercise above it.");
+    await tx.sessionExercise.delete({ where: { id: r.id } });
+    await tx.sessionExercise.updateMany({ where: { sessionId, position: { gt: r.position } }, data: { position: { decrement: 1 } } });
+    return { reverted: true, originalId: r.substitutesId };
+  }, { maxWait: 5_000, timeout: 15_000 });
+}

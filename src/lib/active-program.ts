@@ -65,3 +65,25 @@ export function scheduleChanges(slots: SlotLike[], week: string[][]) {
   const added = week.flatMap((ids, d) => ids.filter((id) => !before.has(`${d}:${id}`)).map((id) => ({ weekday: d, templateId: id })));
   return { removed, added };
 }
+
+export interface ScheduledLike { templateId: string; template: { id: string; name: string; programId: string | null; program?: { name: string } | null } }
+export interface ScheduleException { templateId: string; name: string; programName: string | null; weekdays: number[] }
+
+/**
+ * UI-06B: the workouts on the weekly schedule that aren't in the active program: kept, never removed by themselves,
+ * and shown as exceptions until the person removes them from the schedule or adds them to the program. Worked out
+ * from the schedule each time, never stored. None without an active program.
+ */
+export function scheduleExceptions(days: ScheduledLike[][], activeProgramId: string | null): ScheduleException[] {
+  if (!activeProgramId) return [];
+  const out = new Map<string, ScheduleException>();
+  days.forEach((slots, weekday) => {
+    for (const s of slots) {
+      if (s.template.programId === activeProgramId) continue;
+      const e = out.get(s.templateId) ?? { templateId: s.templateId, name: s.template.name, programName: s.template.program?.name ?? null, weekdays: [] };
+      if (!e.weekdays.includes(weekday)) e.weekdays.push(weekday);
+      out.set(s.templateId, e);
+    }
+  });
+  return [...out.values()].sort((a, b) => a.weekdays[0] - b.weekdays[0]);
+}

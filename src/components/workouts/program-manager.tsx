@@ -2,13 +2,16 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { api, ApiError } from "@/lib/client/api";
-import { Button, Card, ErrorText, Field, Input, buttonClass } from "@/components/ui";
+import { Button, Card, ErrorText, Field, Input, Select, buttonClass, cx } from "@/components/ui";
 import { ConfirmDialog } from "@/components/confirm-dialog";
 import { DeleteProgramButton } from "@/components/workouts/manage-actions";
 
 type DayRow = { id: string; name: string; exercises: number; weekdays: string };
+/** UI-06B: a scheduled workout outside this (active) program. inProgram: the other program it belongs to, if any. */
+type ExceptionRow = { id: string; name: string; weekdays: string; inProgram: string | null };
+const NOT_SCHEDULED = "Not scheduled";
 
 /**
  * UI-01: one program's page. Rename it, reorder its days, remove a day from the program (it stays, as an individual
@@ -16,8 +19,14 @@ type DayRow = { id: string; name: string; exercises: number; weekdays: string };
  * this changes a plan's exercises or any logged workout. UI-05 (owner report): removing a day asks first, and nothing
  * is sent until the person confirms. UI-09: on a phone, each day's name gets the full width and its actions sit on a
  * row of their own, at touch size.
+ * UI-05B: Add existing workout puts one of the person's individual plans into the program, at a chosen place; the
+ * plan itself is never copied, and its schedule stays as it is. UI-05C: removing a scheduled day from the active
+ * program asks whether it also leaves the weekly schedule, or stays there as an exception; nothing is chosen for the
+ * person. UI-06B: the active program's page lists the scheduled workouts outside it, with the ways to resolve each.
  */
-export function ProgramManager({ id, name: initialName, days: initialDays, active = false }: { id: string; name: string; days: DayRow[]; active?: boolean }) {
+export function ProgramManager({ id, name: initialName, days: initialDays, active = false, individuals = [], exceptions = [], addId = null }: {
+  id: string; name: string; days: DayRow[]; active?: boolean; individuals?: DayRow[]; exceptions?: ExceptionRow[]; addId?: string | null;
+}) {
   const router = useRouter();
   const [name, setName] = useState(initialName);
   const [days, setDays] = useState(initialDays);
@@ -25,8 +34,17 @@ export function ProgramManager({ id, name: initialName, days: initialDays, activ
   const [error, setError] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   const [removing, setRemoving] = useState<DayRow | null>(null);
+  const [unschedule, setUnschedule] = useState<"remove" | "keep" | null>(null);
+  const initialAdd = addId && individuals.some((p) => p.id === addId) ? addId : null;
+  const [adding, setAdding] = useState(initialAdd !== null);
+  const [addChoice, setAddChoice] = useState<string | null>(initialAdd);
+  const [position, setPosition] = useState(initialDays.length);
+  const radioName = useId();
+  // After a change, the page's fresh data replaces the list here; the component stays, so its message stays too.
+  const daysKey = JSON.stringify(initialDays);
+  useEffect(() => { setDays(JSON.parse(daysKey) as DayRow[]); }, [daysKey]);
 
-  async function patch(body: { name?: string; templateIds?: string[] }, done: string) {
+  async function patch(body: { name?: string; templateIds?: string[]; unscheduleRemoved?: boolean }, done: string) {
     setBusy(true); setError(null); setNote(null);
     try {
       await api("PATCH", `/api/programs/${id}`, body);
@@ -45,28 +63,51 @@ export function ProgramManager({ id, name: initialName, days: initialDays, activ
     [next[i], next[i + by]] = [next[i + by], next[i]];
     if (await patch({ templateIds: next.map((d) => d.id) }, "Order saved.")) setDays(next);
   }
+  const removingScheduled = removing !== null && removing.weekdays !== NOT_SCHEDULED;
+  const mustChoose = active && removingScheduled;
   /** Runs only from the confirmation. The last day isn't offered: the program would be empty (Delete keeps it). */
   async function removeFromProgram(day: DayRow) {
     const next = days.filter((d) => d.id !== day.id);
-    if (next.length === 0) return;
-    if (await patch({ templateIds: next.map((d) => d.id) }, `“${day.name}” was removed from the program. It's now an individual plan.`)) {
+    if (next.length === 0 || (mustChoose && !unschedule)) return;
+    const off = mustChoose && unschedule === "remove";
+    const done = off
+      ? `“${day.name}” was removed from the program and from your weekly schedule. It's now an individual plan.`
+      : `“${day.name}” was removed from the program. It's now an individual plan${mustChoose ? `, still scheduled on ${day.weekdays} as an exception` : ""}.`;
+    if (await patch({ templateIds: next.map((d) => d.id), ...(off ? { unscheduleRemoved: true } : {}) }, done)) {
       setDays(next);
       setRemoving(null);
     }
   }
+  function openAdd(planId: string | null) {
+    setError(null); setAddChoice(planId); setPosition(days.length); setAdding(true);
+  }
+  function closeAdd() {
+    setAdding(false); setAddChoice(null); setError(null);
+    if (initialAdd) router.replace(`/workouts/programs/${id}`, { scroll: false });
+  }
+  const addPlan = individuals.find((p) => p.id === addChoice) ?? null;
+  async function add() {
+    if (!addPlan) return;
+    const next = [...days.map((d) => d.id)];
+    next.splice(position, 0, addPlan.id);
+    if (await patch({ templateIds: next }, `“${addPlan.name}” was added to the program as day ${position + 1}.`)) {
+      setAdding(false); setAddChoice(null);
+      if (initialAdd) router.replace(`/workouts/programs/${id}`, { scroll: false });
+    }
+  }
 
   return (
-    <div className="space-y-4">
-      <Card className="p-4">
+    <div className="space-y-3 sm:space-y-4">
+      <Card className="p-3 sm:p-4">
         <form className="flex flex-wrap items-end gap-2" onSubmit={(e) => { e.preventDefault(); if (name.trim()) void patch({ name: name.trim() }, "Name saved."); }}>
-          <div className="min-w-0 flex-1"><Field label="Program name"><Input value={name} maxLength={60} onChange={(e) => setName(e.target.value)} data-testid="program-name-input" /></Field></div>
+          <div className="min-w-0 flex-1 basis-48"><Field label="Program name"><Input value={name} maxLength={60} onChange={(e) => setName(e.target.value)} data-testid="program-name-input" /></Field></div>
           <Button type="submit" disabled={busy || !name.trim() || name.trim() === initialName} data-testid="program-rename">Save name</Button>
         </form>
       </Card>
       <Card className="divide-y divide-line">
         <ol>
           {days.map((d, i) => (
-            <li key={d.id} className="flex flex-col gap-3 px-4 py-3 lg:flex-row lg:items-center" data-testid="program-page-day">
+            <li key={d.id} className="flex flex-col gap-2 px-3 py-3 sm:gap-3 sm:px-4 lg:flex-row lg:items-center" data-testid="program-page-day">
               <div className="flex min-w-0 flex-1 items-start gap-3">
                 <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-surface-2 text-xs font-semibold" aria-hidden>{i + 1}</span>
                 <span className="min-w-0 flex-1">
@@ -81,32 +122,98 @@ export function ProgramManager({ id, name: initialName, days: initialDays, activ
                 </span>
                 <Link href={`/workouts/plans/${d.id}`} className={buttonClass("secondary", "md")} aria-label={`Edit ${d.name}`}>Edit</Link>
                 {days.length > 1 && (
-                  <Button variant="ghost" disabled={busy} onClick={() => { setError(null); setRemoving(d); }} aria-label={`Remove ${d.name} from the program`} data-testid="program-remove">Remove from program</Button>
+                  <Button variant="ghost" disabled={busy} onClick={() => { setError(null); setUnschedule(null); setRemoving(d); }} aria-label={`Remove ${d.name} from the program`} data-testid="program-remove">Remove from program</Button>
                 )}
               </div>
             </li>
           ))}
         </ol>
       </Card>
-      {note && <p role="status" className="text-sm text-muted">{note}</p>}
-      <ErrorText>{error}</ErrorText>
+      {individuals.length > 0 && (
+        <Button variant="secondary" className="w-full sm:w-auto" disabled={busy} onClick={() => openAdd(null)} data-testid="program-add">+ Add existing workout</Button>
+      )}
+      {note && <p role="status" className="text-sm text-muted" data-testid="program-note">{note}</p>}
+      {!removing && !adding && <ErrorText>{error}</ErrorText>}
+
+      {active && exceptions.length > 0 && (
+        <section aria-labelledby="exceptions-title" className="rounded-2xl border border-line bg-surface-2/40 p-3 sm:p-4" data-testid="program-exceptions">
+          <h2 id="exceptions-title" className="font-semibold">Also on your schedule, outside this program ({exceptions.length})</h2>
+          <p className="mt-1 text-sm text-muted">These stay on your weekly schedule as exceptions until you decide. Nothing changes by itself.</p>
+          <ul className="mt-2 space-y-2">
+            {exceptions.map((x) => (
+              <li key={x.id} className="rounded-xl border border-line bg-surface p-3" data-testid="program-exception">
+                <p className="font-medium [overflow-wrap:anywhere]">{x.name}</p>
+                <p className="text-sm text-muted">{x.weekdays}{x.inProgram ? ` · in ${x.inProgram}` : " · individual plan"}</p>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  {!x.inProgram && <Button variant="secondary" disabled={busy} onClick={() => openAdd(x.id)} aria-label={`Add ${x.name} to this program`}>Add to this program</Button>}
+                  <Link href="/workouts/schedule" className={buttonClass("ghost", "md")} aria-label={`Remove ${x.name} from the weekly schedule`}>Remove from schedule…</Link>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
+
       <div className="flex flex-wrap items-center gap-3">
         {/* UI-06: the schedule follows the active program, set with a preview and a confirmation. */}
-        <Link href={`/workouts/programs/${id}/activate`} className="inline-flex h-10 items-center rounded-xl bg-accent px-4 text-sm font-semibold text-accent-fg" data-testid="program-activate">{active ? "Change its weekdays" : "Set as active"}</Link>
+        <Link href={`/workouts/programs/${id}/activate`} className="inline-flex h-11 items-center rounded-xl bg-accent px-4 text-sm font-semibold text-accent-fg" data-testid="program-activate">{active ? "Change its weekdays" : "Set as active"}</Link>
         <DeleteProgramButton id={id} name={initialName} plans={days.length} active={active} after="/workouts" size="md" />
       </div>
-      <p className="text-xs text-muted">Removing a workout from the program, or deleting the program, keeps every plan, its place on your schedule and its workout history.{active ? " A workout removed from the program stays on your schedule, marked as outside your active program, until you change that day." : ""}</p>
+      <p className="text-xs text-muted">Adding or removing a workout, or deleting the program, never copies or deletes a plan, its exercises or its workout history.</p>
+
       <ConfirmDialog open={removing !== null} title={removing ? `Remove ${removing.name} from ${initialName}?` : ""} confirmLabel="Remove from program" danger={false}
-        busy={busy} error={removing ? error : null} onConfirm={() => removing && void removeFromProgram(removing)} onCancel={() => { setRemoving(null); setError(null); }} testId="program-remove-dialog">
+        busy={busy} confirmDisabled={mustChoose && !unschedule} error={removing ? error : null} onConfirm={() => removing && void removeFromProgram(removing)}
+        onCancel={() => { setRemoving(null); setUnschedule(null); setError(null); }} testId="program-remove-dialog">
         {removing && <>
-          <p>It leaves this program and becomes an individual plan. Nothing is deleted:</p>
+          <p>It leaves this program and becomes an individual plan. In every case:</p>
           <ul className="list-disc space-y-0.5 pl-5">
             <li>the workout plan and its {removing.exercises} exercise{removing.exercises === 1 ? "" : "s"} stay as they are;</li>
-            <li>{removing.weekdays === "Not scheduled" ? "it isn't on your weekly schedule, and that doesn't change" : `its place on your weekly schedule (${removing.weekdays}) stays`};</li>
-            <li>every completed workout and its exercise history stay.</li>
+            <li>every completed workout, its exercise history and your progress stay.</li>
+            {!mustChoose && <li>{removingScheduled ? `its place on your weekly schedule (${removing.weekdays}) stays` : "it isn't on your weekly schedule, and that doesn't change"}.</li>}
           </ul>
-          {active && removing.weekdays !== "Not scheduled" && <p>Because this is your active program, the schedule will mark it as outside the program until you change that day.</p>}
+          {mustChoose && (
+            <fieldset className="space-y-2 pt-1" data-testid="remove-schedule-choice">
+              <legend className="mb-1 font-medium text-fg">It&apos;s on your weekly schedule ({removing.weekdays}). What should happen there?</legend>
+              {([
+                ["remove", "Remove from program and weekly schedule", `${removing.weekdays} ${removing.weekdays.includes(",") ? "become rest days" : "becomes a rest day"}, unless another workout is scheduled then.`],
+                ["keep", "Remove from program, keep it scheduled", `It stays on ${removing.weekdays}, shown as an exception outside your active program until you change it.`],
+              ] as const).map(([v, label, help]) => (
+                <label key={v} className={cx("flex cursor-pointer items-start gap-3 rounded-xl border p-3", unschedule === v ? "border-accent bg-accent-soft" : "border-line")}>
+                  <input type="radio" name={`${radioName}-sched`} value={v} checked={unschedule === v} onChange={() => setUnschedule(v)} className="mt-1" data-testid={`remove-${v}`} />
+                  <span><span className="block font-medium text-fg">{label}</span><span className="text-xs">{help}</span></span>
+                </label>
+              ))}
+            </fieldset>
+          )}
         </>}
+      </ConfirmDialog>
+
+      <ConfirmDialog open={adding} title={`Add a workout to ${initialName}`} confirmLabel="Add to program" danger={false} busy={busy} confirmDisabled={!addPlan}
+        error={adding ? error : null} onConfirm={() => void add()} onCancel={closeAdd} testId="program-add-dialog">
+        <fieldset>
+          <legend className="mb-2 font-medium text-fg">Your individual workouts</legend>
+          <div className="max-h-[40vh] space-y-1.5 overflow-y-auto">
+            {individuals.map((p) => (
+              <label key={p.id} className={cx("flex cursor-pointer items-start gap-3 rounded-xl border p-3", addChoice === p.id ? "border-accent bg-accent-soft" : "border-line")}>
+                <input type="radio" name={`${radioName}-add`} value={p.id} checked={addChoice === p.id} onChange={() => setAddChoice(p.id)} className="mt-1" data-testid="add-option" />
+                <span className="min-w-0"><span className="block font-medium text-fg [overflow-wrap:anywhere]">{p.name}</span><span className="text-xs">{p.exercises} exercise{p.exercises === 1 ? "" : "s"} · {p.weekdays}</span></span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        <label className="block font-medium text-fg">Position in the program
+          <Select className="mt-1" value={position} onChange={(e) => setPosition(Number(e.target.value))} data-testid="add-position">
+            {Array.from({ length: days.length + 1 }, (_, i) => (
+              <option key={i} value={i}>{i === days.length ? `Day ${i + 1} (last)` : `Day ${i + 1}, before ${days[i].name}`}</option>
+            ))}
+          </Select>
+        </label>
+        <p data-testid="add-schedule-effect">
+          {!addPlan ? "Choose a workout. The plan is moved into the program, not copied; its exercises and history stay as they are."
+            : addPlan.weekdays === NOT_SCHEDULED
+              ? `${addPlan.name} isn't on your weekly schedule, and adding it doesn't schedule it.${active ? " Use Change its weekdays to give it a day." : ""}`
+              : `${addPlan.name} stays on your weekly schedule (${addPlan.weekdays}), unchanged.${active ? " As part of your active program it's no longer an exception." : ""}`}
+        </p>
       </ConfirmDialog>
     </div>
   );

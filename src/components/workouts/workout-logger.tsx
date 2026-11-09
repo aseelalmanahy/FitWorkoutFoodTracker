@@ -55,6 +55,12 @@ interface Props {
 }
 
 const DEFAULT_REST = 90;
+/** UI-10: the view the person last chose, on this device only. Never set data: that's always on the server. */
+const VIEW_KEY = "fit.loggerView";
+type View = "focus" | "full";
+const readView = (): View | null => { try { const v = localStorage.getItem(VIEW_KEY); return v === "focus" || v === "full" ? v : null; } catch { return null; } };
+const writeView = (v: View) => { try { localStorage.setItem(VIEW_KEY, v); } catch { /* private mode: the choice lasts for this visit */ } };
+const workingCount = (e: LoggerExercise) => e.sets.filter((s) => !s.isWarmup).length;
 /** The longest note the API accepts, for both exercise and workout notes. */
 export const NOTE_MAX = 1000;
 
@@ -73,6 +79,16 @@ export function WorkoutLogger({ sessionId, name, startedAt, units, initial, init
   const [restEnd, setRestEnd] = useState<number | null>(null);
   // Workout notes: how the whole session went. Separate from each exercise's own note.
   const [sessionNotes, setSessionNotes] = useState(initialNotes ?? "");
+  // UI-10: One exercise (the default, until the person chooses) or Full workout. Every card stays mounted in both, and
+  // only the others are hidden, so switching never resets typed values, logged sets, swaps or the rest timer.
+  const [view, setViewState] = useState<View>("focus");
+  const [current, setCurrent] = useState(() => {
+    const i = initial.findIndex((e) => !e.swappedOut && workingCount(e) < (e.target?.sets ?? 1));
+    return i >= 0 ? i : 0;
+  });
+  useEffect(() => { const v = readView(); if (v) setViewState(v); }, []);
+  const setView = (v: View) => { setViewState(v); writeView(v); };
+  const at = Math.min(current, Math.max(exercises.length - 1, 0));
   const [sessionNotesState, setSessionNotesState] = useState<NoteSaveStatus>("idle");
   // Every note on the page saves through a NoteSaver: one request at a time, the latest text last.
   const sessionSaver = useRef<NoteSaver | null>(null);
@@ -179,6 +195,7 @@ export function WorkoutLogger({ sessionId, name, startedAt, units, initial, init
       api<{ sessionExercise: { id: string; restSeconds: number | null; notes: string | null } }>("POST", base, { exerciseId: opt.id }),
     );
     if (!res) return;
+    setCurrent(exercises.length);
     const prevRes = await api<{ previous: { date: string; sets: LoggedSet[] } | null }>(
       "GET", `/api/exercises/${opt.id}/previous?exclude=${encodeURIComponent(sessionId)}`,
     ).catch(() => null);
@@ -215,6 +232,20 @@ export function WorkoutLogger({ sessionId, name, startedAt, units, initial, init
     const prev = await previousFor(se.exerciseId, se.gymEquipmentId);
     const replacement: LoggerExercise = { id: se.id, exercise: { id: se.exercise.id, name: se.exercise.name, equipment: se.exercise.equipment }, notes: se.notes, restSeconds: se.restSeconds, sets: [], prev, target: targetForExercise(original.target, { swappedIn: true }), machine: m ? { id: m.id, name: m.name } : null, planned: { name: original.planned?.name ?? original.exercise.name } };
     setExercises((xs) => xs.flatMap((x) => (x.id === original.id ? [{ ...x, swappedOut: true }, replacement] : [x])));
+    setCurrent(exercises.findIndex((x) => x.id === original.id) + 1);
+  }
+
+  /** GYM-01: back to the original exercise, while nothing is logged on its replacement (refused otherwise). */
+  async function revert(replacement: LoggerExercise) {
+    const i = exercises.findIndex((x) => x.id === replacement.id);
+    const ok = await run(() => api("DELETE", `${base}/${replacement.id}/substitute`));
+    if (!ok) return;
+    setExercises((xs) => {
+      const out = xs.filter((x) => x.id !== replacement.id);
+      if (i > 0 && out[i - 1]) out[i - 1] = { ...out[i - 1], swappedOut: false };
+      return out;
+    });
+    setCurrent(Math.max(i - 1, 0));
   }
 
   async function removeExercise(ex: LoggerExercise) {
@@ -222,6 +253,8 @@ export function WorkoutLogger({ sessionId, name, startedAt, units, initial, init
     const ok = await run(() => api("DELETE", `${base}/${ex.id}`));
     if (ok) setExercises((xs) => xs.filter((x) => x.id !== ex.id));
   }
+  // The card shown in One exercise view follows a move.
+  const followMove = (i: number, dir: "up" | "down") => { if (i === at) setCurrent(dir === "up" ? i - 1 : i + 1); };
 
   async function moveExercise(i: number, dir: "up" | "down") {
     const ex = exercises[i];
@@ -278,7 +311,8 @@ export function WorkoutLogger({ sessionId, name, startedAt, units, initial, init
       <header className="sticky top-0 z-30 -mx-4 flex items-center justify-between border-b border-line bg-bg/90 px-4 py-3 backdrop-blur-xl">
         <div className="min-w-0">
           <p className="truncate font-bold">{name}</p>
-          <p className="num text-xs text-muted">{formatDuration(elapsed)} elapsed</p>
+          {/* The clock reads the time on the server, then in the browser: a second apart is expected, not a fault. */}
+          <p className="num text-xs text-muted" suppressHydrationWarning>{formatDuration(elapsed)} elapsed</p>
           {gyms.length > 0 && (
             <select aria-label="Gym" className="mt-1 max-w-[12rem] rounded-lg border border-line bg-surface px-2 py-1 text-xs" value={gymId ?? ""} onChange={(e) => chooseGym(e.target.value)} disabled={busy} data-testid="session-gym">
               <option value="">No gym chosen</option>
@@ -289,11 +323,40 @@ export function WorkoutLogger({ sessionId, name, startedAt, units, initial, init
         <Button onClick={finish} disabled={busy}>Finish</Button>
       </header>
 
+      <div className="mt-3 flex rounded-xl bg-surface-2 p-1" role="group" aria-label="Workout view" data-testid="logger-view">
+        {([["focus", "One exercise"], ["full", "Full workout"]] as const).map(([v, label]) => (
+          <button key={v} type="button" aria-pressed={view === v} onClick={() => setView(v)} data-testid={`view-${v}`}
+            className={cx("min-h-10 flex-1 rounded-lg px-3 text-sm font-semibold transition", view === v ? "bg-surface text-fg shadow-sm" : "text-muted hover:text-fg")}>{label}</button>
+        ))}
+      </div>
+
+      {view === "focus" && exercises.length > 0 && (() => {
+        const target = exercises.reduce((n, e) => n + (e.swappedOut ? 0 : e.target?.sets ?? 0), 0);
+        const done = exercises.reduce((n, e) => n + workingCount(e), 0);
+        return (
+          <div className="mt-3 space-y-2" data-testid="focus-nav">
+            <div className="flex items-center justify-between gap-2 text-sm">
+              <span className="font-semibold" data-testid="focus-position">Exercise {at + 1} of {exercises.length}</span>
+              <span className="text-muted" data-testid="focus-progress">{done} working set{done === 1 ? "" : "s"} logged{target ? ` of ${target} planned` : ""}</span>
+            </div>
+            {target > 0 && <div className="h-1.5 overflow-hidden rounded-full bg-surface-2" aria-hidden><div className="h-full rounded-full bg-accent" style={{ width: `${Math.min(100, (done / target) * 100)}%` }} /></div>}
+            <label className="block text-xs font-medium text-muted">Jump to
+              <select className="mt-1 h-11 w-full rounded-xl border border-line bg-surface px-3 text-sm text-fg" value={at} onChange={(e) => setCurrent(Number(e.target.value))} data-testid="focus-jump">
+                {exercises.map((e, i) => {
+                  const w = workingCount(e), t = e.target?.sets;
+                  return <option key={e.id} value={i}>{i + 1}. {e.exercise.name} · {e.swappedOut ? "swapped out" : t ? `${w}/${t} sets` : `${w} set${w === 1 ? "" : "s"}`}{t && w >= t ? " ✓" : ""}</option>;
+                })}
+              </select>
+            </label>
+          </div>
+        );
+      })()}
+
       <div className="mt-4 space-y-3">
         {error && <ErrorText>{error}</ErrorText>}
         {exercises.map((ex, i) => (
+          <div key={ex.id} hidden={view === "focus" && i !== at} data-testid="logger-exercise">
           <ExerciseCard
-            key={ex.id}
             ex={ex}
             units={units}
             first={i === 0}
@@ -302,15 +365,23 @@ export function WorkoutLogger({ sessionId, name, startedAt, units, initial, init
             onUpdate={(s, p) => updateSet(ex, s, p)}
             onDelete={(s) => deleteSet(ex, s)}
             onRemove={() => removeExercise(ex)}
-            onMove={(d) => moveExercise(i, d)}
+            onMove={(d) => { followMove(i, d); void moveExercise(i, d); }}
             onMeta={(p) => saveExerciseMeta(ex, p)}
             noteSavers={noteSavers.current}
             locked={busy}
             machines={machines.filter((m) => m.exerciseId === null || m.exerciseId === ex.exercise.id)}
             onMachine={(id) => chooseMachine(ex, id)}
             onSwap={() => setSwapping(ex.id)}
+            onRevert={ex.planned ? () => revert(ex) : undefined}
           />
+          </div>
         ))}
+        {view === "focus" && exercises.length > 1 && (
+          <div className="grid grid-cols-2 gap-2" data-testid="focus-step">
+            <Button variant="secondary" size="lg" disabled={at === 0} onClick={() => setCurrent(at - 1)} aria-label={at > 0 ? `Previous exercise: ${exercises[at - 1].exercise.name}` : "Previous exercise"}>‹ Previous</Button>
+            <Button variant={at === exercises.length - 1 ? "secondary" : "primary"} size="lg" disabled={at === exercises.length - 1} onClick={() => setCurrent(at + 1)} aria-label={at < exercises.length - 1 ? `Next exercise: ${exercises[at + 1].exercise.name}` : "Next exercise"}>Next ›</Button>
+          </div>
+        )}
         {exercises.length === 0 && (
           <Card className="p-6 text-center text-sm text-muted">Add your first exercise to start logging.</Card>
         )}
@@ -354,7 +425,7 @@ function fmtSets(sets: LoggedSet[], units: UnitSystem) {
     .join(", ");
 }
 
-function ExerciseCard({ ex, units, first, last, onLog, onUpdate, onDelete, onRemove, onMove, onMeta, noteSavers, locked, machines = [], onMachine, onSwap }: {
+function ExerciseCard({ ex, units, first, last, onLog, onUpdate, onDelete, onRemove, onMove, onMeta, noteSavers, locked, machines = [], onMachine, onSwap, onRevert }: {
   ex: LoggerExercise;
   units: UnitSystem;
   first: boolean;
@@ -373,6 +444,8 @@ function ExerciseCard({ ex, units, first, last, onLog, onUpdate, onDelete, onRem
   machines?: { id: string; name: string }[];
   onMachine?: (id: string) => void;
   onSwap?: () => void;
+  /** GYM-01: a swapped-in exercise with nothing logged can go back to the original. */
+  onRevert?: () => void;
 }) {
   const mu = massUnit(units);
   const working = ex.sets.filter((s) => !s.isWarmup);
@@ -433,6 +506,9 @@ function ExerciseCard({ ex, units, first, last, onLog, onUpdate, onDelete, onRem
         <div className="min-w-0">
           <h3 className="font-bold leading-tight">{ex.exercise.name}</h3>
           {ex.planned && <p className="text-xs font-medium text-accent-ink" data-testid="swapped-in">Swapped in for {ex.planned.name}</p>}
+          {ex.planned && onRevert && (ex.sets.length === 0
+            ? <Button variant="ghost" size="sm" className="-ml-2 mt-0.5 min-h-11 text-accent-ink" onClick={onRevert} disabled={locked} data-testid="swap-back">Switch back to {ex.planned.name}</Button>
+            : <p className="text-xs text-muted" data-testid="swap-back-kept">Sets are logged here and stay. {ex.planned.name} can still be logged on its own card.</p>)}
           {ex.swappedOut && <p className="text-xs font-medium text-muted" data-testid="swapped-out">Swapped out{ex.sets.length ? "; its sets are kept" : ""}</p>}
           {ex.machine && <p className="text-xs text-muted" data-testid="exercise-machine">On {ex.machine.name}: compared with this machine only</p>}
           <p className="mt-0.5 text-xs text-muted">

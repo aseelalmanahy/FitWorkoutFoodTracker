@@ -18,6 +18,7 @@ async function signedIn(browser, label) {
   created.push(user.id);
   await prisma.profile.create({ data: { userId: user.id, name: "Ready", birthDate: new Date("1990-01-01T00:00:00Z"), timezone: "UTC", unitSystem: "METRIC" } });
   const ctx = await target.guardContext(await browser.newContext({ viewport: { width: 390, height: 844 }, timezoneId: "UTC" }));
+  await require("./lib/logger-view.cjs").preferFullWorkout(ctx);
   await ctx.addCookies([{ name: "fit_session", value: token, url: BASE, httpOnly: true, sameSite: "Lax", secure: false }]);
   return { user, ctx, page: await ctx.newPage() };
 }

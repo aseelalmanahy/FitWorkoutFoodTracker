@@ -622,3 +622,31 @@ test("deleting a plan while a swap runs in a workout from it: never a 500, and t
   }
   console.log(`# swap/plan-delete statuses: ${statuses.join(" ")}`);
 });
+
+test("GYM-01: switching back to the original exercise, in this workout only, and never at the cost of a logged set", async () => {
+  const { user, c } = await newUser("swap-back");
+  const other = await newUser("swap-back-other");
+  const plan = await planFor(user.id, [lib["Barbell Bench Press"], lib["Back Squat"]]);
+  const s = await start(c, { templateId: plan.id });
+  const [bench, squat] = await exercisesOf(s.id);
+  ok(await logSet(c, s.id, bench.id, 8, 60));
+  const { sessionExercise: rep } = ok(await c.post(`/api/sessions/${s.id}/exercises/${bench.id}/substitute`, { exerciseId: lib["Dumbbell Bench Press"].id }));
+  const back = (seId, client = c) => client.call("DELETE", `/api/sessions/${s.id}/exercises/${seId}/substitute`);
+
+  assert.equal((await back(rep.id, other.c)).status, 404, "nobody else can undo it");
+  assert.equal((await back(squat.id)).status, 400, "an exercise that wasn't swapped in has nothing to go back to");
+  const r = await back(rep.id);
+  assert.equal(r.status, 200, r.text);
+  const rows = await exercisesOf(s.id);
+  assert.deepEqual(rows.map((e) => [e.exerciseId, e.position, e.sets.length]), [[bench.exerciseId, 0, 1], [squat.exerciseId, 1, 0]], "the replacement went; the original and its set are as they were");
+  const plain = await prisma.templateExercise.findMany({ where: { templateId: plan.id }, orderBy: { position: "asc" } });
+  assert.deepEqual(plain.map((e) => e.exerciseId), plan.exercises.map((e) => e.exerciseId), "the plan was never changed");
+
+  // Swapped again, with a set on the replacement: switching back is refused, and nothing is lost.
+  const { sessionExercise: rep2 } = ok(await c.post(`/api/sessions/${s.id}/exercises/${bench.id}/substitute`, { exerciseId: lib["Push-Up"].id }));
+  ok(await logSet(c, s.id, rep2.id, 15, 0));
+  assert.equal((await back(rep2.id)).status, 409);
+  assert.deepEqual((await exercisesOf(s.id)).map((e) => [e.exerciseId, e.sets.length]), [[bench.exerciseId, 1], [lib["Push-Up"].id, 1], [squat.exerciseId, 0]]);
+  ok(await finish(c, s.id));
+  assert.equal((await back(rep2.id)).status, 409, "a finished workout isn't changed");
+});

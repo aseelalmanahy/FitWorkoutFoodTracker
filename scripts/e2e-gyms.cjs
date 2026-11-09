@@ -22,6 +22,7 @@ async function signedIn(browser, label) {
     { exerciseId: lib["Back Squat"].id, position: 1, targetSets: 3, targetRepsMin: 5, targetRepsMax: 5 },
   ] } } });
   const ctx = await target.guardContext(await browser.newContext({ viewport: { width: 1200, height: 900 } }));
+  await require("./lib/logger-view.cjs").preferFullWorkout(ctx);
   await ctx.addCookies([{ name: "fit_session", value: token, url: BASE, httpOnly: true, sameSite: "Lax", secure: false }]);
   const page = await ctx.newPage();
   page.on("dialog", (d) => d.accept());

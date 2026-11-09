@@ -12,6 +12,7 @@ let describeFailure = async () => {};
   await target.verifyServer();
   const browser = await chromium.launch(target.launchOptions('chromium'));
   const ctx = await target.guardContext(await browser.newContext({ viewport: { width: 390, height: 844 }, colorScheme: 'dark', timezoneId: 'America/New_York' }));
+  await require("./lib/logger-view.cjs").preferFullWorkout(ctx);
   const page = await ctx.newPage();
   const errors = [];
   page.on('pageerror', e => errors.push('pageerror: ' + e.message));

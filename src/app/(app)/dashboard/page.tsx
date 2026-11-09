@@ -2,6 +2,7 @@ import Link from "next/link";
 import { prisma } from "@/lib/server/db";
 import { requireProfile } from "@/lib/server/profile";
 import { getSchedule, getWeekStats } from "@/lib/server/stats";
+import { scheduleExceptions } from "@/lib/active-program";
 import { getExerciseHistories } from "@/lib/server/workouts";
 import { computeRecords, RECORD_LABELS } from "@/lib/overload";
 import { formatLocalDate, localParts, WEEKDAYS_SHORT } from "@/lib/time";
@@ -35,7 +36,7 @@ export default async function DashboardPage() {
   const tz = profile.timezone;
   const now = new Date();
   const today = localParts(now, tz).weekday;
-  const [active, schedule, week, recentSessions, weightEntries] = await Promise.all([
+  const [active, schedule, week, recentSessions, weightEntries, activeProgram] = await Promise.all([
     prisma.workoutSession.findFirst({ where: { userId: user.id, status: "IN_PROGRESS" } }),
     getSchedule(user.id),
     getWeekStats(user.id, tz, now),
@@ -45,6 +46,7 @@ export default async function DashboardPage() {
       orderBy: { startedAt: "desc" },
     }),
     getWeightEntries(user.id),
+    profile.activeProgramId ? prisma.workoutProgram.findFirst({ where: { id: profile.activeProgramId, userId: user.id }, select: { id: true, name: true } }) : null,
   ]);
 
   // Personal records set in the last 30 days.
@@ -65,6 +67,8 @@ export default async function DashboardPage() {
   const shownPrs = recentPrs.filter((p, i) => recentPrs.findIndex((q) => q.exerciseId === p.exerciseId) === i);
 
   const todaySlots = schedule[today];
+  // UI-06B: today's scheduled workouts that are outside the active program are labelled as exceptions, as on Workouts.
+  const todayExceptions = scheduleExceptions(schedule, activeProgram?.id ?? null).filter((x) => x.weekdays.includes(today));
   const doneToday = week.completedDays.has(today);
   const plannedThroughToday = schedule.slice(0, today + 1).flat().length;
   const hour = Number(new Intl.DateTimeFormat("en-US", { timeZone: tz, hour: "numeric", hourCycle: "h23" }).format(now));
@@ -95,6 +99,13 @@ export default async function DashboardPage() {
           <p className="text-xs font-semibold uppercase tracking-wide text-muted">Today’s workout</p>
           <p className="mt-1 text-xl font-bold">{[...new Set(todaySlots.map((s) => s.template.name))].join(" + ")}</p>
           <p className="text-sm text-muted">{todaySlots[0].template._count.exercises} exercises</p>
+          {activeProgram && todayExceptions.length > 0 && (
+            <p className="mt-2 text-sm text-muted" data-testid="today-exception">
+              <span className="rounded bg-surface-2 px-1 py-px text-xs font-medium text-fg">Exception</span>{" "}
+              {todayExceptions.map((x) => x.name).join(" and ")} {todayExceptions.length === 1 ? "isn't" : "aren't"} in your active program, {activeProgram.name}.{" "}
+              <Link href={`/workouts/programs/${activeProgram.id}#exceptions-title`} className="font-medium text-accent-ink underline-offset-2 hover:underline">Resolve</Link>
+            </p>
+          )}
           {doneToday ? (
             <p className="mt-4 rounded-xl bg-up/12 px-3 py-2 text-sm font-semibold text-up">Completed today</p>
           ) : (

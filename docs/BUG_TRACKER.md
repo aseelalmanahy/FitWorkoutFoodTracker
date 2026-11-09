@@ -12,7 +12,14 @@
 | **UI-06** | Owner, 2026-11-09 | No single active training program: the weekly schedule could mix plans from any program, and nothing said which program it followed | High | **FIXED / PENDING OWNER REVIEW**. The owner's check of the activation preview passed (Removed, Added and Unchanged correct); acceptance pending. Added the line "Select one or more days. Select a day again to remove it." | See below |
 | **UI-07** | Owner, 2026-11-09 | Nutrition: no way to jump to a date other than one day at a time | Medium | **VERIFIED / CLOSED**: accepted by the owner, 2026-11-09 | See below |
 | **UI-08** | Owner, 2026-11-09 | Nutrition history: only whole weeks, one at a time; no custom date range | Medium | **VERIFIED / CLOSED**: accepted by the owner, 2026-11-09 | See below |
-| **UI-09** | Owner, 2026-11-09 (phone view) | Program management on a phone: workout names squeezed into a column a few letters wide (11 px at 320 px), words broken over several lines, Edit, Take out and the reorder arrows crowded together and too small (12 controls under 40 px) | Medium | **FIXED / PENDING OWNER REVIEW** | See "Owner acceptance testing" below |
+| **UI-09** | Owner, 2026-11-09 (phone view) | Program management on a phone: workout names squeezed into a column a few letters wide (11 px at 320 px), words broken over several lines, Edit, Take out and the reorder arrows crowded together and too small (12 controls under 40 px) | Medium | **FIXED / PENDING OWNER REVIEW**, with the final phone polish of round 3 (title wraps, tighter spacing, 44 px Back link) | See "Owner acceptance testing" below |
+| **UI-06B** | Owner, 2026-11-09 (screenshot) | After Remove from program, the schedule showed Lower Body B (Mon) and Upper Body A (Wed) as "outside" the active program with no explanation or way to resolve them, and the screens didn't say it the same way | High | **FIXED / PENDING OWNER REVIEW**. Your data was left as it is | See "Consolidated owner fixes, round 3" below |
+| **UI-05B** | Owner, 2026-11-09 | No way to add an existing individual plan to a program (to put a removed workout back) | High | **FIXED / PENDING OWNER REVIEW**. Upper Body A and Lower Body B not restored: your choice | See below |
+| **UI-05C** | Owner, 2026-11-09 | Remove from program didn't say what happens to the weekly schedule | Medium | **FIXED / PENDING OWNER REVIEW** | See below |
+| **UI-10** | Owner, 2026-11-09 | During a workout, every exercise is on one long page; no one-exercise-at-a-time view | Medium: a missing view | **FIXED / PENDING OWNER REVIEW** | See below |
+| **GYM-01** | Owner, 2026-11-09 | Check gyms and exercise alternatives end to end | Medium | **Investigated: all present and tested except switching back after a swap, now FIXED / PENDING OWNER REVIEW** | See below |
+| **UI-11** | Owner, 2026-11-09 | Feedback was only reachable from Profile | Low | **FIXED / PENDING OWNER REVIEW** | See below |
+| **UI-12** | Owner, 2026-11-09 | Food amounts: only servings, grams or ml | Medium | **Grams, ml and part servings already worked. Ounces added: FIXED / PENDING OWNER REVIEW** | See below |
 | **UI-01** | Owner, 2026-11-09 | Imported plans were mixed with unrelated plans: each imported day became its own plan named "Program – Day", listed among the person's own plans, and was put on the weekly schedule whenever the file named a weekday | High | **Fixed** in `bd86e47`; owner review pending | See below |
 | **IM-02** | Owner, 2026-11-09 | A text import ("workout 1.txt") saved exercises that weren't in the file | High | **Fixed** in `bd86e47` (cause found and closed); owner review pending | See below |
 | **UI-02** | Owner, 2026-11-09 | Progress had no view by program: workouts couldn't be followed program by program and month by month; then (2026-11-09) no expandable exercise history | Medium: a missing view, nothing wrong | **VERIFIED / CLOSED**: Progress and exercise history accepted by the owner, 2026-11-09 | See below |
@@ -136,6 +143,47 @@ Checked on 2026-11-09 against http://localhost:3400 (`fd6f67b`), as the demo acc
 **Limits.**
 - A workout from a plan that was later moved to another program shows under the plan's current program, not the one it had then.
 - With years of workouts, the view lists them all, by month, with only the latest month open.
+
+## Consolidated owner fixes, round 3 (2026-11-09): UI-06B, UI-05B, UI-05C, UI-10, GYM-01, UI-11, UI-12, UI-09
+
+Built on `feature/owner-fixes`, then integrated into `feature/multi-gym-exercise-alternatives`. **No migration.** Reviewed first by `product-strategy-agent` (BUILD or MODIFY for each; its points adopted: exceptions worked out, never stored; Remove's choice only when the day is scheduled and the program is active, with nothing preselected; another program's day never moved silently; ounces only for foods measured by weight; never ml from grams; the logger's state kept in one place for both views). **Your account was only read:** the owner's programs, schedule and in-progress Lower Body B workout were not changed.
+
+**UI-06B, exceptions.** A workout on the weekly schedule that isn't in the active program is an **exception**: kept, never removed or hidden by itself. One rule (`scheduleExceptions`) feeds every screen:
+- **Workouts:** This week says "with N exceptions outside it", each day marks it **Exception**, and a notice names them with **Resolve on the program page** and **Weekly schedule**.
+- **Today:** today's workout, if it's an exception, says so, with **Resolve**.
+- **Weekly schedule:** each exception says "Keep it, remove it from this day, or add it to <program>"; Remove is the usual draft-and-Save.
+- **The active program's page:** "Also on your schedule, outside this program", each with **Add to this program** and **Remove from schedule…**.
+
+**UI-05B, Add existing workout.** On a program's page, **+ Add existing workout** lists your individual plans (in no program), with their schedule; you choose one and its **position**. The dialog says what happens to the schedule (unchanged; in the active program it's no longer an exception, or, if unscheduled, that adding doesn't schedule it). The plan is moved in, never copied; its exercises and history are untouched. The server refuses a plan from another program (409, "Remove it from that program first") and another person's plan (404). This is how Upper Body A or Lower Body B can go back into "my current training program", when you choose.
+
+**UI-05C, Remove and the schedule.** For a scheduled day of the **active** program, the confirmation asks, with neither preselected and Confirm disabled until you choose:
+- **Remove from program and weekly schedule** (its days become rest days, unless something else is on them), in the same transaction;
+- **Remove from program, keep it scheduled**, shown as an exception.
+Both keep the plan, its exercises, completed workouts and progress. Cancel changes nothing. For an unscheduled day, or another program, the confirmation is as before.
+
+**UI-10, workout views.** At the top of a workout: **One exercise** | **Full workout**.
+- **One exercise** (the default until you choose): one exercise card, with "Exercise 2 of 6", the working sets logged against those planned, a progress bar, **‹ Previous** and **Next ›**, and **Jump to** (each exercise with its sets, ✓ when done). The card is the full card: sets, weights, reps, previous performance, target, Swap, machine, note, rest settings.
+- **Full workout:** the logger as before.
+- Every card stays loaded and only the others are hidden, so switching never resets typed values, logged sets, swaps, notes or the rest timer. Finish, notes and the rest timer are where they were. The choice is remembered on this device only (browser storage); set data is only ever on the server.
+- Also: the logger's elapsed clock no longer reports a harmless server/browser difference of a second as a page error (seen in WebKit).
+
+**GYM-01, gyms and alternatives: what already worked** (code read, with existing tests in `gyms-api` and `gyms-e2e`):
+- choosing a gym before or during a workout, or none; it's stored on the workout;
+- the gym's machines offered for an exercise (before its first set) and in a swap;
+- alternatives ranked and marked by the gym's equipment ("not listed at this gym"), never hidden; with no gym, availability isn't claimed;
+- a swap adds the replacement after the original, which keeps its sets; the plan changes only with "also change my plan";
+- history and comparisons kept per machine;
+- workouts with no gym.
+
+**Added: switching back.** A swapped-in exercise with nothing logged has **Switch back to <original>**: the replacement goes and the original is the one to log again (or swap again). With sets logged on the replacement, it's refused and says why: no logged set is ever deleted, and the original can still be logged. The plan isn't changed back. Tests: `gyms-api` (owner only, not for an unswapped exercise, refused with sets or after Finish, plan untouched) and `ux-e2e` in three browsers.
+
+**UI-11, Feedback.** **Feedback** is in the side bar and the bottom bar (now six items; every label measured to fit at 320, 375 and 390 px). It opens the existing `/feedback` page, told which page it came from, and that page now has **Back** to it. Same submissions, same permissions; the Profile link stays.
+
+**UI-12, food amounts: what already worked:** any number of grams (or ml, for a food measured in ml), part servings such as 1.5, the food's own servings, and the totals before logging, with unreported values shown as "—" and never counted as 0. **Added: ounces**, for foods measured by weight only: "4 oz = 113.4 g (1 oz = 28.35 g)" with the calories and macros before logging. It's stored like any serving ("oz", 28.35 g, quantity 4), so the food's USDA, Open Food Facts or custom record is never changed, and an entry can be edited in ounces. A food measured in ml isn't offered ounces, and no density is invented to turn ml into grams or back.
+
+**UI-09, final phone polish.** The program's title wraps (a little smaller on a phone) instead of being cut off; tighter padding on phones; the Back link is a 44 px target without adding height; the bottom bar was checked not to cover the last control. Tested at 320 and 375 px.
+
+**Screenshots:** `docs/screenshots/round3/`.
 
 ## Owner acceptance testing (2026-11-09): UI-03, UI-05, UI-09
 

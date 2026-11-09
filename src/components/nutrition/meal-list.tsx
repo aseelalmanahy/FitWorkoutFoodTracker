@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { api, ApiError, parseNum, SAVE_TIMEOUT_MS } from "@/lib/client/api";
 import { missingText, recordOrigin, SOURCE_NOT_AVAILABLE } from "@/lib/food-provenance";
-import { fmtG, fmtKcal, MEAL_LABELS, type MealType, type NutrientTotals } from "@/lib/nutrition";
+import { fmtG, fmtKcal, isOzServing, MEAL_LABELS, OZ_SERVING_ID, type MealType, type NutrientTotals } from "@/lib/nutrition";
 import { Button, Card, ErrorText } from "@/components/ui";
 import { PlusIcon } from "@/components/icons";
 import { Sheet } from "./sheet";
@@ -45,7 +45,7 @@ export function MealList({ meals, date }: { meals: MealGroup[]; date: string }) 
                       <span className="block truncate text-sm font-medium">{e.foodName}{e.brand && <span className="text-muted"> · {e.brand}</span>}</span>
                       {missingText(e.nutrients) && <span className="block text-[11px] text-down" data-testid="entry-missing">{missingText(e.nutrients)}</span>}
                       <span className="num block truncate text-xs text-muted">
-                        {e.servingAmount === 1 ? `${fmtG(e.quantity)} ${e.servingLabel}` : `${fmtG(e.quantity)} × ${e.servingLabel}`} · P {fmtG(e.nutrients.protein)} · C {fmtG(e.nutrients.carbs)} · F {fmtG(e.nutrients.fat)}
+                        {e.servingAmount === 1 || isOzServing(e.servingLabel, e.servingAmount) ? `${fmtG(e.quantity)} ${e.servingLabel}` : `${fmtG(e.quantity)} × ${e.servingLabel}`} · P {fmtG(e.nutrients.protein)} · C {fmtG(e.nutrients.carbs)} · F {fmtG(e.nutrients.fat)}
                       </span>
                     </span>
                     <span className="num shrink-0 text-sm font-semibold">{fmtKcal(e.nutrients.kcal)}<span className="text-xs font-normal text-muted"> kcal</span></span>
@@ -64,7 +64,8 @@ export function MealList({ meals, date }: { meals: MealGroup[]; date: string }) 
 function EntryEditor({ entry, onClose }: { entry: EntryDto; onClose: () => void }) {
   const router = useRouter();
   const isRaw = entry.servingAmount === 1 && (entry.servingLabel === "g" || entry.servingLabel === "ml");
-  const current: ServingChoice = { id: isRaw ? null : "__current", label: entry.servingLabel, amount: entry.servingAmount };
+  const isOz = isOzServing(entry.servingLabel, entry.servingAmount);
+  const current: ServingChoice = { id: isRaw ? null : isOz ? OZ_SERVING_ID : "__current", label: entry.servingLabel, amount: entry.servingAmount };
   const [servings, setServings] = useState<ServingChoice[]>(isRaw ? [] : [current]);
   const [servingId, setServingId] = useState<string | null>(current.id);
   const [quantity, setQuantity] = useState(String(entry.quantity));
@@ -82,7 +83,7 @@ function EntryEditor({ entry, onClose }: { entry: EntryDto; onClose: () => void 
         if (!alive) return;
         const match = food.servings.find((s) => s.label === entry.servingLabel && s.amount === entry.servingAmount);
         const list: ServingChoice[] = food.servings.map((s) => ({ id: s.id, label: s.label, amount: s.amount }));
-        if (!match && !isRaw) list.push(current);
+        if (!match && !isRaw && !isOz) list.push(current);
         setServings(list);
         if (match) setServingId(match.id);
       })

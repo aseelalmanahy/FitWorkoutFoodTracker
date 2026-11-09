@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildWeek, defaultSpread, proposeWeekdays, scheduleChanges, scheduleVersion } from "./active-program";
+import { buildWeek, defaultSpread, proposeWeekdays, scheduleChanges, scheduleExceptions, scheduleVersion } from "./active-program";
 
 const slot = (weekday: number, templateId: string, position = 0) => ({ weekday, templateId, position });
 
@@ -37,5 +37,16 @@ describe("UI-06 active program rules", () => {
     expect(scheduleVersion(a)).toBe(scheduleVersion([...a].reverse()));
     expect(scheduleVersion(a)).not.toBe(scheduleVersion([slot(0, "x"), slot(3, "y")]));
     expect(scheduleVersion([])).not.toBe(scheduleVersion(a));
+  });
+
+  it("UI-06B lists scheduled workouts outside the active program, once each with their weekdays, and none without one", () => {
+    const t = (id: string, programId: string | null, program?: string) => ({ templateId: id, template: { id, name: id.toUpperCase(), programId, program: program ? { name: program } : null } });
+    const days = [[t("lbb", null)], [], [t("uba", null)], [], [t("lba", "p1", "Mine")], [t("lbb", null), t("x", "p2", "Old")], [t("ubb", "p1", "Mine")]];
+    expect(scheduleExceptions(days, "p1")).toEqual([
+      { templateId: "lbb", name: "LBB", programName: null, weekdays: [0, 5] },
+      { templateId: "uba", name: "UBA", programName: null, weekdays: [2] },
+      { templateId: "x", name: "X", programName: "Old", weekdays: [5] },
+    ]);
+    expect(scheduleExceptions(days, null)).toEqual([]);
   });
 });

@@ -109,7 +109,7 @@ export function ScheduleEditor({ plans, initial, today, activeProgram }: {
       <p className="sr-only" role="status" aria-live="polite">{announce}</p>
       <p className="text-sm text-muted" data-testid="schedule-scope">
         {activeProgram
-          ? <>Workouts from your active program, <strong className="text-fg">{activeProgram.name}</strong>, can be added. Plans outside it, such as an extra mobility session, can still be started from Workouts at any time.</>
+          ? <>Your active program, <strong className="text-fg">{activeProgram.name}</strong>, sets this schedule, and only its workouts can be added. Workouts already here from outside it are kept as exceptions until you remove them. Any plan can still be started from Workouts at any time.</>
           : "No active program is chosen, so any of your plans can be added. Choosing an active program on Workouts sets the schedule from it."}
       </p>
       {WEEKDAYS.map((label, d) => (
@@ -127,8 +127,13 @@ export function ScheduleEditor({ plans, initial, today, activeProgram }: {
                   <p className="line-clamp-2 font-medium break-words" data-testid="schedule-slot-name">{p?.name ?? "A deleted plan"}</p>
                   <p className="text-xs text-muted">
                     {p?.programName ?? "Individual plan"} · {p?.exercises ?? 0} exercise{p?.exercises === 1 ? "" : "s"}
-                    {outside && <span className="text-down"> · not in your active program</span>}
                   </p>
+                  {outside && (
+                    <p className="mt-1 text-xs text-muted" data-testid="schedule-exception">
+                      <span className="rounded bg-surface-2 px-1 py-px font-medium text-fg">Exception</span> not in your active program. Keep it, remove it from this day
+                      {!p?.programId && activeProgram && <>, or <a href={`/workouts/programs/${activeProgram.id}?add=${id}`} className="font-medium text-accent-ink underline underline-offset-2">add it to {activeProgram.name}</a></>}.
+                    </p>
+                  )}
                   <div className="mt-2 flex flex-wrap gap-2">
                     <Button variant="secondary" size="sm" onClick={() => setPicker({ day: d, index: i })} aria-label={`Change the workout on ${label}: ${p?.name ?? ""}`}>Change</Button>
                     <Button variant="secondary" size="sm" onClick={() => setMover({ day: d, index: i })} aria-label={`Move ${p?.name ?? ""} from ${label} to another day`}>Move</Button>

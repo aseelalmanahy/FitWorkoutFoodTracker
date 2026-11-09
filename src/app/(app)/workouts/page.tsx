@@ -3,6 +3,8 @@ import { prisma } from "@/lib/server/db";
 import { requireProfile } from "@/lib/server/profile";
 import { getSchedule, getWeekStats } from "@/lib/server/stats";
 import { getPrograms } from "@/lib/server/programs";
+import { scheduleExceptions } from "@/lib/active-program";
+import { ScheduleExceptionsNotice } from "@/components/workouts/schedule-exceptions";
 import { localParts, formatLocalDate, WEEKDAYS_SHORT } from "@/lib/time";
 import { formatDuration, formatVolume } from "@/lib/units";
 import { summarizeSessions } from "@/lib/server/stats";
@@ -50,7 +52,9 @@ export default async function WorkoutsPage() {
   const activeProgram = programs.find((p) => p.id === profile.activeProgramId) ?? null;
   const others = programs.filter((p) => p.id !== activeProgram?.id);
   const nothing = singles.length === 0 && programs.length === 0;
-  const outside = schedule.flat().filter((s) => activeProgram && s.template.programId !== activeProgram.id).length;
+  // UI-06B: scheduled workouts outside the active program, shown the same way on Workouts, Today, the schedule and the program.
+  const exceptions = scheduleExceptions(schedule, activeProgram?.id ?? null);
+  const outside = exceptions.reduce((n, x) => n + x.weekdays.length, 0);
 
   const planActions = (t: { id: string; name: string; slots: { weekday: number }[]; _count: { sessions: number } }, startable: boolean) => (
     <span className="flex shrink-0 flex-wrap items-center justify-end gap-x-1 gap-y-1">
@@ -96,7 +100,7 @@ export default async function WorkoutsPage() {
         {/* This week: the schedule, which the active program sets */}
         <section className="min-w-0 lg:col-start-1 lg:row-start-1" aria-labelledby="week-title">
           <SectionTitle action={<Link href="/workouts/schedule" className="text-sm font-medium text-accent-ink">Edit schedule</Link>}><span id="week-title">This week</span></SectionTitle>
-          <p className="-mt-1 mb-2 text-xs text-muted" data-testid="week-program">{activeProgram ? <>From your active program, <strong className="text-fg">{activeProgram.name}</strong>{outside ? `, plus ${outside} workout${outside === 1 ? "" : "s"} from outside it` : ""}</> : "No active program chosen"}</p>
+          <p className="-mt-1 mb-2 text-xs text-muted" data-testid="week-program">{activeProgram ? <>From your active program, <strong className="text-fg">{activeProgram.name}</strong>{outside ? `, with ${outside} exception${outside === 1 ? "" : "s"} outside it` : ""}</> : "No active program chosen"}</p>
           <Card className="divide-y divide-line" data-testid="week">
             {schedule.map((slots, d) => {
               const done = week.completedDays.has(d);
@@ -111,7 +115,7 @@ export default async function WorkoutsPage() {
                         <p key={s.id} className="min-w-0 text-sm">
                           <span className="line-clamp-1 font-medium">{s.template.name}</span>
                           {activeProgram && s.template.programId !== activeProgram.id
-                            ? <span className="line-clamp-1 text-xs text-down" data-testid="week-outside">Not in your active program{s.template.program ? ` (${s.template.program.name})` : ""}</span>
+                            ? <span className="line-clamp-1 text-xs font-medium text-muted" data-testid="week-outside"><span className="rounded bg-surface-2 px-1 py-px text-fg">Exception</span> not in your active program{s.template.program ? ` (${s.template.program.name})` : ""}</span>
                             : s.template.program && !activeProgram && <span className="line-clamp-1 text-xs text-muted">{s.template.program.name}</span>}
                         </p>
                       ))
@@ -125,6 +129,7 @@ export default async function WorkoutsPage() {
               );
             })}
           </Card>
+          {activeProgram && <ScheduleExceptionsNotice exceptions={exceptions} program={{ id: activeProgram.id, name: activeProgram.name }} />}
         </section>
 
         <div className="min-w-0 lg:col-start-2 lg:row-span-2 lg:row-start-1">

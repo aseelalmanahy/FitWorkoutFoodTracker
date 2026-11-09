@@ -1,5 +1,5 @@
 import "server-only";
-import { notFound } from "./api";
+import { HttpError, notFound } from "./api";
 import { prisma } from "./db";
 
 /**
@@ -24,18 +24,41 @@ export async function createProgram(userId: string, name: string, templateIds: s
   });
 }
 
-export async function updateProgram(userId: string, programId: string, patch: { name?: string; templateIds?: string[] }) {
+/**
+ * Rename, and set the days and their order. A listed plan that was an individual plan joins the program (UI-05B: Add
+ * existing workout); its schedule entries stay as they are. Days left out become individual plans. UI-05C: with
+ * unscheduleRemoved, the days left out also leave the weekly schedule, in the same transaction; otherwise their
+ * schedule entries stay. Plans, exercises and logged workouts are never changed.
+ */
+export async function updateProgram(userId: string, programId: string, patch: { name?: string; templateIds?: string[]; unscheduleRemoved?: boolean }) {
   const program = await prisma.workoutProgram.findFirst({ where: { id: programId, userId }, select: { id: true } });
   if (!program) throw notFound("Program");
-  if (patch.templateIds) await ownedTemplates(userId, patch.templateIds);
+  if (patch.templateIds) {
+    await ownedTemplates(userId, patch.templateIds);
+    // UI-05B: only an individual plan can join; a day of another program is never moved silently.
+    const elsewhere = await prisma.workoutTemplate.count({ where: { id: { in: patch.templateIds }, userId, programId: { not: null, notIn: [programId] } } });
+    if (elsewhere) throw new HttpError(409, "That workout is in another program. Remove it from that program first.");
+  }
   return prisma.$transaction(async (tx) => {
     if (patch.name !== undefined) await tx.workoutProgram.update({ where: { id: programId }, data: { name: patch.name } });
+    if (patch.templateIds && patch.unscheduleRemoved) {
+      await tx.scheduleSlot.deleteMany({ where: { userId, template: { programId, userId }, templateId: { notIn: patch.templateIds } } });
+    }
     if (patch.templateIds) {
       // Days left out become individual plans; the listed ones take their new order.
       await tx.workoutTemplate.updateMany({ where: { programId, userId, id: { notIn: patch.templateIds } }, data: { programId: null, programPosition: null } });
       for (const [i, id] of patch.templateIds.entries()) await tx.workoutTemplate.update({ where: { id }, data: { programId, programPosition: i } });
     }
     return tx.workoutProgram.findUniqueOrThrow({ where: { id: programId }, select: { id: true, name: true, templates: { select: { id: true, name: true }, orderBy: { programPosition: "asc" } } } });
+  });
+}
+
+/** UI-05B: the person's individual plans (in no program), with their weekdays, to add to a program. */
+export async function getIndividualPlans(userId: string) {
+  return prisma.workoutTemplate.findMany({
+    where: { userId, programId: null },
+    orderBy: { name: "asc" },
+    select: { id: true, name: true, _count: { select: { exercises: true } }, slots: { select: { weekday: true }, orderBy: { weekday: "asc" } } },
   });
 }
 

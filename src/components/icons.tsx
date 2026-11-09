@@ -14,6 +14,9 @@ export const ForkIcon = (p: SVGProps<SVGSVGElement>) => (
 export const ChartIcon = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base} {...p}><path d="M4 20V4M4 20h16M8 16l4-5 3 3 5-7" /></svg>
 );
+export const FeedbackIcon = (p: SVGProps<SVGSVGElement>) => (
+  <svg {...base} {...p}><path d="M4 5h16v11H9l-5 4z" /><path d="M8 9h8M8 12h5" /></svg>
+);
 export const UserIcon = (p: SVGProps<SVGSVGElement>) => (
   <svg {...base} {...p}><circle cx="12" cy="8" r="4" /><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6" /></svg>
 );

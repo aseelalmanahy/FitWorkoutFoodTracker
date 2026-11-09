@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
-  addDays, carbsFromRemainder, entryNutrients, isIsoDate, macroKcal, mondayOf, progress, remaining,
+  addDays, carbsFromRemainder, consumedAmount, entryNutrients, isOzServing, ozServing, isIsoDate, macroKcal, mondayOf, progress, remaining,
   fmtMacroTarget, macroAgainstTarget, proteinAgainstTarget, scaleNutrients, sumNutrients, summarizePeriod, targetForDate, type DaySummary, type Nutrients,
 } from "./nutrition";
 
@@ -232,5 +232,19 @@ describe("summarizePeriod with a macro not set", () => {
     expect(s.proteinDaysWithTarget).toBe(2);
     expect(s.proteinOnTargetDays).toBe(1);
     expect(s.avgTargetKcal).toBe(2000);
+  });
+});
+
+describe("UI-12 ounces", () => {
+  it("logs by weight at 28.35 g an ounce, with missing values still missing", () => {
+    const s = ozServing();
+    expect(s).toEqual({ label: "oz", amount: 28.35 });
+    expect(consumedAmount(s.amount, 4)).toBeCloseTo(113.4, 6);
+    const n = entryNutrients({ kcal: 165, protein: 31, carbs: null, fat: 3.6, fiber: null }, s.amount, 4);
+    expect(n.kcal).toBeCloseTo(187.11, 2);
+    expect(n.protein).toBe(35.15); // 113.4 g × 31 g per 100 g, rounded as every entry is
+    expect(n.carbs).toBeNull();
+    expect(isOzServing("oz", 28.35)).toBe(true);
+    expect(isOzServing("1 serving", 28.35)).toBe(false);
   });
 });

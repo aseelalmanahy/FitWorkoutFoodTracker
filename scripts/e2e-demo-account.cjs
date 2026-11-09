@@ -31,6 +31,7 @@ async function inBrowser(name, shots) {
   const step = (s) => console.log(`✓ [${name}] ${s}`);
   const browser = await playwright[name].launch(target.launchOptions(name));
   const ctx = await target.guardContext(await browser.newContext({ viewport: { width: 390, height: 844 } }));
+  await require("./lib/logger-view.cjs").preferFullWorkout(ctx);
   const page = await ctx.newPage();
   const problems = [];
   page.on("pageerror", (e) => { if (!/_rsc.*access control checks/.test(e.message)) problems.push(e.message); });

@@ -13,10 +13,12 @@ const pathOf = (from: string | string[] | undefined) => (typeof from === "string
 export default async function FeedbackPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const user = await requireUser();
   const own = await listOwnFeedback(user.id);
+  const from = pathOf((await searchParams).from);
   return (
     <Page width="focused">
-      <PageHeader title="Feedback" subtitle="A bug, an idea, or something that's hard to use: it all helps during the beta." />
-      <FeedbackForm from={pathOf((await searchParams).from)} initial={own.map((f) => ({ ...f, createdAt: f.createdAt.toISOString() }))} />
+      {/* UI-11: opened from the main navigation, it offers the way back to the page it came from. */}
+      <PageHeader title="Feedback" subtitle="A bug, an idea, or something that's hard to use: it all helps during the beta." back={from ?? undefined} />
+      <FeedbackForm from={from} initial={own.map((f) => ({ ...f, createdAt: f.createdAt.toISOString() }))} />
     </Page>
   );
 }

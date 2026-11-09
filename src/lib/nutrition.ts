@@ -264,3 +264,14 @@ export function sanitizePer100(per100: Nutrients, basis: "G" | "ML"): { per100: 
   for (const k of rejected) clean[k] = null;
   return { per100: clean, rejected };
 }
+
+/**
+ * UI-12: logging by ounces. An ounce is a unit of weight, so it's offered only for foods measured by weight (basis g);
+ * a food measured in ml keeps ml, as no density is known and none is invented. 1 oz = 28.349523125 g, stored as
+ * 28.35 g (the entry's 3-decimal serving size), which is the precision the label states. The entry is stored like any
+ * serving ("oz", 28.35 g, quantity = ounces), so the food's own source data is never changed.
+ */
+export const OZ_SERVING_ID = "unit:oz";
+export const GRAMS_PER_OZ = 28.35;
+export const ozServing = () => ({ label: "oz", amount: GRAMS_PER_OZ });
+export const isOzServing = (label: string, amount: number) => label === "oz" && amount === GRAMS_PER_OZ;

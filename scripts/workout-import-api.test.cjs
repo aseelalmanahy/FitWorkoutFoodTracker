@@ -293,3 +293,52 @@ test("phase 4: a package photo's words come back as search choices only, with nu
   assert.equal((await client(null).post("/api/foods/photo-text", png, { "Content-Type": "image/png" })).status, 401);
   assert.equal((await c.post("/api/foods/photo-text", Buffer.from("x"), { "Content-Type": "text/plain" })).status, 415);
 });
+
+test("UI-05B/05C: an individual plan is added at a chosen place without copies; removing can also unschedule; other programs and people are refused", async () => {
+  const { user, c } = await newUser("addrm");
+  const other = await newUser("addrm-other");
+  const r = await c.post("/api/workouts/import", { programName: "Upper Lower", schedule: true, days: [
+    { name: "Upper", weekday: 0, exercises: [ex(bench.id)] }, { name: "Lower", weekday: 3, exercises: [ex(squat.id)] },
+  ] });
+  const pid = r.body.program.id;
+  const [upper, lower] = r.body.templates;
+  const solo = await prisma.workoutTemplate.create({ data: { userId: user.id, name: "Arms", exercises: { create: [{ exerciseId: bench.id, position: 0, targetSets: 3, targetRepsMin: 8, targetRepsMax: 12 }] } } });
+  await prisma.scheduleSlot.create({ data: { userId: user.id, weekday: 2, templateId: solo.id } });
+  await prisma.workoutSession.create({ data: { userId: user.id, templateId: solo.id, name: "Arms", status: "COMPLETED", endedAt: new Date(), exercises: { create: [{ exerciseId: bench.id, position: 0, sets: { create: [{ setNumber: 1, reps: 10, weightKg: 30 }] } }] } } });
+  const elsewhere = await c.post("/api/programs", { name: "Other", templateIds: [(await prisma.workoutTemplate.create({ data: { userId: user.id, name: "Cardio" } })).id] });
+  const cardio = elsewhere.body.program;
+  const theirs = await prisma.workoutTemplate.create({ data: { userId: other.user.id, name: "Theirs" } });
+  const before = { templates: await prisma.workoutTemplate.count({ where: { userId: user.id } }), exercises: await prisma.templateExercise.count({ where: { template: { userId: user.id } } }), sessions: await prisma.workoutSession.count({ where: { userId: user.id } }) };
+  const slotsOf = async (id) => (await prisma.scheduleSlot.findMany({ where: { templateId: id } })).map((s) => s.weekday);
+
+  // Add Arms as day 2 of 3: it joins in place; its Wednesday stays; nothing is copied.
+  const added = await c.call("PATCH", `/api/programs/${pid}`, { templateIds: [upper.id, solo.id, lower.id] });
+  assert.equal(added.status, 200, added.text);
+  assert.deepEqual(added.body.program.templates.map((t) => t.name), ["Upper", "Arms", "Lower"]);
+  assert.deepEqual(await slotsOf(solo.id), [2], "its schedule isn't changed by joining");
+  assert.deepEqual({ templates: await prisma.workoutTemplate.count({ where: { userId: user.id } }), exercises: await prisma.templateExercise.count({ where: { template: { userId: user.id } } }), sessions: await prisma.workoutSession.count({ where: { userId: user.id } }) }, before, "no plan, exercise or session duplicated");
+
+  // A day of another program isn't moved silently; another person's plan is unknown.
+  const cardioDay = (await prisma.workoutTemplate.findFirst({ where: { programId: cardio.id } })).id;
+  const moved = await c.call("PATCH", `/api/programs/${pid}`, { templateIds: [upper.id, solo.id, lower.id, cardioDay] });
+  assert.equal(moved.status, 409, moved.text);
+  assert.equal((await prisma.workoutTemplate.findUnique({ where: { id: cardioDay } })).programId, cardio.id, "it stays in its own program");
+  assert.equal((await c.call("PATCH", `/api/programs/${pid}`, { templateIds: [upper.id, theirs.id] })).status, 404);
+  assert.equal((await prisma.workoutTemplate.findUnique({ where: { id: theirs.id } })).programId, null);
+  assert.equal((await c.call("PATCH", `/api/programs/${pid}`, { unscheduleRemoved: true })).status, 400, "unscheduling needs the days that stay");
+
+  // B: removed, kept on the schedule. A: removed, and off the schedule, in the same change. Plans and history stay.
+  await c.call("PATCH", `/api/programs/${pid}`, { templateIds: [upper.id, lower.id] });
+  assert.deepEqual(await slotsOf(solo.id), [2], "B keeps it scheduled");
+  const off = await c.call("PATCH", `/api/programs/${pid}`, { templateIds: [upper.id], unscheduleRemoved: true });
+  assert.equal(off.status, 200, off.text);
+  assert.deepEqual(await slotsOf(lower.id), [], "A takes it off the schedule");
+  assert.deepEqual(await slotsOf(upper.id), [0], "the days that stay keep theirs");
+  assert.deepEqual(await slotsOf(solo.id), [2], "and a plan already outside the program isn't touched");
+  const lowerNow = await prisma.workoutTemplate.findUnique({ where: { id: lower.id }, include: { exercises: true } });
+  assert.deepEqual([lowerNow.programId, lowerNow.exercises.length], [null, 1], "the plan and its exercises stay");
+  assert.equal(await prisma.workoutSession.count({ where: { userId: user.id, status: "COMPLETED" } }), 1, "history stays");
+  // Added back to where it was.
+  const back = await c.call("PATCH", `/api/programs/${pid}`, { templateIds: [upper.id, lower.id] });
+  assert.deepEqual(back.body.program.templates.map((t) => t.name), ["Upper", "Lower"]);
+});

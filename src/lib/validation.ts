@@ -93,8 +93,9 @@ export type TemplateInput = z.infer<typeof templateSchema>;
 const programName = z.string().trim().min(1).max(60);
 const programDays = z.array(id).min(1).max(14).refine((ids) => new Set(ids).size === ids.length, "A plan can be in a program once");
 export const createProgramSchema = z.strictObject({ name: programName, templateIds: programDays });
-export const updateProgramSchema = z.strictObject({ name: programName.optional(), templateIds: programDays.optional() })
-  .refine((p) => p.name !== undefined || p.templateIds !== undefined, "Nothing to change");
+export const updateProgramSchema = z.strictObject({ name: programName.optional(), templateIds: programDays.optional(), unscheduleRemoved: z.boolean().optional() })
+  .refine((p) => p.name !== undefined || p.templateIds !== undefined, "Nothing to change")
+  .refine((p) => !p.unscheduleRemoved || p.templateIds !== undefined, "Say which workouts stay in the program");
 
 /** UI-06: confirm a program as the active one, with the weekdays chosen in its preview and that preview's version. */
 export const activateProgramSchema = z.strictObject({

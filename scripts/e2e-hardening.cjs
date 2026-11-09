@@ -49,6 +49,7 @@ async function runBrowser(name, buffer) {
   console.log(`--- ${name}`);
   const browser = await playwright[name].launch(target.launchOptions(name));
   const ctx = await target.guardContext(await browser.newContext({ viewport: { width: 390, height: 844 } }));
+  await require("./lib/logger-view.cjs").preferFullWorkout(ctx);
   const page = await ctx.newPage();
   const errors = [];
   page.on("pageerror", (e) => {

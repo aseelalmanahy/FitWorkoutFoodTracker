@@ -5,7 +5,7 @@ import { HttpError, notFound } from "../api";
 import { idempotencyConflict, idempotentId, isUniqueViolation } from "../idempotency";
 import { dec, getLoggableFood, getVisibleFood, isTrustedFood, per100Of, toNum } from "../foods/service";
 import {
-  addDays, dateRange, entryNutrients, macroAgainstTarget, MAX_ENTRY_AMOUNT, fromIsoDate, MEAL_TYPES, progress, remaining, round, sumNutrients, summarizePeriod,
+  addDays, dateRange, entryNutrients, macroAgainstTarget, MAX_ENTRY_AMOUNT, fromIsoDate, MEAL_TYPES, OZ_SERVING_ID, ozServing, progress, remaining, round, sumNutrients, summarizePeriod,
   targetForDate, toIsoDate, type DaySummary, type MealType, type Nutrients,
 } from "@/lib/nutrition";
 import { getTargets, localToday } from "./targets";
@@ -54,8 +54,15 @@ const nutrientData = (n: Nutrients) => ({ kcal: dec(n.kcal), protein: dec(n.prot
 /** Raw-amount logging: a 1 g (or 1 ml) "serving" with quantity = amount. */
 const rawServing = (unit: "G" | "ML") => ({ label: unit === "ML" ? "ml" : "g", amount: 1 });
 
+/** UI-12: ounces, only for a food measured by weight. */
+function unitServing(unit: "G" | "ML") {
+  if (unit !== "G") throw new HttpError(400, "Ounces measure weight, and this food is measured in ml. Enter ml or a serving.");
+  return ozServing();
+}
+
 async function servingFor(food: { id: string; basisUnit: "G" | "ML" }, servingId: string | null) {
   if (servingId === null) return rawServing(food.basisUnit);
+  if (servingId === OZ_SERVING_ID) return unitServing(food.basisUnit);
   const s = await prisma.foodServing.findUnique({ where: { id: servingId } });
   // A serving the provider stopped offering is removed on refresh: tell the client to re-select.
   if (!s) throw new HttpError(409, "This serving size is no longer available. Choose another serving or enter grams.", { reason: "serving_removed" });
@@ -76,7 +83,7 @@ type NewEntry = { date: string; mealType: MealType; foodId: string; servingId: s
 async function earlierAttempt(userId: string, id: string, input: NewEntry): Promise<EntryDto | null> {
   const entry = await prisma.foodEntry.findFirst({ where: { id, userId }, include: WITH_SOURCE });
   if (!entry) return null;
-  const serving = input.servingId === null ? rawServing(entry.basisUnit) : await prisma.foodServing.findUnique({ where: { id: input.servingId } }).then((s) => (s?.foodId === input.foodId ? { label: s.label, amount: Number(s.amount) } : null));
+  const serving = input.servingId === null ? rawServing(entry.basisUnit) : input.servingId === OZ_SERVING_ID ? (entry.basisUnit === "G" ? ozServing() : null) : await prisma.foodServing.findUnique({ where: { id: input.servingId } }).then((s) => (s?.foodId === input.foodId ? { label: s.label, amount: Number(s.amount) } : null));
   const same = toIsoDate(entry.date) === input.date && entry.mealType === input.mealType && entry.foodId === input.foodId
     && entry.quantity.equals(new Prisma.Decimal(input.quantity).toDecimalPlaces(3))
     && serving?.label === entry.servingLabel && serving.amount === Number(entry.servingAmount);
@@ -131,6 +138,8 @@ export async function updateEntry(
   if (input.servingId !== undefined) {
     if (input.servingId === null) {
       ({ label: servingLabel, amount: servingAmount } = rawServing(entry.basisUnit));
+    } else if (input.servingId === OZ_SERVING_ID) {
+      ({ label: servingLabel, amount: servingAmount } = unitServing(entry.basisUnit));
     } else {
       if (!entry.foodId) throw new HttpError(400, "The original food was deleted; only quantity can be changed");
       const food = await getVisibleFood(userId, entry.foodId);

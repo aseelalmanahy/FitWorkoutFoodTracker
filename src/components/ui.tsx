@@ -49,16 +49,17 @@ export function Card({ className, ...props }: ComponentProps<"div">) {
   return <div className={cx("rounded-2xl bg-surface border border-line shadow-[var(--shadow)]", className)} {...props} />;
 }
 
-export function PageHeader({ title, subtitle, action, back }: { title: string; subtitle?: ReactNode; action?: ReactNode; back?: string }) {
+/** wrapTitle: a long, user-chosen title wraps (a little smaller on a phone) instead of being cut off (UI-09). */
+export function PageHeader({ title, subtitle, action, back, wrapTitle = false }: { title: string; subtitle?: ReactNode; action?: ReactNode; back?: string; wrapTitle?: boolean }) {
   return (
     <header className="flex items-end justify-between gap-3 pt-6 pb-4 lg:pt-10 lg:pb-6">
       <div className="min-w-0">
         {back && (
-          <Link href={back} className="mb-1 inline-flex items-center gap-1 text-sm text-muted hover:text-fg">
+          <Link href={back} className="-my-2.5 inline-flex min-h-11 items-center gap-1 text-sm text-muted hover:text-fg">
             <span aria-hidden>‹</span> Back
           </Link>
         )}
-        <h1 className="truncate text-[28px] font-bold tracking-tight lg:text-[32px]">{title}</h1>
+        <h1 className={cx("font-bold tracking-tight lg:text-[32px]", wrapTitle ? "text-2xl leading-tight [overflow-wrap:anywhere] sm:text-[28px]" : "truncate text-[28px]")} data-testid="page-title">{title}</h1>
         {subtitle && <p className="mt-0.5 text-sm text-muted">{subtitle}</p>}
       </div>
       {action}

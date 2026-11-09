@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { ChartIcon, DumbbellIcon, ForkIcon, HomeIcon, UserIcon } from "./icons";
+import { ChartIcon, DumbbellIcon, FeedbackIcon, ForkIcon, HomeIcon, UserIcon } from "./icons";
 import { BrandMark } from "./brand";
 import { cx } from "./ui";
 
@@ -12,9 +12,14 @@ const ITEMS = [
   { href: "/nutrition", label: "Nutrition", Icon: ForkIcon },
   { href: "/progress", label: "Progress", Icon: ChartIcon },
   { href: "/profile", label: "Profile", Icon: UserIcon },
+  // UI-11: the existing feedback page, from anywhere. It's told which page it was opened from, to offer the way back.
+  { href: "/feedback", label: "Feedback", Icon: FeedbackIcon },
 ];
 
 const isActive = (path: string, href: string) => path === href || path.startsWith(href + "/");
+/** The feedback page's own "from" rule: a plain app path (no query), or nothing. */
+const hrefFor = (href: string, path: string) =>
+  href === "/feedback" && !isActive(path, "/feedback") && /^\/[A-Za-z0-9/_-]{0,119}$/.test(path) ? `/feedback?from=${path}` : href;
 
 /** Phones and tablets: a bar at the bottom, in reach of a thumb. Hidden on desktop, where the side bar takes over. */
 export function BottomNav() {
@@ -28,13 +33,13 @@ export function BottomNav() {
         {ITEMS.map(({ href, label, Icon }) => {
           const active = isActive(path, href);
           return (
-            <li key={href} className="flex-1">
+            <li key={href} className="min-w-0 flex-1">
               <Link
-                href={href}
+                href={hrefFor(href, path)}
                 aria-current={active ? "page" : undefined}
-                className={cx("flex min-h-14 flex-col items-center justify-center gap-0.5 py-2 text-[11px] font-medium transition", active ? "text-fg" : "text-muted hover:text-fg")}
+                className={cx("flex min-h-14 flex-col items-center justify-center gap-0.5 py-2 text-[11px] font-medium transition max-[359px]:text-[10px]", active ? "text-fg" : "text-muted hover:text-fg")}
               >
-                <span className={cx("grid h-7 w-12 place-items-center rounded-full transition", active && "bg-accent-soft text-accent-ink")}>
+                <span className={cx("grid h-7 w-11 place-items-center rounded-full transition", active && "bg-accent-soft text-accent-ink")}>
                   <Icon width={20} height={20} />
                 </span>
                 {label}
@@ -63,7 +68,7 @@ export function SideNav() {
           return (
             <li key={href}>
               <Link
-                href={href}
+                href={hrefFor(href, path)}
                 aria-current={active ? "page" : undefined}
                 className={cx("flex items-center gap-3 rounded-xl px-3 py-2.5 text-[15px] font-medium transition",
                   active ? "bg-accent-soft text-accent-ink" : "text-muted hover:bg-surface-2 hover:text-fg")}
