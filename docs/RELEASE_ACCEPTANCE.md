@@ -1,10 +1,10 @@
 # Release acceptance package
 
-**Release candidate:** `feature/multi-gym-exercise-alternatives` at `32c3914`, plus the documentation commit that adds this file.
+**Release candidate:** `feature/multi-gym-exercise-alternatives` at `8c520a0` (the draft privacy-notice wording on top of `37198a8`), plus the documentation commit that updates this file.
 
 **Code is frozen.** Development is closed. Only a reproducible critical or high-severity defect, a data-loss risk or a release-blocking regression would reopen it.
 
-**Technical verdict: TECHNICALLY READY.** All the required technical verification is done. The release now waits only on the approvals and physical tests below.
+**Release verdict (2026-11-08): NOT READY** for an invited beta, and not yet ready for staging. The code passes its full regression (Part 7). What's missing is database recovery on real data, role isolation, the migrations, the Linux image, hosting, email, phones, the privacy review and your acceptance. Each item and its owner action is in Part 7's approval package.
 
 **Nothing in this document is approved.** Every approval is the owner's, and so is every acceptance. Nothing has been merged or deployed. No migration has been applied to `fitdb`, `fitdb_test`, `fitdb_review` or production.
 
@@ -82,7 +82,7 @@ The commits after `e35f76d` didn't change application code. `92a80f5` changed on
 | ID | Severity | Finding | Status |
 |---|---|---|---|
 | A3-PS7 | Medium (tooling; it failed safe) | A3's `-Apply` couldn't find its line under PowerShell 7 (`-split …, -1`), so it refused with nothing changed, and A3 couldn't be applied from PowerShell 7 | **Fixed** (`2fb9c3e`), with a regression test in both editions |
-| SEC-ACL | Medium (data exposure on this PC) | `Desktop\FitWorkoutFoodTracker-backups`, which holds the database dumps (including `fitdb_review`'s) and would hold A4's credential backups, inherits **Modify** access for `CodexSandboxUsers` and two unresolved SIDs, and isn't encrypted | **Open, owner decision.** It blocks A4 (safeguard 3). Repro: `(Get-Acl "$HOME\Desktop\FitWorkoutFoodTracker-backups").Access` |
+| SEC-ACL | Medium (data exposure on this PC) | `Desktop\FitWorkoutFoodTracker-backups`, which holds the database dumps (including `fitdb_review`'s) and would hold A4's credential backups, inherits **Modify** access for `CodexSandboxUsers` and two unresolved SIDs, and isn't encrypted | **Access: FIXED** on 2026-11-08 (Part 7). **Encryption: open,** a G2/G5 item (Part 7) |
 
 ---
 
@@ -135,7 +135,9 @@ The old processes were stopped by their PIDs: the two launchers (23736 and 50748
 - **Owner action:** run it elevated, or approve it to be run.
 - **Pass:** its check passes, and a phone on the same Wi-Fi can't open port 3000. **Fail:** the check fails, or the port opens. Roll back with `-Rollback -State <file>`.
 
-**A2 status: READY. BLOCKED only by elevation** (checked 2026-11-08). The security review approved A2 conditionally. This session's shell isn't elevated (medium integrity), so `-Apply` wasn't run, and nothing was changed.
+**A2 status: COMPLETE.** The owner ran `A2-firewall.ps1 -Apply -Approval A2` elevated on 2026-11-08 at 18:29 (state file `firewall-A2-20261108-182956.json` and policy export `firewall-before-A2-20261108-182956.wfw`). Its check reported "no enabled inbound Allow rule for node.exe". Re-checked read-only in Part 7. The record below is the preparation, kept as evidence.
+
+**Earlier status: READY. BLOCKED only by elevation** (checked 2026-11-08). The security review approved A2 conditionally. This session's shell isn't elevated (medium integrity), so `-Apply` wasn't run, and nothing was changed.
 
 **Preconditions, all passed:**
 - **Rules targeted:** the inbound rules for `node.exe` are exactly two, both "Node.js JavaScript Runtime" (TCP and UDP): Public profile, any port, any remote address, Allow, enabled. Windows created them when someone allowed Node.js at its prompt.
@@ -169,7 +171,9 @@ cd $HOME\Desktop\FitWorkoutFoodTracker-beta
 - **Owner action:** run it elevated, at a quiet moment.
 - **Pass:** 5432 listens on 127.0.0.1 and ::1 only, and the servers reconnect. **Fail:** anything else. Roll back with `-Rollback -Backup <copy>`.
 
-**A3 status: READY. BLOCKED only by elevation** (checked 2026-11-08). The security review approved A3 conditionally. `-Apply` wasn't run; the real `postgresql.conf` and the service weren't touched.
+**A3 status: COMPLETE.** The owner ran `A3-postgres-listen.ps1 -Apply -Approval A3` elevated on 2026-11-08 at 18:31 (backup `postgresql.conf.before-A3-20261108-183101`). Its check reported "loopback only". Re-checked read-only in Part 7, including the four servers' database access after the restart. The record below is the preparation, kept as evidence.
+
+**Earlier status: READY. BLOCKED only by elevation** (checked 2026-11-08). The security review approved A3 conditionally. `-Apply` wasn't run; the real `postgresql.conf` and the service weren't touched.
 
 **Defect found and fixed** (`2fb9c3e`, tooling only): under PowerShell 7, `-Apply` couldn't find the `listen_addresses` line. `-split "\r?\n", -1` returns the whole file as one piece there, so the script refused ("found 0") with nothing changed. Windows PowerShell 5.1 worked. It now uses `[regex]::Split`. The regression test `scripts/local-security.test.cjs` passes in both editions, and fails on the previous script.
 
@@ -466,7 +470,8 @@ Simulated phone widths in desktop browsers **don't count** here.
 
 ## Part 5. Order
 
-1. A1 (**COMPLETE**, 2026-11-08); A2 and A3 (ready, need an elevated shell); A4 (on hold until SEC-ACL is resolved)
+0. **Superseded by Part 7's approval package,** which is the current order. This list is kept as the earlier record.
+1. A1, A2 and A3 (**COMPLETE**, 2026-11-08); SEC-ACL access (**FIXED**, 2026-11-08); A4 (on hold until B2)
 2. B2 and B1b
 3. MIG-FB and MIG-GYM: `fitdb_test`, then `fitdb_review`
 4. GYM-ACCEPT and UX-01
@@ -489,7 +494,7 @@ The labels: **IMPLEMENTED**, the code exists; **VERIFIED**, the acceptance crite
 | QA-05 (late sign-up cleanup) | VERIFIED | `safety-no-marker` passes on the throwaway cluster; on the real server, BLOCKED by B1b |
 | UX-01 acceptance | BLOCKED | Your acceptance. The preview is on 3001, loopback only |
 | GYM-ACCEPT | BLOCKED | MIG-FB and MIG-GYM on `fitdb_test` (or a throwaway preview), then your acceptance |
-| Privacy notice (NOTICE-B) | BLOCKED | Drafts exist; owner and legal review |
+| Privacy notice (NOTICE-B) | IMPLEMENTED as a draft (`draft-2026-11-08`, `8c520a0`); BLOCKED for final | Owner decisions and a real legal review (Part 7) |
 | Branding consistency | VERIFIED in the app and emails; final name and icons BLOCKED | No "Forge" in `src`, `public` or `scripts`; icons are temporary; FitBunny deferred |
 | Physical iPhone | BLOCKED | E1: Tailscale and the phone; never tested |
 | Physical Android | BLOCKED | E1: Tailscale and the phone; never tested |
@@ -499,8 +504,164 @@ The labels: **IMPLEMENTED**, the code exists; **VERIFIED**, the acceptance crite
 | HTTPS | BLOCKED | G4, which needs a domain and hosting |
 | Database restoration | IMPLEMENTED; mechanism VERIFIED on throwaway databases | B2 on the real `fitdb_review` backup is BLOCKED by approval |
 | Monitoring and alerts | IMPLEMENTED (`/api/health`); not set up | G6 |
-| A1 | VERIFIED | Above |
-| A2, A3 | BLOCKED by elevation only | Preconditions passed; exact commands above |
-| A4 | BLOCKED | On hold; SEC-ACL first |
+| A1 | VERIFIED | Above; re-checked in Part 7 |
+| A2, A3 | VERIFIED | Applied by the owner, re-checked read-only in Part 7 |
+| SEC-ACL (access) | VERIFIED | Part 7 |
+| A4 | BLOCKED | B2 first, then the owner's approval and the superuser password (Part 7) |
 
 **FAILED: none.** No check that ran failed.
+
+---
+
+## Part 7. Release execution round (2026-11-08, evening)
+
+Run from `FitWorkoutFoodTracker-beta`, which was at `37198a8`; local equalled `origin`. Evidence is in `FitWorkoutFoodTracker-backups\diagnostics\release-execution-8c520a0\` and `…\sec-acl-2026-11-08\`.
+
+**Approvals in this round:** the owner was asked once, in the approval interface, about B2, B1b and MIG-FB + MIG-GYM on `fitdb_test`. **No selection was submitted, so none of the three was run.** No persistent database was created, dropped or migrated. Nothing was merged or deployed, and nothing was bought.
+
+### 7.1 Local security: verified
+
+| Gate | Check (read-only unless stated) | Result |
+|---|---|---|
+| A1 | Listeners | 3000–3003 on `127.0.0.1` only |
+| A2 | `node.exe` inbound rules | Both "Node.js JavaScript Runtime" rules `Enabled=False` |
+| A3 | Listeners on 5432 | `127.0.0.1` and `::1` only; `postgresql-x64-18` running |
+| Servers after the restart | `/api/health` runs `SELECT 1` | `ok` on all four. 3000 and 3001 also return `fitdb_test`'s marker comment, a catalog read |
+| Signed-in database reads | The demo account on 3000 and 3001 (password read from its file, not printed): login, then `/api/sessions`, `/api/templates`, `/api/profile` and `/api/foods/recent`, then logout | All 200; the old cookie is 401 after logout. 3002 and 3003 (`fitdb_review`, your data) weren't signed in to |
+| Demo status | `demo-account.cjs --status` | Identical to the A1 record (sets 518, weight entries 53, and so on) |
+
+### 7.2 SEC-ACL: access FIXED; encryption open
+
+**Who had access, resolved:**
+- `CodexSandboxUsers` (`…-1002`) is Codex's managed group. Its members are the local accounts `CodexSandboxOffline` and `CodexSandboxOnline`. With `sandbox = "elevated"`, Codex runs its commands as these accounts.
+- `S-1-5-21-1631495452-…-426349801` is Codex's writable-root capability SID for `C:\Users\Aseel\Desktop` (from `~\.codex\cap_sid`).
+- `S-1-5-21-3084734977-…-1732271687` is in no current mapping. Its form matches, so it's most likely a stale, rotated Codex capability SID.
+- All three were **explicit grants on Desktop**, inherited by the backup folder. Every entry on the folder was inherited.
+
+**Dependencies:**
+- Of the 103 items in the folder, 100 are owned by Aseel and 3 by Administrators (the elevated A2 and A3 runs). None is owned by a Codex account.
+- No scheduled task touches the folder.
+- The scripts that write there (`local-db-roles.cjs`, `mig-04.cjs`, `g1-image-check.cjs`, A2, A3) run as the owner.
+- `pg_dump` and `pg_restore` run client-side as the caller, so the PostgreSQL service account needs no access.
+- So nothing that's needed depended on the Codex grants.
+
+**Change, on this folder only:**
+- Inheritance was turned off, keeping a copy of the entries, and the three Codex entries were removed.
+- Remaining on the folder and every item under it: `Aseel`, `SYSTEM` and `Administrators`, each with full control. SDDL: `D:PAI(A;OICI;FA;;;SY)(A;OICI;FA;;;BA)(A;OICI;FA;;;…-1001)`.
+- Afterwards: no Codex SID on any item below; the owner can still write and read; `pg_restore --list` still reads `fitdb_review-2026-11-07-21-52-51.dump` (114 TOC entries, 17 tables of data).
+- Desktop itself and the repositories were left alone, because Codex needs them as its workspace.
+
+**Rollback:**
+- `icacls "$HOME\Desktop\FitWorkoutFoodTracker-backups" /reset /T /C` restores the original exactly, since every original entry was inherited;
+- or `icacls "$HOME\Desktop" /restore "<…>\sec-acl-2026-11-08\acl-before-20261108-203742.icacls"`;
+- `sddl-before-20261108-203742.txt` and `sddl-after.txt` are kept beside it.
+
+**Remaining risk:**
+- **Encryption.** Windows 11 Home has no EFS, and BitLocker device-encryption status needs an elevated `manage-bde -status C:` (owner action 1). An account with admin rights can still read the folder.
+- **Codex re-granting.** If Codex is ever pointed at the backup folder as a workspace, it may add its own grants again. Re-check with `(Get-Acl …).Access` before A4.
+- **Repository env files.** Those in the repositories (including `.env.review`'s password) stay readable by Codex's sandbox accounts, because the repos are Codex's workspace. A4 narrows what that password can reach.
+
+### 7.3 Databases
+
+- **Survey (read-only, as `fit`):**
+  - `fitdb`, `fitdb_review`, `fitdb_test`, `fitdb_test_isolated` and `fitdb_test_other` exist, all owned by `fit`, all with default ACLs;
+  - the markers are as expected;
+  - `fitdb_restore_check` and `fitdb_test_isolated_other` don't exist;
+  - `fit` is the only role: `NOSUPERUSER`, `CREATEDB`, no memberships.
+- **A4 `--verify`:** NOT ISOLATED, as expected before A4. The six env files are unchanged, all using login `fit`; the beta worktree's `.env.isolated` is the throwaway cluster.
+- **Migration checksums**, recomputed from `8c520a0`:
+  - MIG-FB `20261108120000_feedback`: `23a3268b9948508ef54fb73022815355323cd4db7eaea963f6b7dbe9699f4b5b`;
+  - MIG-GYM `20261109120000_multi_gym`: `16e04fa8c38bcf3457ea1bfdb9ce66b0e23d1dd2aebae2b2e0738d9a572bbc5d`.
+  - Both match the recorded values. Neither file drops, deletes or rewrites anything: the only keyword hits are `ON DELETE` and `ON UPDATE` rules on new foreign keys. Neither is in `approved-migrations.json`, so the guard still refuses `fitdb_review` and production.
+- **B2, B1b and the migrations:** not run (see the approvals note above). The exact procedures are unchanged from Part 2 and in the package below.
+
+### 7.4 Privacy, branding and hosting
+
+- **NOTICE-B (`8c520a0`):** the fact-checked wording from `PRIVACY_WORDING_DRAFTS.md` sections 1–5 and 7 is now in the notice, version `draft-2026-11-08`, still `status: "draft"`, with no review recorded. Checked against the code:
+  - both OCR routes (`/api/foods/photo-text` and `/api/workouts/import/ocr`) use local `recognizePlanText`, with no outbound call;
+  - plan documents are parsed in the browser (`plan-extract.ts`, `pdf-browser.ts`);
+  - `fit.nextGym` is removed on sign-out (`account-actions.tsx`).
+  - **Open:** feedback retention and access, transient-processing wording, free-text gym names, health-data status, the legal basis, the operator, providers, backup retention (Decision 12) and restore handling (S-14). Each is a visible `[TO CONFIRM]`, so `noticeIsFinal()` stays false and real registration stays closed.
+- **Branding:**
+  - The previous name appears nowhere user-facing in `src` or `public`. The only matches are code identifiers such as `forgetAttempts`, and the word "forge" in a comment.
+  - The email subjects use `APP_NAME = "FitWorkoutFoodTracker"`, and the manifest is "FitWorkoutFoodTracker" / "FitTracker".
+  - The icons are temporary and unchanged.
+- **G2:** `BETA_HOSTING.md` now has prices checked on the providers' own pages, one recommendation and proposed targets. It's **not approved.**
+  - **Recommendation:** option A (one Hetzner server, about €14/month excl. VAT, plus about $12/year for a domain).
+  - **Proposed targets:** RPO 24 h, RTO 4 h, retention 14 days, owner-held encryption keys.
+
+### 7.5 Final regression, on `8c520a0`
+
+| Check | Result |
+|---|---|
+| Production build (`npm run build`) | Exit 0 |
+| Full guarded regression (throwaway cluster on 127.0.0.1:55434) | **56 ran, 56 passed, 0 failed, 0 blocked.** 5 excluded, on demand as before: `migration-snapshot`, `migration-verify`, `profile-migration-snapshot`, `profile-migration-verify`, `demo-account-e2e`. Includes `privacy-e2e`, `privacy-consent`, `gyms-api`, `gyms-e2e`, `feedback-api`, `account-data(-e2e)`, `csp-e2e`, `pwa`, `barcode`, `workout-import`, `responsive`, `production-security(-e2e)`, `hardening`, `safety-no-marker` (7 passed, 1 skipped, POSIX-only) and `db-guard-scoped` 6/6 |
+| Unit tests (vitest) | 71 files: **2,309 passed, 0 failed, 1 skipped** (the on-request evaluation runner) |
+| Type check | Clean |
+| `npm audit`, all and production only | 0 vulnerabilities |
+| Linux image (G1) | **Not run.** Docker Desktop isn't running, and step 5 refuses until the migrations are recorded |
+| Physical phones (E1) | **Not run** |
+
+**Why the 5 are excluded:**
+- the four migration snapshot and verify suites check a specific migration against a specific database, and run with that migration's approval;
+- `demo-account-e2e` writes the demo account on `fitdb_test`.
+
+**Observation T-LOAD-1** (test-only, Low, not a defect):
+- **What happened:** one earlier unit run, sharing the CPU with `tsc`, `npm audit` and a second vitest run, failed four tests in `login/route.test.ts`. Three were 5-second timeouts, and one counted 15 instead of 14.
+- **Isolated:** 55/55, three times running.
+- **Why it isn't the limiter:** `acquirePasswordCheck` checks and increments without an `await` in between, so the cap can't be exceeded.
+- **The count of 15:** a timed-out test's login requests kept running and called the shared mock.
+- **Log:** kept as `vitest-under-load.txt`.
+- **Takeaway:** run the unit tests on their own, as the runner's RC-04 lock already does for the browser suites.
+
+**RC-08 and QA-05, reconciled:**
+- **RC-08** (proxy connection failures, test-only): no recurrence in this regression either. The summary has no `ECONNRESET`, `ECONNREFUSED` or `socket hang up`, and the 186 suite logs are kept. Still VERIFIED as test-only, and monitored.
+- **QA-05** (late sign-up cleanup): `safety-no-marker` passes again on the throwaway cluster. On the real server it's still BLOCKED by B1b.
+- Neither is reopened.
+
+### 7.6 Real-device checklist (E1)
+
+**Access:**
+- `tailscale serve` on this PC forwards HTTPS to a server on `127.0.0.1`. Nothing is opened on the home network or to the internet.
+- **Disclosure:** Tailscale's HTTPS certificate is published in public Certificate Transparency logs, and it names this machine and the tailnet (`<machine>.<tailnet>.ts.net`). It doesn't expose the service, only the name.
+- **Server:** it must run this branch on a database with both migrations: `fitdb_test` after the migration approval (owner action 4), or the throwaway cluster, which needs no database approval but has no demo data.
+
+**Run each step on a real iPhone (Safari) and a real Android phone (Chrome):**
+
+| # | Step | Pass when | iPhone | Android |
+|---|---|---|---|---|
+| 1 | Open the tailnet address; turn Wi-Fi and Tailscale off and retry | Opens on the tailnet; doesn't open off it | | |
+| 2 | Install to the home screen, then launch from the icon | Opens full screen with the app's name | | |
+| 3 | Register a new account (stand-in email) and sign in; sign out; sign back in | Each works; after sign-out, Back shows no private page | | |
+| 4 | Choose a gym, start a workout, log sets with weights, swap an exercise for an alternative, switch to a named machine, finish | Completed sets kept after the swap; the gym and machine shown in history | | |
+| 5 | Start the same exercise at a second gym | Previous performance is the second gym's machine, not the first's | | |
+| 6 | Scan a real barcode with the camera | The product found, with its source shown | | |
+| 7 | Photograph a real package with its barcode hidden | Candidates found from its words; no value without a source; nothing logged until you choose | | |
+| 8 | Import a plan from a screenshot | The rows shown for review; only what you confirm is saved | | |
+| 9 | Log a food with a serving amount | The day's totals change; missing nutrients stay blank, not 0 | | |
+| 10 | Close the app fully, reopen it | Still signed in; everything from 3–9 still there | | |
+| 11 | Sign out, sign in as a second account, open history | None of the first account's data, including while offline | | |
+| 12 | Rotate; set large text; use VoiceOver or TalkBack on the workout screen | No overlap or cut-off controls; buttons are announced | | |
+
+Results are filled in only from your own testing. The detailed steps are H.1–H.10 and MG.1–MG.15 in `MANUAL_UI_TESTING_GUIDE.md`.
+
+### 7.7 Approval package (dependency order)
+
+Only actions that need your access, authorization, device, money or acceptance. Each is approved on its own, and approving one approves nothing else.
+
+| # | Action | Why | Risk, data, downtime | Verify | Rollback | Your action |
+|---|---|---|---|---|---|---|
+| 1 | Check disk encryption | The backups and the B2 scratch copy hold your data; Windows Home has no EFS | None, read-only | BitLocker "Protection On" | n/a | Elevated: `manage-bde -status C:`, and tell me the protection status. If it's off, choose: turn on Device Encryption, or keep backups in an encrypted archive |
+| 2 | **B2**: restore check on `fitdb_review` | Proves recovery on real data; A4's prerequisite | Reads `fitdb_review`; a scratch copy of your data exists until it's dropped; no downtime | "RESTORE VERIFIED"; `fitdb_review`'s counts unchanged; scratch dropped | Drop `fitdb_restore_check` | Say "B2 approved" (I run a fresh `pg_dump`, then `restore-check.cjs`, then drop it, as `fit`) |
+| 3 | **B1b**: companion test database | QA-05 on the real server | One new test database; no downtime | Both suites pass; other databases' markers and counts unchanged | Drop `fitdb_test_isolated_other` | Say "B1b approved" |
+| 4 | **MIG-FB + MIG-GYM on `fitdb_test`** | GYM-ACCEPT and E1 need them; the demo account gets its gyms | Adds 3 tables and 5 nullable columns; existing rows untouched; 3000 and 3001 keep working (older builds ignore new columns) | A backup first; `migrate status`; rows fingerprinted equal; new columns null; FKs valid; no drift; `gyms-api`, `feedback-api` | Forward-only, from the backup | Say "MIG-FB and MIG-GYM approved for fitdb_test" |
+| 5 | **A4**: one role per environment | Ends the shared `fit` login | Every server's credentials change; a few seconds per restart; no data changes | `--verify` ISOLATED; servers work; counts equal | `--rollback --confirm=A4 --state=<file>` | After 2: approve, then set `ADMIN_DATABASE_URL` in your own shell and run `--plan`, then `--apply --confirm=A4` |
+| 6 | **MIG-FB + MIG-GYM on `fitdb_review`** | Your review copy and the release need them | As 4, on your data; restart 3002 and 3003 | A backup taken and checked with B2's method first; then as 4; then the smoke test (sign in, a workout, a food, a gym) | Forward-only, from the backup | After 2 and 4: say "approved for fitdb_review". I record both names and hashes in `approved-migrations.json` in a commit |
+| 7 | **GYM-ACCEPT** and **UX-01** | Product acceptance | None | Your judgement | n/a | Follow MG.1–MG.15 and the UX-01 section; say "accepted", or list what's wrong |
+| 8 | **E1** on both phones | Required; can't be simulated | Tailscale certificate name disclosure (7.6) | The 7.6 checklist | Stop `tailscale serve` | Run 7.6 and report the results |
+| 9 | **G2** decisions | Hosting, region, ceiling, data access, targets | Cost about €14/month and about $12/year at today's prices | Recorded in `FEATURE_DECISIONS.md` | n/a | Choose a provider and region (recommended: Hetzner, option A), a monthly ceiling, who may read production data, the domain name, and RPO/RTO/retention |
+| 10 | **C1 + C2**: email | Registration and password reset | A domain (about $12/year); Resend's free tier | Domain verified; G.1–G.6 in a real inbox | Revoke the key | Buy the domain, create a Resend account, verify the domain, put the key in the env file yourself; then run G.1–G.6 |
+| 11 | **G1**: Linux image | Production verification | Starts Docker Desktop | "G1 CHECK PASSED" | n/a | After 6: start Docker Desktop and approve `g1-image-check.cjs --approval=G1` |
+| 12 | **NOTICE-B** | Real registration stays closed without it | None | `noticeIsFinal()` true, with a dated review | n/a | Decide the open gaps (7.4) and have the notice reviewed by a lawyer |
+| 13 | **Security sign-off** | Required before the beta | n/a | A dated, written sign-off | n/a | Read Part 1's limitations and Part 7's remaining risks; sign off or list what must be fixed |
+| 14 | **G3–G7**, then the merge | Staging through the invited beta | Each its own approval | Each gate's checks | Previous image tag | Approve each in order; the merge is approved separately at G7 |
