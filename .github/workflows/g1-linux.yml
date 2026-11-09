@@ -1,0 +1,53 @@
+# G1 on an isolated Linux machine (a GitHub-hosted runner): builds the production image and runs
+# scripts/g1-image-check.cjs against its own throwaway PostgreSQL container, with synthetic data only.
+# No secrets are referenced, no database outside the runner is touched, and nothing is deployed or published
+# except this run's log and its results.json artifact. The app container keeps the production limits
+# (1536 MB, 1.5 CPUs, read-only), so its memory figures mean the same as on the server.
+# Runs by hand, or when G1, the export or the image definition changes on the release branch. Never on pull requests.
+name: G1 Linux image check
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [feature/multi-gym-exercise-alternatives]
+    paths:
+      - .github/workflows/g1-linux.yml
+      - scripts/g1-image-check.cjs
+      - src/lib/server/account/export.ts
+      - Dockerfile
+
+permissions:
+  contents: read
+
+concurrency:
+  group: g1-linux
+  cancel-in-progress: false
+
+jobs:
+  g1:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Host resources
+        run: |
+          nproc; free -m; df -h / | tail -1
+          docker version --format 'docker {{.Server.Version}} {{.Server.Os}}'
+          docker info --format 'cgroup {{.CgroupVersion}} driver {{.CgroupDriver}}'
+      - run: npm ci
+      - name: G1 (the guarded migrate image must refuse; migrations then go to the throwaway container only)
+        run: node scripts/g1-image-check.cjs --approval=G1 --disposable-migrations
+      - name: Collect the evidence
+        if: always()
+        run: mkdir -p g1-evidence && cp -r ../FitWorkoutFoodTracker-backups/diagnostics/g1/. g1-evidence/ 2>/dev/null || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: g1-evidence-${{ github.sha }}
+          path: g1-evidence/
+          retention-days: 30

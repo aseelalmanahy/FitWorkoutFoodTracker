@@ -228,6 +228,16 @@ async function waitHealthy(name, seconds) {
     seed("g1user3", maxRows + 1);
     const over = await exportAs(cookie3);
     record("7b. an account over the limit is refused with 413, not loaded", over.status === 413 && (await fetch(`${BASE}/api/health`)).ok, { note: String(over.status) });
+    // 7c. After the refusals (429, 413), the slot is free and an ordinary account exports whole: nothing stays held by a
+    //     failed export, and the server still answers normally.
+    const cookie4 = await signIn("g1user4", "g1-fourth@example.invalid");
+    seed("g1user4", 25);
+    const small = await fetch(`${BASE}/api/account/export`, { method: "POST", headers: { ...headers(cookie4), "Content-Type": "application/json" }, body: JSON.stringify({ password: USER_PW }) });
+    const doc = small.ok ? await small.json().catch(() => null) : null;
+    const after = memory();
+    const aliveAfter = docker(["inspect", "-f", "{{.State.Running}} {{.State.OOMKilled}} {{.RestartCount}}", APP]).stdout.trim();
+    record("7c. after the refusals, an ordinary account exports whole and the server is healthy", small.status === 200 && doc?.format === "fitworkoutfoodtracker-export" && doc?.foodEntries?.length === 25 && doc?.account?.email === "g1-fourth@example.invalid" && (await fetch(`${BASE}/api/health`)).ok && aliveAfter === "true false 0",
+      { note: `${small.status}; ${doc?.foodEntries?.length ?? "no"} of 25 entries; running/oom/restarts ${aliveAfter}`, memory: after });
 
     // 8. Shutdown.
     const [, stopS] = timed(() => docker(["stop", "-t", "30", APP]));
