@@ -51,6 +51,7 @@
 
 | Document | What it records |
 |---|---|
+| [BUG_TRACKER.md](BUG_TRACKER.md) | User-facing defects found by the owner or by testing (UI-01, IM-02, IMG-01, WT-01..09): cause, fix, evidence, and whether the owner has reviewed it |
 | [APP_FEATURE_TEST_REPORT.md](APP_FEATURE_TEST_REPORT.md) | The hands-on test of the running app at `d7d278d`: environment, a result for every feature, the 11 journeys, defects WT-01..09, live USDA and Open Food Facts checks, readiness |
 | [APP_USER_GUIDE.md](APP_USER_GUIDE.md) | How to use every feature, step by step, with the demo user and screenshots |
 | [APP_SCREEN_INDEX.md](APP_SCREEN_INDEX.md) | Every screen, how to reach it, and its screenshot (148, in `screenshots/walkthrough/`) |

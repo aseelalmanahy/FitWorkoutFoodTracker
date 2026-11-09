@@ -7,7 +7,7 @@
 | | Commit | Notes |
 |---|---|---|
 | `main` | `5434f90` (2026-11-06) | Ends at Phase 4.0.4. One pull request ever: #1 (Phase 1), merged. No issues are open. |
-| **Release candidate** `feature/multi-gym-exercise-alternatives` | Application code at **`7fec302`**: the walkthrough defect fixes ([RELEASE_ACCEPTANCE.md](RELEASE_ACCEPTANCE.md) Part 12), then IMG-01, the plan-image import fix ([DECISION_REGISTER.md](DECISION_REGISTER.md) §7; G1 and the staging rehearsal 108/108 passed at `7fec302`) | 150+ commits ahead of `main`. It contains every phase branch from 3.x to the cloud stack (verified with `git merge-base --is-ancestor`). The exceptions are `feature/ten-user-qa-fixtures` (3 unique commits: 10 QA accounts and a browser test) and `phase-2.5-review` (a review diff only) |
+| **Release candidate** `feature/multi-gym-exercise-alternatives` | Application code at **`bd86e47`**: the walkthrough defect fixes ([RELEASE_ACCEPTANCE.md](RELEASE_ACCEPTANCE.md) Part 12), IMG-01 (the plan-image import), then UI-01 and IM-02 (workout programs, and the import review): see [BUG_TRACKER.md](BUG_TRACKER.md). `bd86e47` adds migration MIG-PROG | 150+ commits ahead of `main`. It contains every phase branch from 3.x to the cloud stack (verified with `git merge-base --is-ancestor`). The exceptions are `feature/ten-user-qa-fixtures` (3 unique commits: 10 QA accounts and a browser test) and `phase-2.5-review` (a review diff only) |
 | Not merged to `main` | Phase 4.0.5, 4.1, 4.0.6, UX-01, release completion, beta capabilities, multi-gym, the deployment stack | Merging is a separate owner approval ([RELEASE_ACCEPTANCE.md](RELEASE_ACCEPTANCE.md) Part 11.5 B6) |
 | Deployed | **Nothing** | No server, domain, email account or cloud database exists |
 | Owner accepted | **Nothing** | Many owner approvals are recorded ([DECISION_REGISTER.md](DECISION_REGISTER.md) §1); no owner acceptance of any delivered work is recorded |
@@ -27,7 +27,7 @@
 1. A domain (a free temporary address can't reliably get a certificate).
 2. A Hetzner account and a CX23 server in Nuremberg (nbg1). Hetzner's pages showed every plan as "currently unavailable" on 2026-11-09; if CX23 can't be created, CPX22 (€19.99/month) is the x86 fallback (RELEASE_ACCEPTANCE 12.3).
 3. DNS records.
-4. Approval of MIG-FB and MIG-GYM for the cloud databases.
+4. Approval of MIG-FB, MIG-GYM and MIG-PROG (workout programs, additive) for the cloud databases.
 5. A backup key pair: the owner keeps the private key and gives the public key.
 
 **Invited beta** (11.5 B and Part 4):
