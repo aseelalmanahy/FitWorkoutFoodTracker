@@ -7,6 +7,8 @@
 | **UI-01** | Owner, 2026-11-09 | Imported plans were mixed with unrelated plans: each imported day became its own plan named "Program – Day", listed among the person's own plans, and was put on the weekly schedule whenever the file named a weekday | High | **Fixed** in `bd86e47`; owner review pending | See below |
 | **IM-02** | Owner, 2026-11-09 | A text import ("workout 1.txt") saved exercises that weren't in the file | High | **Fixed** in `bd86e47` (cause found and closed); owner review pending | See below |
 | **IMG-01** | Owner, 2026-11-09 | A real plan image gave "No exercises with sets and repetitions were found" | High | **Fixed** in `2411496`, `7fec302`. The owner confirmed the reading works; **full acceptance is still separate** | [DECISION_REGISTER.md](DECISION_REGISTER.md) §7 |
+| CON-01 | Owner, 2026-11-09 (Chrome console) | "Banner not shown: beforeinstallpromptevent.preventDefault() called" | None: an information message, by design | **Not a defect, no change.** The install flow was verified | See below |
+| CON-02 | Owner, 2026-11-09 (Chrome console) | Repeated "A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received" | None for the app: it comes from a browser extension | **Not an app defect, no change.** Reproduced only with an extension | See below |
 | WT-01 … WT-09 | Walkthrough, 2026-11-09 | Nine defects from the hands-on walkthrough | Medium to cosmetic | Fixed in `cb346ff`, except WT-07 (not reproduced, monitored) | [RELEASE_ACCEPTANCE.md](RELEASE_ACCEPTANCE.md) Part 12 |
 
 ## UI-01: programs
@@ -63,3 +65,21 @@ So the wrong exercises in the saved plans (for example Barbell Curl for "Romania
 **Remaining limits.**
 - A row naming two exercises at once ("Bicep Curls & Tricep Pushdowns (Superset)") is one row: one exercise is chosen, and the other can be added in the plan editor.
 - A timed set needs its repetitions typed in, or the exercise skipped, as plans store sets and repetitions only.
+
+## CON-01 and CON-02: Chrome console messages
+
+Checked on 2026-11-09 against http://localhost:3400 (`fd6f67b`), as the demo account, over 5 pages (dashboard, workouts, nutrition, progress, profile), in the Chromium bundled with Playwright 1.63, with a fresh browser profile. Nothing was saved.
+
+**CON-01 is intended.** `src/components/pwa/install-help.tsx`, on the Profile page, catches Chrome's `beforeinstallprompt` and calls `preventDefault()`. It keeps the event so that the page's own **Install now** button can open Chrome's install dialog when the person asks, rather than Chrome showing its banner unprompted. Chrome then logs this information-level message; it isn't an error or a warning. The install flow was checked:
+- Chrome reported no installability errors (`Page.getInstallabilityErrors`), and the service worker was registered.
+- Chrome fired the real event on the Profile page, and **Install now** appeared.
+- Choosing it called `prompt()` once, and the button went away.
+- Chrome's own install icon in the address bar is unaffected.
+
+**CON-02 comes from a browser extension, not the app.**
+- **Without extensions:** 0 occurrences over the 5 pages.
+- **With a minimal test extension** that does what many extensions do (a content script sends a message on each page, and the background listener returns `true` but never answers): 12 occurrences over the same pages, with exactly the owner's text, as `Uncaught (in promise) Error: …`.
+- **The app can't produce it.** The message belongs to Chrome's extension messaging (`chrome.runtime`). Neither the source nor the built bundles (`.next/static`, `public/`) use `chrome.runtime`, and the app's service worker (`public/sw.js`) has no message listener.
+- **To confirm in your own Chrome:** open http://localhost:3400 in an Incognito window with extensions off. The message doesn't appear. Turning extensions back on one at a time shows which one sends it; password managers, translators and ad blockers commonly do.
+
+**Tests:** the PWA unit tests passed (`src/lib/pwa.test.ts` and related, 127 passed). The browser PWA suite wasn't run, as it starts its own app server.
