@@ -115,7 +115,17 @@ async function inBrowser(name, shots) {
   await shows("2,150 kcal", "today's target");
   await visit("/nutrition/history", "12-nutrition-history");
   await shows("Weekly averages");
-  assert.ok(await page.getByText(/· incomplete$/).count() >= 1, "a partly reported day is marked");
+  // The marker is shown only for the selected week's days. The demo data has a partly reported day every few days, but
+  // not necessarily in the current week (on a Monday it holds one day), so step back at most three weeks to find one.
+  let weeksBack = 0;
+  while ((await page.getByText(/· incomplete$/).count()) === 0 && weeksBack < 3) {
+    await page.getByRole("link", { name: "Previous week" }).click();
+    await page.waitForURL(/\/nutrition\/history\?week=/);
+    await page.waitForLoadState("networkidle", { timeout: 5000 }).catch(() => {});
+    await shows("Weekly averages");
+    weeksBack++;
+  }
+  assert.ok(await page.getByText(/· incomplete$/).count() >= 1, `a partly reported day is marked (looked ${weeksBack} week(s) back)`);
   await visit("/nutrition/targets", "13-targets");
   await shows("Current target");
   step("food entries, history and targets display, with a partly reported day marked");

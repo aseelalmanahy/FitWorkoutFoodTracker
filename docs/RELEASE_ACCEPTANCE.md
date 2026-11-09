@@ -7,9 +7,13 @@
 **Release verdict (2026-11-09): NOT READY** for an invited beta, and not yet ready for staging.
 - **What passed:** G1 on Linux (17 of 17), and the final regression at `caca244` (56/56 guarded, 2,309 unit tests).
 - **EXP-01:** verified fixed (Part 9).
-- **Database operations (Part 10):** B2 passed (a real backup restores; `fitdb_review` unchanged). B1b failed on 2 of `safety-no-marker`'s tests, with no data harmed, so the `fitdb_test` migrations didn't run.
-- **Still missing:** B1b, the migrations (and with them G1's guarded path), role isolation, hosting, email, phones, the privacy review and your acceptance.
-- **Next step:** 10.2. The rest is in 8.9.
+- **Database operations (Part 10):**
+  - **B2 PASSED:** a real backup restores, and `fitdb_review` is unchanged.
+  - **B1b PASSED** on the real server, with the candidate's test; QA-05 is verified.
+  - **MIG-FB + MIG-GYM applied and verified on `fitdb_test`.**
+  - Multi-gym works with the demo account (12/12).
+- **Still missing:** `fitdb_review`'s migrations (and with them G1's guarded path), role isolation (A4), hosting, email, phones, the privacy review and your acceptance.
+- **Next approvals:** in 8.9, from row 5.
 
 **Nothing in this document is approved.** Every approval is the owner's, and so is every acceptance. Nothing has been merged or deployed. No migration has been applied to `fitdb`, `fitdb_test`, `fitdb_review` or production.
 
@@ -1041,3 +1045,71 @@ Run from the release folder, with 8 migrations, as planned.
 **SEC-ACL:**
 - the backup folder is still restricted (unchanged);
 - the rollback is corrected (7.2).
+
+### 10.4 Second execution (the same approval, re-sent by the owner): B1b PASSED, migrations APPLIED
+
+**B2:** not repeated. It had passed, and repeating it would have made a second plaintext copy of the owner's data for no new evidence.
+
+**B1b, re-run 1** (the same suites, unchanged):
+- the stale-token failure was gone (as predicted in 10.2);
+- QA-05's late-sign-up test **failed again**, reproducibly.
+
+**Root cause:** the release folder (`ca015e5`) predates commit `d6f94f3` (2026-11-08). That commit's instrumented QA-05 investigation found:
+- the delayed completion *does* reach the app, and is correctly refused with 400: the first sweep had already deleted the run's sign-up links;
+- so no late account can exist, and the old test wrongly expected one.
+
+The fixed test checks both guarantees, with a negative control. It is the only change to that file between `ca015e5` and `caca244`.
+
+**B1b, re-run 2** (the release candidate's test, with 8 migrations kept):
+- **Method:** the candidate's `live-provider-check.safety.test.cjs` (blob `21a7e57`) was put into the release folder's working tree for the run, and then restored (0 changed files after). No commit or branch changed.
+- **Result: `safety-no-marker` 7 passed, 1 skipped (SIGTERM; POSIX only); `db-guard-scoped` 6/6.**
+- `fitdb_review`, `fitdb_test` and `fitdb` were fingerprint-identical before and after.
+- `fitdb_test_isolated`: still 1,713 users.
+- **B1b PASSED.** QA-05 is VERIFIED on the real server.
+
+**MIG-FB + MIG-GYM on `fitdb_test`: APPLIED AND VERIFIED** (`mig-fitdb_test.txt`):
+
+| Step | Result |
+|---|---|
+| Backup | `fitdb_test-before-MIG-FB-GYM-20261108-235610.dump`: 12.4 MB, 17 tables of data, lists cleanly. Synthetic data, in the restricted folder |
+| 0 | The pending migrations were exactly MIG-FB and MIG-GYM, with their reviewed hashes; the marker is `fitdb_test`'s |
+| 1–2 | Fingerprint saved (832,567 rows); `prisma migrate deploy` applied both in 0.9 s |
+| 3 | **Every existing row unchanged** over its original columns |
+| 4a | 0 of 1,635 workouts with a gym; 0 of 4,152 exercises with a machine, swap or plan link: **nothing invented** |
+| 4b | `Feedback`, `GymLocation` and `GymEquipment` exist, empty |
+| 4c | 31 foreign keys, 0 unvalidated; 4 indexes on the new columns |
+| 4d–e | No drift (`migrate diff` exit 0); `migrate status`: 10 migrations, up to date |
+
+**Afterwards:**
+- `fitdb_review` and `fitdb`: fingerprint-identical; **not touched**.
+- The demo account: identical rows, and its password works.
+- 3000 and 3001 (older builds, on the migrated `fitdb_test`): health, sign-in, reads and sign-out all work.
+
+**Regression against the migrated `fitdb_test`** (the candidate's build): **9 of 9 passed**:
+- `gyms-api` 23/23, `gyms-e2e`;
+- `feedback-api` 8/8;
+- `account-data` 26/26, `account-data-e2e`;
+- `workout-sets` 25/25, `nutrition-api` 79/79;
+- `workout-import-api` 8/8, `e2e-smoke`.
+
+**Multi-gym with the demo account:**
+- **Populated:** `demo-account.cjs --populate`, with the password kept, added 2 gyms (City Gym, Home gym), 11 equipment rows (2 named machines) and the day since the last run.
+- **Round trip, 12/12,** on the candidate's build (a server on `127.0.0.1:3004` against `fitdb_test`, stopped afterwards), as the demo account:
+  - its gyms and named machines list;
+  - a workout starts at City Gym;
+  - an exercise goes on the "Lat pulldown station", and a set is logged;
+  - 2 alternatives are offered (Chin-Up, Pull-Up);
+  - the swap keeps the completed set on the original and links the replacement;
+  - a gym change is refused with 409 while a machine at the current gym is in use, as designed (`gyms.ts:155`);
+  - the workout is discarded (200, then 404).
+  - **The demo account's row counts are identical before and after.**
+- **Limitation:** only 1 of the demo's 32 workouts has a gym, and none has machine history. The account's workouts were created before MIG-GYM, and the demo script never updates rows. For MG.1–MG.15 the owner logs workouts in the app, and the gyms and machines are ready for it.
+
+**`demo-account-e2e` (the demo account in three browsers):**
+- **Date dependence fixed** (`e2e-demo-account.cjs`): its "a partly reported day is marked" check failed on Monday 2026-11-09, because the history page marks only the selected week, which then held one day. The check now steps back at most three weeks.
+- **Result:** 31 of 31 functional checks passed in Chromium, Firefox and WebKit. The final "no page error" check failed in WebKit only, on two Next.js messages: "Failed to fetch RSC payload for …/dashboard" and "…/nutrition/history?week=2026-10-26 … Falling back to browser navigation. TypeError: Load failed". Next.js then loads the page fully, and its content checks pass.
+  - Waiting for the network to settle didn't change it, so it isn't the test cutting a request short.
+  - It's the same family as the WebKit `_rsc` failure the suite already exempts on plain-http localhost (the WebKit build here won't send the Secure cookie over http, and the suite works around that).
+  - **Observation WK-RSC-1:** open, Low, test environment, cause not determined. The exemption was deliberately **not** widened. The suite has no multi-gym steps; that is covered by the round trip above.
+
+**Still not authorized and not done:** `fitdb_review`'s migrations, A4, and the guarded G1 run.
