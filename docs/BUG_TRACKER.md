@@ -6,15 +6,15 @@
 
 | ID | Found by | Defect | Severity | Status | Evidence |
 |---|---|---|---|---|---|
-| **UI-03** | Owner, 2026-11-09 | Weekly schedule controls were unclear: Add workout filled in the first plan by itself; Move and Remove weren't self-explanatory; plans from different programs were mixed | High | **FIXED / PENDING OWNER REVIEW**. Live once MIG-ACTIVE is approved for `fitdb_test` | See "UI-03 to UI-08" below |
-| **UI-04** | Owner, 2026-11-09 | Weekly schedule layout was broken: workout selectors shrank to tiny empty boxes, the Move control took most of the row, names couldn't be read | High | **FIXED / PENDING OWNER REVIEW**. Live with UI-03 | See below |
-| **UI-05** | Owner, 2026-11-09 | Program and plan management actions (edit, delete) were hard to find | Medium | **FIXED / PENDING OWNER REVIEW**. Live with UI-03 | See below |
-| **UI-06** | Owner, 2026-11-09 | No single active training program: the weekly schedule could mix plans from any program, and nothing said which program it followed | High | **FIXED / PENDING OWNER REVIEW**. **Needs MIG-ACTIVE approved for `fitdb_test`** | See below |
-| **UI-07** | Owner, 2026-11-09 | Nutrition: no way to jump to a date other than one day at a time | Medium | **FIXED / PENDING OWNER REVIEW**. Live with UI-03 | See below |
-| **UI-08** | Owner, 2026-11-09 | Nutrition history: only whole weeks, one at a time; no custom date range | Medium | **FIXED / PENDING OWNER REVIEW**. Live with UI-03 | See below |
+| **UI-03** | Owner, 2026-11-09 | Weekly schedule controls were unclear: Add workout filled in the first plan by itself; Move and Remove weren't self-explanatory; plans from different programs were mixed | High | **FIXED / PENDING OWNER REVIEW**. Live on http://localhost:3400 (`73ea754`) | See "UI-03 to UI-08" below |
+| **UI-04** | Owner, 2026-11-09 | Weekly schedule layout was broken: workout selectors shrank to tiny empty boxes, the Move control took most of the row, names couldn't be read | High | **FIXED / PENDING OWNER REVIEW**. Live on 3400 | See below |
+| **UI-05** | Owner, 2026-11-09 | Program and plan management actions (edit, delete) were hard to find | Medium | **FIXED / PENDING OWNER REVIEW**. Live on 3400 | See below |
+| **UI-06** | Owner, 2026-11-09 | No single active training program: the weekly schedule could mix plans from any program, and nothing said which program it followed | High | **FIXED / PENDING OWNER REVIEW**. Live on 3400; MIG-ACTIVE applied to `fitdb_test` with the owner's approval, 2026-11-09 | See below |
+| **UI-07** | Owner, 2026-11-09 | Nutrition: no way to jump to a date other than one day at a time | Medium | **FIXED / PENDING OWNER REVIEW**. Live on 3400 | See below |
+| **UI-08** | Owner, 2026-11-09 | Nutrition history: only whole weeks, one at a time; no custom date range | Medium | **FIXED / PENDING OWNER REVIEW**. Live on 3400 | See below |
 | **UI-01** | Owner, 2026-11-09 | Imported plans were mixed with unrelated plans: each imported day became its own plan named "Program – Day", listed among the person's own plans, and was put on the weekly schedule whenever the file named a weekday | High | **Fixed** in `bd86e47`; owner review pending | See below |
 | **IM-02** | Owner, 2026-11-09 | A text import ("workout 1.txt") saved exercises that weren't in the file | High | **Fixed** in `bd86e47` (cause found and closed); owner review pending | See below |
-| **UI-02** | Owner, 2026-11-09 | Progress had no view by program: workouts couldn't be followed program by program and month by month; then (2026-11-09) no expandable exercise history | Medium: a missing view, nothing wrong | **FIXED / PENDING OWNER REVIEW**: the view in `418fdc7` (on 3400 now); the expandable history live with UI-03 | See below |
+| **UI-02** | Owner, 2026-11-09 | Progress had no view by program: workouts couldn't be followed program by program and month by month; then (2026-11-09) no expandable exercise history | Medium: a missing view, nothing wrong | **FIXED / PENDING OWNER REVIEW**: the view in `418fdc7` (on 3400 now); the expandable history live on 3400 | See below |
 | **IMG-01** | Owner, 2026-11-09 | A real plan image gave "No exercises with sets and repetitions were found" | High | **Fixed** in `2411496`, `7fec302`. The owner confirmed the reading works; **full acceptance is still separate** | [DECISION_REGISTER.md](DECISION_REGISTER.md) §7 |
 | CON-01 | Owner, 2026-11-09 (Chrome console) | "Banner not shown: beforeinstallpromptevent.preventDefault() called" | None: an information message, by design | **Not a defect, no change.** The install flow was verified | See below |
 | CON-02 | Owner, 2026-11-09 (Chrome console) | Repeated "A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received" | None for the app: it comes from a browser extension | **Not an app defect, no change.** Reproduced only with an extension | See below |
@@ -220,7 +220,7 @@ The Improved/Down/Matched/Baseline badges and the Exercise progress cards are un
 - 0 of 4,801 profiles active;
 - no drift from the schema.
 
-**It isn't applied to `fitdb_test` without the owner's approval.**
+**Applied to `fitdb_test` on 2026-11-09 with the owner's approval**, after a fresh backup (`fitdb_test-pre-mig-active-apply-20261109T205108Z.dump`): every existing row unchanged against the fingerprint taken just before, 0 profiles active, no drift; the demo account's counts identical before and after. Not applied to any other database.
 
 **Limits.**
 - A workout's program in Progress is its plan's *current* program.

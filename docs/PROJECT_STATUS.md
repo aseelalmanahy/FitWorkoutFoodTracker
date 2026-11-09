@@ -7,7 +7,7 @@
 | | Commit | Notes |
 |---|---|---|
 | `main` | `5434f90` (2026-11-06) | Ends at Phase 4.0.4. One pull request ever: #1 (Phase 1), merged. No issues are open. |
-| **Release candidate** `feature/multi-gym-exercise-alternatives` | Application code at **`bd86e47`**: the walkthrough defect fixes ([RELEASE_ACCEPTANCE.md](RELEASE_ACCEPTANCE.md) Part 12), IMG-01 (the plan-image import), then UI-01 and IM-02 (workout programs, and the import review): see [BUG_TRACKER.md](BUG_TRACKER.md). `bd86e47` adds migration MIG-PROG | 150+ commits ahead of `main`. It contains every phase branch from 3.x to the cloud stack (verified with `git merge-base --is-ancestor`). The exceptions are `feature/ten-user-qa-fixtures` (3 unique commits: 10 QA accounts and a browser test) and `phase-2.5-review` (a review diff only) |
+| **Release candidate** `feature/multi-gym-exercise-alternatives` | Application code at **`73ea754`**: the walkthrough defect fixes ([RELEASE_ACCEPTANCE.md](RELEASE_ACCEPTANCE.md) Part 12), IMG-01 (the plan-image import), then UI-01 and IM-02 (workout programs, the import review), UI-02 (Progress views) and UI-03 to UI-08 (the active program, weekly schedule, management, nutrition dates): see [BUG_TRACKER.md](BUG_TRACKER.md). `bd86e47` adds migration MIG-PROG, `73ea754` adds MIG-ACTIVE | 150+ commits ahead of `main`. It contains every phase branch from 3.x to the cloud stack (verified with `git merge-base --is-ancestor`). The exceptions are `feature/ten-user-qa-fixtures` (3 unique commits: 10 QA accounts and a browser test) and `phase-2.5-review` (a review diff only) |
 | Not merged to `main` | Phase 4.0.5, 4.1, 4.0.6, UX-01, release completion, beta capabilities, multi-gym, the deployment stack | Merging is a separate owner approval ([RELEASE_ACCEPTANCE.md](RELEASE_ACCEPTANCE.md) Part 11.5 B6) |
 | Deployed | **Nothing** | No server, domain, email account or cloud database exists |
 | Owner accepted | **Nothing** | Many owner approvals are recorded ([DECISION_REGISTER.md](DECISION_REGISTER.md) §1); no owner acceptance of any delivered work is recorded |
@@ -27,7 +27,7 @@
 1. A domain (a free temporary address can't reliably get a certificate).
 2. A Hetzner account and a CX23 server in Nuremberg (nbg1). Hetzner's pages showed every plan as "currently unavailable" on 2026-11-09; if CX23 can't be created, CPX22 (€19.99/month) is the x86 fallback (RELEASE_ACCEPTANCE 12.3).
 3. DNS records.
-4. Approval of MIG-FB, MIG-GYM and MIG-PROG (workout programs, additive) for the cloud databases.
+4. Approval of MIG-FB, MIG-GYM, MIG-PROG (workout programs) and MIG-ACTIVE (the active program), all additive, for the cloud databases.
 5. A backup key pair: the owner keeps the private key and gives the public key.
 
 **Invited beta** (11.5 B and Part 4):
@@ -46,11 +46,11 @@ Two permanent environments only. Temporary databases are for automated tests, ne
 
 | Environment | Database | State |
 |---|---|---|
-| **LOWER**: development, testing, demonstrations | `fitdb_test`, on the owner's PC | **11 migrations** (MIG-PROG applied 2026-11-09 with the owner's approval; backup `fitdb_test-pre-mig-prog-20261109T182643Z.dump`, restore verified; every existing row unchanged against the fingerprint). Synthetic accounts plus the one demo account, `fitworkoutfoodtracker-demo@test.dev` |
+| **LOWER**: development, testing, demonstrations | `fitdb_test`, on the owner's PC | **12 migrations** (MIG-PROG and MIG-ACTIVE applied 2026-11-09, each with the owner's approval, a fresh backup and every existing row unchanged against a fingerprint; latest backup `fitdb_test-pre-mig-active-apply-20261109T205108Z.dump`). Synthetic accounts plus the one demo account, `fitworkoutfoodtracker-demo@test.dev` |
 | **PRODUCTION**: real users only | A separate cloud PostgreSQL, with its own credentials, backups and security | **Doesn't exist yet** (blockers above) |
 
 - **One local application: http://localhost:3400**, started with `npm run local` from `FitWorkoutFoodTracker-programs` ([MANUAL_UI_TESTING_GUIDE.md](MANUAL_UI_TESTING_GUIDE.md)). It refuses a stale build, a migration mismatch or a missing demo account, and never migrates or seeds. Live USDA and Open Food Facts; paid AI off. Bound to 127.0.0.1 only (A1).
-- **Retired, not deleted:** the servers on 3000–3003, 3401 and 3402 were stopped on 2026-11-09. Their folders stay, and so do these databases, which are no longer environments: `fitdb` (development, 4 migrations), `fitdb_review` (**real**: the owner's 3 review accounts, 8 migrations; MIG-FB, MIG-GYM and MIG-PROG not applied). The throwaway test cluster (port 55434) holds the automated-test databases.
+- **Retired, not deleted:** the servers on 3000–3003, 3401 and 3402 were stopped on 2026-11-09. Their folders stay, and so do these databases, which are no longer environments: `fitdb` (development, 4 migrations), `fitdb_review` (**real**: the owner's 3 review accounts, 8 migrations; MIG-FB, MIG-GYM, MIG-PROG and MIG-ACTIVE not applied). The throwaway test cluster (port 55434) holds the automated-test databases.
 - **Network:** the firewall rules are closed (A2), and PostgreSQL listens on loopback only (A3).
 - **Not set up:** private phone access. **Tailscale isn't installed** on the PC (checked 2026-11-09).
 
