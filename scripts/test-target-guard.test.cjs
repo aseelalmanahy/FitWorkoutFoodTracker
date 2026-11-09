@@ -1082,7 +1082,7 @@ test("the layer scan finds forbidden files and local secret values by value, and
 
 test("the G1 image check refuses to start anything without the owner's G1 approval", () => {
   const { spawnSync } = require("node:child_process");
-  for (const args of [[], ["--approval=yes"], ["--approval=G1", "--force"]]) {
+  for (const args of [[], ["--approval=yes"], ["--approval=G1", "--force"], ["--disposable-migrations"], ["--approval=yes", "--disposable-migrations"]]) {
     const r = spawnSync(process.execPath, [path.join(SCRIPTS, "g1-image-check.cjs"), ...args], { encoding: "utf8", timeout: 30_000 });
     assert.equal(r.status, 4, `${args}: ${r.stdout}${r.stderr}`);
     assert.match(`${r.stdout}${r.stderr}`, /REFUSED \(nothing was started\): use --approval=G1/);
@@ -1093,4 +1093,9 @@ test("the G1 image check refuses to start anything without the owner's G1 approv
   assert.match(code, /"--read-only", "--tmpfs", "\/tmp", "--tmpfs", "\/app\/\.next\/cache", "--cap-drop", "ALL"/, "the app runs hardened, as in Compose");
   assert.match(code, /"--memory", "1536m"/);
   assert.match(code, /sslmode=require/);
+  // --disposable-migrations: the guarded image must refuse first (exit 4, no history table), the unguarded deploy
+  // targets only the throwaway container, the approved list is never written, and the result says so.
+  assert.match(code, /guarded\.status === 4 && applied === "f"/, "the guard's refusal is required before a disposable deploy");
+  assert.doesNotMatch(code, /writeFileSync\([^)]*approved-migrations/, "never writes the approved list");
+  assert.match(code, /run again without --disposable-migrations once MIG-FB and MIG-GYM are approved/);
 });

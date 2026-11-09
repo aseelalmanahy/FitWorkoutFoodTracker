@@ -25,7 +25,12 @@ const ROOT = path.join(__dirname, "..");
 const DESKTOP = path.resolve(ROOT, "..");
 const refuse = (m) => { console.error(`REFUSED (nothing was started): ${m}`); process.exit(4); };
 const args = process.argv.slice(2);
-if (!args.includes("--approval=G1") || args.some((a) => !["--approval=G1", "--keep-images"].includes(a))) refuse("use --approval=G1 (the owner's recorded G1 approval), optionally --keep-images.");
+if (!args.includes("--approval=G1") || args.some((a) => !["--approval=G1", "--keep-images", "--disposable-migrations"].includes(a))) refuse("use --approval=G1 (the owner's recorded G1 approval), optionally --keep-images and --disposable-migrations.");
+// --disposable-migrations: for a G1 run while migrations are still unapproved. Step 5 then requires the guarded migrate
+// image to REFUSE (exit 4, nothing applied), and only after that applies the migrations to the throwaway container
+// database with Prisma from the same image. It never changes prisma/approved-migrations.json, touches nothing outside
+// the fit-g1-* containers, and the result says the guarded path must be run again once the migrations are approved.
+const DISPOSABLE_MIGRATIONS = args.includes("--disposable-migrations");
 
 const docker = (a, opts = {}) => spawnSync("docker", a, { encoding: "utf8", windowsHide: true, maxBuffer: 64 * 2 ** 20, ...opts });
 if (docker(["version", "--format", "{{.Server.Version}}"]).status !== 0) refuse("Docker isn't running. Starting Docker Desktop is part of the G1 approval.");
@@ -128,8 +133,17 @@ async function waitHealthy(name, seconds) {
     }
 
     // 5. Migrations, then the app as Compose runs it.
-    const [, migS] = timed(() => must(docker(["run", "--rm", "--network", NET, "-e", "NODE_ENV=production", "-e", `DATABASE_URL=postgresql://postgres:${DB_PW}@${DB}:5432/${DB_NAME}?sslmode=require`, MIGRATE]), "migrations"));
-    record("5a. migrations applied with the migrate image", true, { note: `${migS} s` });
+    const migEnv = ["--network", NET, "-e", "NODE_ENV=production", "-e", `DATABASE_URL=postgresql://postgres:${DB_PW}@${DB}:5432/${DB_NAME}?sslmode=require`];
+    if (DISPOSABLE_MIGRATIONS) {
+      const guarded = docker(["run", "--rm", ...migEnv, MIGRATE]);
+      const applied = psql("SELECT to_regclass('public._prisma_migrations') IS NOT NULL").trim();
+      record("5a. the guarded migrate image refuses unapproved migrations, applying nothing", guarded.status === 4 && applied === "f", { note: `exit ${guarded.status}; history table present: ${applied}`, logs: scrub(guarded.stderr).slice(-400) });
+      const [, migS] = timed(() => must(docker(["run", "--rm", ...migEnv, MIGRATE, "node", "node_modules/prisma/build/index.js", "migrate", "deploy"]), "migrations (disposable)"));
+      record("5a2. migrations applied to the throwaway database only, without the guard (G1 rehearsal)", true, { note: `${migS} s` });
+    } else {
+      const [, migS] = timed(() => must(docker(["run", "--rm", ...migEnv, MIGRATE]), "migrations"));
+      record("5a. migrations applied with the migrate image", true, { note: `${migS} s` });
+    }
     must(docker(["run", "-d", "--name", APP, "--network", NET, "-p", `127.0.0.1:${PORT}:3000`, ...HARDENED, ...appEnv(), IMAGE]), "app container");
     const healthy = await waitHealthy(APP, 90);
     record("5b. app starts, read-only, no capabilities, 1536 MB", healthy, { memory: healthy ? memory() : null });
@@ -177,7 +191,8 @@ async function waitHealthy(name, seconds) {
     docker(["network", "rm", NET]);
     if (!args.includes("--keep-images")) docker(["image", "rm", IMAGE, MIGRATE]);
     const failed = results.filter((r) => !r.ok).length;
-    console.log(`${failed ? "G1 CHECK FAILED" : "G1 CHECK PASSED"}: ${results.length - failed} of ${results.length} steps. Evidence: ${OUT}`);
+    const qualifier = DISPOSABLE_MIGRATIONS ? " (disposable migrations: run again without --disposable-migrations once MIG-FB and MIG-GYM are approved)" : "";
+    console.log(`${failed ? "G1 CHECK FAILED" : "G1 CHECK PASSED"}${qualifier}: ${results.length - failed} of ${results.length} steps. Evidence: ${OUT}`);
     process.exitCode = failed ? 1 : 0;
   }
 })();
