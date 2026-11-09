@@ -155,7 +155,7 @@ Built on `feature/owner-fixes` from `feature/ux-consolidated`, then integrated i
 - **Fix:** each workout gets a two-line row on phones and tablets: the number and the **full-width name** (wrapping between words), with exercises and weekdays below; then a separate **action row**: **↑** and **↓** (labelled "Move … up/down", in a group named "Reorder …"), **Edit**, **Remove from program**, all at least 44 by 44 px. On a wide screen (1024 px and up) the actions sit beside the name again.
 - **Tests** (`e2e-ux`) at 320, 375, 390 and 1280 px: no sideways scrolling; every control at least 44 px; actions inside the row; on phones the name has at least 60 % of the row and the actions are on their own row; the labels are present. **Measured on the demo account:** the first name's width at 320 / 375 / 390 px went from 11 / 66 / 81 px to the full row; controls under 40 px went from 12 to 0.
 
-**Screenshots:** `docs/screenshots/owner-fixes/`, before and after, demo account, read-only.
+**Screenshots:** `docs/screenshots/owner-fixes/`, before and after, demo account, read-only (opened and cancelled; nothing saved). `before-add-workout-chooser.png` shows the first workout focused after opening and one arrow-key press choosing the next. Code: `25ef753`, `a842cc9`; live on 3400.
 
 ## UI-03 to UI-08, and the rest of UI-02 (consolidated owner fixes, 2026-11-09)
 
