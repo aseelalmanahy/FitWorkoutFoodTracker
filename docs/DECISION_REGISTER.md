@@ -165,15 +165,15 @@ So "Decision 8" in FD:416 and EP means PD-D8 (link-first registration), not PS-Q
 | WK-RSC-1 | WebKit logs Next.js RSC fallbacks in `demo-account-e2e` | Low | Open, cause unknown | RA:1112–1115 | re-check if it recurs |
 | T-25, T-27 | One-off `e2e-smoke` failures, cause unknown | P1 | Open; T-27 accepted for integration only | TR:911, 914 | resolve or accept before the beta |
 | RC-08 | Proxy connection failures in tests | P2 | Test-only, monitored | TR:365, RA:504 | keep monitoring |
-| **WT-01** | **During a workout, the Add exercise search clears itself** after about 0.7 s, so an exercise can't be searched for or created mid-workout (the plan editor is unaffected). Likely: the picker resets its query in an effect depending on `onClose`, which the logger passes inline | **Medium** | Open, confirmed in the UI | [APP_FEATURE_TEST_REPORT.md](APP_FEATURE_TEST_REPORT.md) §7 | fix before real users |
-| **WT-02** | **Large USDA Foundation records can't be opened**: USDA takes about 8.2 s, the app stops at 8 s (`http.ts:95`), "took too long to respond" (fdcId 330137) | **Medium** | Open, confirmed live | same | raise the timeout for single-record fetches, or request fewer fields |
-| WT-03 | The Progress list shows "0 sessions" for an exercise done only on a named machine | Low | Open, confirmed | same | count machine sessions, or open the page on the machine |
-| WT-04 | A swapped-in exercise inherits the original's target weight (bodyweight Pull-Up "@ 45 kg") | Low | Open, confirmed | same | — |
-| WT-05 | A raw USDA portion code is shown as a serving name ("90000 (296 g)") | Low | Open, confirmed live | same | — |
-| WT-06 | A typed-barcode error can be replaced by a late camera-failure notice (nothing is looked up) | Low | Open, timing-dependent | same | — |
-| WT-07 | A React hydration error (#418) once on the workout page | Low | Not reproduced | same | re-check if it recurs |
-| WT-08 | Repeated controls or rows: two Log out (under-18 screen), two Close (scan sheet), an exercise twice in Recent PRs, a duplicate package candidate | Cosmetic | Open | same | — |
-| WT-09 | The create-exercise form's selects have no accessible label, and the muscle defaults to Chest | Low | Open | same | — |
+| WT-01 | During a workout, the Add exercise search cleared itself (the picker reset on every re-render) | Medium | **Fixed** in `cb346ff`; e2e in 3 engines | [RA Part 12](RELEASE_ACCEPTANCE.md) | — |
+| WT-02 | Large USDA records timed out (USDA ~8 s on a cold record; the limit was 8 s) | Medium | **Fixed** in `cb346ff`: a bounded 15 s limit for one record (searches keep 8 s), and only the nutrients used are requested; verified live | [RA Part 12](RELEASE_ACCEPTANCE.md) | — |
+| WT-03 | The Progress list showed "0 sessions" for machine-only exercises | Low | **Fixed** in `cb346ff` | [RA Part 12](RELEASE_ACCEPTANCE.md) | — |
+| WT-04 | A swapped-in exercise inherited the replaced exercise's target weight | Low | **Fixed** in `cb346ff` | [RA Part 12](RELEASE_ACCEPTANCE.md) | — |
+| WT-05 | A raw USDA portion code shown as a serving name | Low | **Fixed** in `cb346ff` for records fetched from then on; old cached records in local databases keep theirs | [RA Part 12](RELEASE_ACCEPTANCE.md) | — |
+| WT-06 | A late camera failure replaced a typed-barcode message | Low | **Fixed** in `cb346ff` | [RA Part 12](RELEASE_ACCEPTANCE.md) | — |
+| WT-07 | A React hydration error (#418) once on the workout page | Low | **Not reproduced; monitored**. The clock hypothesis was tested and ruled out | [RA Part 12](RELEASE_ACCEPTANCE.md) | re-check if it recurs |
+| WT-08 | Repeated controls or rows | Cosmetic | **Fixed** in `cb346ff` (Log out, Close, Recent PRs); a possibly duplicate package candidate is left | [RA Part 12](RELEASE_ACCEPTANCE.md) | — |
+| WT-09 | Unlabelled create-exercise selects; the muscle defaulted to Chest | Low | **Fixed** in `cb346ff` | [RA Part 12](RELEASE_ACCEPTANCE.md) | — |
 
 **Closed defects, kept here for history:**
 - EXP-01: a large export crashed the app (High). Fixed and verified on Linux.

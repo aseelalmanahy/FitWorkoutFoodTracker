@@ -7,26 +7,25 @@
 | | Commit | Notes |
 |---|---|---|
 | `main` | `5434f90` (2026-11-06) | Ends at Phase 4.0.4. One pull request ever: #1 (Phase 1), merged. No issues are open. |
-| **Release candidate** `feature/multi-gym-exercise-alternatives` | Application code at **`d7d278d`**; the documentation commits after it change no code | 150+ commits ahead of `main`. It contains every phase branch from 3.x to the cloud stack (verified with `git merge-base --is-ancestor`). The exceptions are `feature/ten-user-qa-fixtures` (3 unique commits: 10 QA accounts and a browser test) and `phase-2.5-review` (a review diff only) |
+| **Release candidate** `feature/multi-gym-exercise-alternatives` | Application code at **`cb346ff`** (the walkthrough defect fixes, [RELEASE_ACCEPTANCE.md](RELEASE_ACCEPTANCE.md) Part 12) | 150+ commits ahead of `main`. It contains every phase branch from 3.x to the cloud stack (verified with `git merge-base --is-ancestor`). The exceptions are `feature/ten-user-qa-fixtures` (3 unique commits: 10 QA accounts and a browser test) and `phase-2.5-review` (a review diff only) |
 | Not merged to `main` | Phase 4.0.5, 4.1, 4.0.6, UX-01, release completion, beta capabilities, multi-gym, the deployment stack | Merging is a separate owner approval ([RELEASE_ACCEPTANCE.md](RELEASE_ACCEPTANCE.md) Part 11.5 B6) |
 | Deployed | **Nothing** | No server, domain, email account or cloud database exists |
 | Owner accepted | **Nothing** | Many owner approvals are recorded ([DECISION_REGISTER.md](DECISION_REGISTER.md) §1); no owner acceptance of any delivered work is recorded |
 
 ## Release verdict
 
-**READY FOR STAGING DEPLOYMENT, NOT READY for an invited beta** (the verdict at the top of [RELEASE_ACCEPTANCE.md](RELEASE_ACCEPTANCE.md); its Part 11 has the evidence).
+**READY FOR STAGING DEPLOYMENT, NOT READY for an invited beta** (the verdict at the top of [RELEASE_ACCEPTANCE.md](RELEASE_ACCEPTANCE.md); Parts 11 and 12 have the evidence).
 
 **What supports it:**
-- The staging rehearsal: 108 of 108 checks passed in CI on a disposable Linux machine, from an empty database through HTTPS, the user journey, backup and restore, and an automatic rollback ([run 42569013328](https://github.com/aseelalmanahy/FitWorkoutFoodTracker/actions/runs/42569013328), `d7d278d`).
-- G1, the production image check: 17 of 17 on Linux (`267a6ea`).
-- The last full regression at `caca244`: 56/56 guarded suites, 2,309 unit tests, type check clean, `npm audit` 0. The application code hasn't changed since.
-- A hands-on walkthrough of the running app on 2026-11-09 (`d7d278d`, a throwaway database, live USDA and Open Food Facts, no paid AI): 11 of 11 user journeys passed; 49 of 67 features verified in the running UI, none failed; 9 new defects, two of them Medium (WT-01, WT-02). [APP_FEATURE_TEST_REPORT.md](APP_FEATURE_TEST_REPORT.md).
+- The staging rehearsal: 108 of 108 checks passed in CI on a disposable Linux machine, from an empty database through HTTPS, the user journey, backup and restore, and an automatic rollback ([run 42648848569](https://github.com/aseelalmanahy/FitWorkoutFoodTracker/actions/runs/42648848569), `cb346ff`).
+- At `cb346ff`: G1 17 of 17 on Linux; 56 of 56 guarded suites in three browsers; 2,325 unit tests; type check clean; `npm audit` 0.
+- A hands-on walkthrough of the running app on 2026-11-09 (`d7d278d`, a throwaway database, live USDA and Open Food Facts, no paid AI): 11 of 11 user journeys passed; 49 of 67 features verified in the running UI, none failed; 9 new defects, two of them Medium (WT-01, WT-02). [APP_FEATURE_TEST_REPORT.md](APP_FEATURE_TEST_REPORT.md). All but WT-07 (not reproduced, monitored) are fixed at `cb346ff`.
 
 ## Blockers
 
 **Staging** (all the owner's purchases or approvals; [RELEASE_ACCEPTANCE.md](RELEASE_ACCEPTANCE.md) 11.5 A):
 1. A domain (a free temporary address can't reliably get a certificate).
-2. A Hetzner account and a CX23 server.
+2. A Hetzner account and a CX23 server in Nuremberg (nbg1). Hetzner's pages showed every plan as "currently unavailable" on 2026-11-09; if CX23 can't be created, CPX22 (€19.99/month) is the x86 fallback (RELEASE_ACCEPTANCE 12.3).
 3. DNS records.
 4. Approval of MIG-FB and MIG-GYM for the cloud databases.
 5. A backup key pair: the owner keeps the private key and gives the public key.
@@ -39,8 +38,7 @@
 - owner acceptance of UX-01, GYM-ACCEPT and Phase 4 (U-04);
 - the security sign-off;
 - the merge to `main`;
-- the clinical and legal items R-02, R-03, R-06 and R-12 ([DECISION_REGISTER.md](DECISION_REGISTER.md) §5);
-- recommended before real users, not yet a recorded blocker: fixing WT-01 (exercise search clears itself during a workout) and WT-02 (large USDA records time out) ([DECISION_REGISTER.md](DECISION_REGISTER.md) §7).
+- the clinical and legal items R-02, R-03, R-06 and R-12 ([DECISION_REGISTER.md](DECISION_REGISTER.md) §5).
 
 ## Local environments (the owner's PC; for development and demonstrations only)
 

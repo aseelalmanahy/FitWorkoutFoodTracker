@@ -4,7 +4,7 @@
 
 **Code is frozen.** Development is closed. Only a reproducible critical or high-severity defect, a data-loss risk or a release-blocking regression would reopen it.
 
-**Release verdict (2026-11-09, Part 11): READY FOR STAGING DEPLOYMENT, NOT YET for an invited beta.** The single-server stack passed a full staging rehearsal on a disposable Linux machine (108/108), from an empty database to HTTPS, backup, restore and automatic rollback. Deploying it needs your purchases and approvals (Part 11.5 A). The invited beta still needs production, real email, NOTICE-B, phone testing, your acceptance, the security sign-off and the merge (Part 11.5 B). Earlier verdicts below are kept as the record.
+**Release verdict (2026-11-09, Part 12): READY FOR STAGING DEPLOYMENT, NOT YET for an invited beta.** Part 12 closed the walkthrough defects at `cb346ff`: 56/56 guarded suites, 2,325 unit tests, G1 17/17, the staging rehearsal 108/108. The single-server stack passed a full staging rehearsal on a disposable Linux machine (108/108), from an empty database to HTTPS, backup, restore and automatic rollback. Deploying it needs your purchases and approvals (Part 11.5 A). The invited beta still needs production, real email, NOTICE-B, phone testing, your acceptance, the security sign-off and the merge (Part 11.5 B). Earlier verdicts below are kept as the record.
 
 **Earlier verdict:** NOT READY for an invited beta, and not yet ready for staging.
 - **What passed:** G1 on Linux (17 of 17), and the final regression at `caca244` (56/56 guarded, 2,309 unit tests).
@@ -1250,3 +1250,49 @@ The independent review found **no critical or high issue**.
 - **Data residency:** Hetzner's CX plans are EU-only, so the data is held in Germany. A US region would need Hetzner's CPX/AMD plans at a higher price, and only if the owner requires it.
 
 **Not done, and not to be done without the approvals above:** no purchase, server, domain, DNS, email, image publication, merge or deployment.
+
+## Part 12. Walkthrough defect closure (2026-11-09)
+
+**The candidate:** `feature/multi-gym-exercise-alternatives`, application code at **`cb346ff`**. It fixes the defects found by the hands-on walkthrough ([APP_FEATURE_TEST_REPORT.md](APP_FEATURE_TEST_REPORT.md) §7). No migration, schema or deployment file changed.
+
+### 12.1 Defects
+
+| ID | Severity | Outcome | Cause, and the fix |
+|---|---|---|---|
+| WT-01 | Medium | **Fixed, verified in 3 engines** | The workout clock re-renders the logger every second, and its new inline `onClose` re-ran the picker's reset effect. The reset now runs only when the picker opens or closes (`exercise-picker.tsx`) |
+| WT-02 | Medium | **Fixed, verified live** | USDA's first answer for a record it hasn't served recently takes 7–8.4 s (measured repeatedly; repeats take 0.3–1 s), and the 8 s limit cut it off every time. A single record now has its own bounded 15 s limit; **searches keep 8 s**. It also asks only for the 8 nutrient numbers the app reads (portions are kept): 726 KB became about 23 KB, with identical values. Live through the app: fdcId 330137 → HTTP 200 in 8.4 s, 61 kcal/100 g (it was a 504 every time) |
+| WT-03 | Low | **Fixed** | The list counted only sets with no machine. It now counts sessions in every context, takes its latest result and status from the most recent session's context only (machines' loads are never compared or combined), and links to that machine's history |
+| WT-04 | Low | **Fixed** | A swapped-in exercise keeps the plan's sets and reps, never the replaced exercise's weight, in the server page and the logger. Templates are unchanged unless "Also change my plan" is ticked, as before |
+| WT-05 | Low | **Fixed** for records fetched from now on | USDA's "Quantity not specified" portion, and FNDDS numeric codes ("90000"), are no longer offered as servings. Records already cached in a local database keep their old serving list; a new staging database has none |
+| WT-06 | Low | **Fixed** | A camera failure that arrives late no longer replaces a typed-barcode message, or pulls the person back from a lookup already under way |
+| WT-07 | Low | **Not reproduced; monitored** | 18 fresh loads of new workouts and 4 of an older one: no error. The obvious suspect, the clock rendered on the server and again in the browser, was tested by delaying hydration 1.5 s: the server said "0s elapsed", the browser a later time, and React reported nothing. So the cause isn't that, and nothing was changed or suppressed |
+| WT-08 | Cosmetic | **Fixed** (3 of 4) | One Log out on the refusal screen; one Close in the scan sheet; Recent PRs shows each exercise once (the goal card still counts every record). The duplicate package candidate is left: they may be two Open Food Facts records |
+| WT-09 | Low | **Fixed** | The new-exercise selects are labelled "Main muscle" and "Equipment", with nothing preselected; Create stays disabled until both are chosen |
+
+### 12.2 Verification at `cb346ff`
+
+| Check | Result |
+|---|---|
+| Unit tests | **2,325 passed**, 1 skipped (a conditional evaluation test, as before), 74 files. New: `swap-target`, `progress-overview`, `usda-record` (slow record loads, the limit aborts the request, searches keep 8 s, the nutrient filter, portion labels) |
+| Type check | clean |
+| Production build | passes |
+| Guarded regression (Chromium, Firefox, WebKit) | **56 of 56 suites passed**, on the throwaway cluster's `fitdb_test_isolated`. Skipped by design: one marker case in `safety-no-marker`. Not run, on demand by design: the four migration snapshot and verify suites and `demo-account-e2e` (it needs `fitdb_test`). New checks: `e2e-gyms` (WT-01, WT-09 in all three engines; WT-03, WT-04), `e2e-eligibility` (WT-08) |
+| `npm audit` | 0 vulnerabilities |
+| G1, the Linux production image | **17 of 17** ([run 42648843561](https://github.com/aseelalmanahy/FitWorkoutFoodTracker/actions/runs/42648843561)) |
+| Staging rehearsal | **108 of 108, 0 failed** ([run 42648848569](https://github.com/aseelalmanahy/FitWorkoutFoodTracker/actions/runs/42648848569)): an empty database, all 10 migrations, 47 exercises seeded, HTTPS, the journey, restarts, backup and verified restore, and an automatic rollback |
+
+Not repeated: the 67-feature walkthrough. No real server, domain, phone or email was used.
+
+### 12.3 Staging purchasing: what changed since 11.5
+
+Re-checked on Hetzner's and Porkbun's own pages on 2026-11-09:
+
+- **CX23:** €5.99/month excl. VAT (2 vCPU, 4 GB, 40 GB NVMe, 20 TB traffic); primary IPv4 €0.50/month.
+- **Locations:** Hetzner's page now lists the CX plans in **Nuremberg (nbg1) and Helsinki (hel1)** only, not Falkenstein. **Use nbg1.**
+- **Availability:** every Cloud plan page, including CX23, shows "This product is currently unavailable. Please check back later." This may be the page's static text; the Cloud Console shows the real availability when the server is created.
+  - **If CX23 can't be created**, the next x86 plan the image runs on is **CPX22** (2 vCPU AMD, 4 GB, 80 GB): €19.99/month excl. VAT, nbg1 or hel1.
+  - Don't use the cheaper Arm (CAX) plans: the release image is built for x86 only.
+- **Domain:** a .com at Porkbun is $11.81 for the first year and the same at renewal.
+- **Object Storage:** €6.49/month (1 TB stored, 1 TB egress). Optional for staging.
+
+Everything else in 11.5 A stands.

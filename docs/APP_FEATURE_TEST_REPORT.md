@@ -191,6 +191,8 @@ The food stand-in was switched off for the whole nutrition walkthrough. Both pro
 
 ## 7. Defects found
 
+> **Update (2026-11-09):** WT-01 to WT-06, WT-08 and WT-09 were fixed at `cb346ff` and verified; WT-07 wasn't reproduced and is monitored. See [RELEASE_ACCEPTANCE.md](RELEASE_ACCEPTANCE.md) Part 12.
+
 Confirmed means reproduced in the running app. None of these was fixed: this task changed no application code.
 
 | ID | Severity | Defect | How to reproduce | Evidence |
