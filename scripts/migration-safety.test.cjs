@@ -30,8 +30,9 @@ test("the production image's migration step refuses, applying nothing, while a m
   assert.match(r.stderr, /REFUSED \(nothing was applied\): not approved for this database: 20261108120000_feedback, 20261109120000_multi_gym/);
   assert.doesNotMatch(`${r.stdout}${r.stderr}`, /SECRETPW|prisma migrate|Datasource/);
   const docker = fs.readFileSync(path.join(ROOT, "Dockerfile"), "utf8");
-  assert.match(docker, /CMD \["node", "scripts\/migrate-approved\.cjs"\]/, "the image runs the guarded step");
-  assert.doesNotMatch(docker, /CMD \[[^\]]*"migrate", "deploy"/, "and never migrate deploy directly");
+  // The guarded step first, and the exercise seed only after it succeeded (&&), so a refusal still exits 4 alone.
+  assert.match(docker, /CMD \["sh", "-c", "node scripts\/migrate-approved\.cjs && node node_modules\/tsx\/dist\/cli\.mjs prisma\/seed\.ts"\]/, "the image runs the guarded step, then the seed");
+  assert.doesNotMatch(docker, /CMD \[[^\]]*migrate[", ]+deploy/, "and never migrate deploy directly");
 });
 
 test("the review database isn't migrated while a migration isn't approved, before anything connects", () => {

@@ -15,3 +15,5 @@ live-provider-report.json
 # Local account passwords (review, demo) and downloaded models and evaluation photos: never in any image layer.
 *.local.md
 .cache
+# The deploy folder's env files, written on servers and in CI, never go into a build context.
+deploy/*.env

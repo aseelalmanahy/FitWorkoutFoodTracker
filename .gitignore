@@ -37,3 +37,4 @@ review-tester-*.local.md
 
 # Downloaded evaluation images and models, never committed (AI-01, AI-02)
 /.cache/
+deploy/.deploy-history

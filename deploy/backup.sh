@@ -27,9 +27,10 @@ age -r "$BACKUP_AGE_RECIPIENT" -o "$out" "$plain"
 echo "backup: $(basename "$out"), $(stat -c %s "$out") bytes encrypted, $entries tables of data"
 
 if [ -n "${BACKUP_RCLONE_REMOTE:-}" ]; then
+  # Upload only. The server never deletes offsite copies, so a compromised server can't erase the backups: offsite
+  # retention is the bucket's own lifecycle rule (expire after BACKUP_RETENTION_DAYS), with object lock if available.
   rclone copy "$out" "$BACKUP_RCLONE_REMOTE" --immutable
-  rclone delete "$BACKUP_RCLONE_REMOTE" --min-age "${DAYS}d" --include "$POSTGRES_DB-*.dump.age"
-  echo "offsite: copied to $BACKUP_RCLONE_REMOTE; older than $DAYS days removed there"
+  echo "offsite: copied to $BACKUP_RCLONE_REMOTE (retention is the bucket's lifecycle rule)"
 fi
 find "$DIR" -maxdepth 1 -name "$POSTGRES_DB-*.dump.age" -mtime +"$DAYS" -delete
 echo "local: $(find "$DIR" -maxdepth 1 -name "$POSTGRES_DB-*.dump.age" | wc -l) backups kept"

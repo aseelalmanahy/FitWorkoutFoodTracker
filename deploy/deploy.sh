@@ -43,8 +43,7 @@ rollback() {
   log "FAILED: $1"
   if [ -z "$PREVIOUS" ]; then log "no previous tag to go back to; the app is left stopped"; compose "$TAG" stop app || true; exit 1; fi
   log "rolling back to $PREVIOUS"
-  compose "$PREVIOUS" up -d --no-deps app
-  if wait_healthy "$PREVIOUS" && ./smoke.sh "${APP_ORIGIN_FOR_SMOKE:-}"; then
+  if compose "$PREVIOUS" up -d --no-deps app && wait_healthy "$PREVIOUS" && ./smoke.sh "${APP_ORIGIN_FOR_SMOKE:-}"; then
     log "ROLLED BACK to $PREVIOUS, which is healthy. $TAG is not deployed."; exit 1
   fi
   log "ROLLBACK ALSO FAILED: see 'docker compose logs app'. Restore from backup if the database is at fault."; exit 2
@@ -56,14 +55,27 @@ if [ "$PULL" = 1 ]; then
   docker pull "$APP_IMAGE_REPO:$TAG"; docker pull "$APP_IMAGE_REPO-migrate:$TAG"
 fi
 docker image inspect "$APP_IMAGE_REPO:$TAG" "$APP_IMAGE_REPO-migrate:$TAG" > /dev/null
+# Tags can be re-pushed: record exactly which images this deploy ran (compare with the release's published digests).
+for img in "$APP_IMAGE_REPO:$TAG" "$APP_IMAGE_REPO-migrate:$TAG"; do
+  echo "$(date -u +%FT%TZ) $img $(docker image inspect -f '{{join .RepoDigests " "}}{{if not .RepoDigests}}{{.Id}}{{end}}' "$img")" >> .deploy-history
+done
 
 compose "$TAG" up -d db
-# A backup before every deploy that could touch existing data (none on the very first one).
-if [ -n "$PREVIOUS" ]; then log "backup before the deploy"; ./backup.sh; fi
+# A backup before every deploy that could touch existing data (none on the very first one). On a server it runs as
+# the root-owned systemd unit (the backup folder is root's alone); elsewhere (the CI rehearsal) directly.
+if [ -n "$PREVIOUS" ]; then
+  log "backup before the deploy"
+  if systemctl cat fit-backup.service > /dev/null 2>&1; then
+    sudo systemctl start fit-backup.service || { log "FAILED: the backup failed (journalctl -u fit-backup). Nothing was changed."; exit 1; }
+  else
+    ./backup.sh || { log "FAILED: the backup failed. Nothing was changed."; exit 1; }
+  fi
+fi
 
 log "migrations (guarded: only those in prisma/approved-migrations.json, as the migrator)"
 if ! compose "$TAG" --profile migrate run --rm migrate; then
-  log "FAILED: the migrate step refused or failed. Nothing else changed; ${PREVIOUS:-no app} is still running."; exit 1
+  log "FAILED: the migrate step refused or failed; ${PREVIOUS:-no app} is still running. A refusal applies nothing, but a"
+  log "failure partway can leave earlier migrations applied: check 'migrate status' before deploying again."; exit 1
 fi
 
 # The proxy waits for a healthy app, so a release that can't start fails here: that's a rollback, not an abort.

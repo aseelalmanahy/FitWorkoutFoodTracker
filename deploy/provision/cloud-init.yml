@@ -11,7 +11,9 @@ users:
   - name: deploy
     groups: [sudo]
     shell: /bin/bash
-    sudo: "ALL=(ALL) NOPASSWD:/usr/bin/systemctl start fit-backup.service, /usr/bin/systemctl status fit-backup.service"
+    # Only starting the backup unit (deploy.sh's pre-deploy backup). Note the docker group is root-equivalent anyway:
+    # this account is the server's administrator, which is why SSH to it is key-only and limited to your own IP.
+    sudo: "ALL=(ALL) NOPASSWD:/usr/bin/systemctl start fit-backup.service"
     lock_passwd: true
     ssh_authorized_keys:
       - ssh-ed25519 REPLACE_WITH_THE_DEPLOY_PUBLIC_KEY deploy

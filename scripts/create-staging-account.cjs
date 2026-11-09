@@ -21,6 +21,11 @@ const email = emailArg.slice("--email=".length).trim().toLowerCase();
 // RFC 2606 / RFC 6761 names only: nobody can own or receive mail at them.
 if (!/^[a-z0-9._+-]{1,64}@([a-z0-9-]+\.)*(example\.(com|org|net)|test|invalid)$/.test(email)) refuse("the address must be at example.com, example.org, example.net, .test or .invalid.");
 if (!process.env.DATABASE_URL) refuse("DATABASE_URL isn't set (run it through the migrate service).");
+// Staging only: its database is named …_staging (single-server.env.example); production's isn't, so this can never
+// make an account that skips the privacy notice on the real service.
+let dbName = "";
+try { dbName = decodeURIComponent(new URL(process.env.DATABASE_URL).pathname.slice(1)); } catch { refuse("DATABASE_URL isn't a valid URL."); }
+if (!/^[a-z0-9_]*_staging$/.test(dbName)) refuse(`staging databases only (their name ends in _staging); this is "${dbName}".`);
 const given = process.env.STAGING_ACCOUNT_PASSWORD;
 if (given !== undefined && given.length < 16) refuse("STAGING_ACCOUNT_PASSWORD must be at least 16 characters.");
 const password = given ?? randomBytes(15).toString("base64url");

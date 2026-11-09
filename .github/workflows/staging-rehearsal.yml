@@ -45,10 +45,10 @@ jobs:
       run:
         shell: bash
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
         with:
           persist-credentials: false
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version-file: .nvmrc
       - name: Tools and the staging name
@@ -67,7 +67,7 @@ jobs:
           RECIPIENT=$(age-keygen -y "$RUNNER_TEMP/backup.key")
           cat > single-server.env <<EOF
           APP_IMAGE_REPO=$APP_IMAGE_REPO
-          POSTGRES_DB=fitworkoutfoodtracker
+          POSTGRES_DB=fitworkoutfoodtracker_staging
           POSTGRES_SUPERUSER_PASSWORD=$SU
           FIT_MIGRATOR_PASSWORD=$MIG
           FIT_APP_PASSWORD=$APW
@@ -79,8 +79,8 @@ jobs:
           APP_IMAGE_TAG=set-by-deploy
           APP_DOMAIN=$HOST
           APP_ORIGIN=https://$HOST
-          APP_DATABASE_URL=postgresql://fit_app:$APW@db:5432/fitworkoutfoodtracker?sslmode=require&connection_limit=10
-          MIGRATION_DATABASE_URL=postgresql://fit_migrator:$MIG@db:5432/fitworkoutfoodtracker?sslmode=require
+          APP_DATABASE_URL=postgresql://fit_app:$APW@db:5432/fitworkoutfoodtracker_staging?sslmode=require&connection_limit=10
+          MIGRATION_DATABASE_URL=postgresql://fit_migrator:$MIG@db:5432/fitworkoutfoodtracker_staging?sslmode=require
           REGISTRATION_ALLOWLIST=
           FDC_API_KEY=
           OFF_CONTACT=
@@ -122,7 +122,7 @@ jobs:
         working-directory: deploy
         run: |
           dc() { APP_IMAGE_TAG="${T:-ci-a}" docker compose -f compose.production.yml -f compose.single-server.yml -f compose.ci.yml --env-file production.env --env-file single-server.env "$@"; }
-          psql_() { dc exec -T db psql -U postgres -d fitworkoutfoodtracker -X -At -v ON_ERROR_STOP=1 -c "$1"; }
+          psql_() { dc exec -T db psql -U postgres -d fitworkoutfoodtracker_staging -X -At -v ON_ERROR_STOP=1 -c "$1"; }
           dc up -d db
           for i in $(seq 1 60); do [ "$(docker inspect -f '{{.State.Health.Status}}' "$(dc ps -q db)")" = healthy ] && break; sleep 2; done
           test "$(psql_ 'SHOW ssl')" = on && echo "PASS  TLS on" || { echo "FAIL  TLS on"; exit 1; }
@@ -132,9 +132,9 @@ jobs:
           dc exec -T db grep -Eq '^hostssl[[:space:]]+all[[:space:]]+all[[:space:]]+all[[:space:]]+scram-sha-256' "$hba" && echo "PASS  network rule is hostssl" || { echo "FAIL  network rule is hostssl"; exit 1; }
           ! dc exec -T db grep -Eq '^host[[:space:]]+all[[:space:]]+all[[:space:]]+all' "$hba" && echo "PASS  and no network rule without TLS remains" || { echo "FAIL  and no network rule without TLS remains"; exit 1; }
           NET=fitworkoutfoodtracker_internal
-          if docker run --rm --network "$NET" postgres:18-bookworm psql "postgresql://fit_app:$FIT_APP_PASSWORD@db:5432/fitworkoutfoodtracker?sslmode=disable" -Atc 'select 1' > /dev/null 2>&1; then echo "FAIL  a connection without TLS was accepted"; exit 1; fi
+          if docker run --rm --network "$NET" postgres:18-bookworm psql "postgresql://fit_app:$FIT_APP_PASSWORD@db:5432/fitworkoutfoodtracker_staging?sslmode=disable" -Atc 'select 1' > /dev/null 2>&1; then echo "FAIL  a connection without TLS was accepted"; exit 1; fi
           echo "PASS  a connection without TLS is refused"
-          test "$(docker run --rm --network "$NET" postgres:18-bookworm psql "postgresql://fit_app:$FIT_APP_PASSWORD@db:5432/fitworkoutfoodtracker?sslmode=require" -Atc 'select 1')" = 1 && echo "PASS  the app role connects over TLS" || { echo "FAIL  the app role connects over TLS"; exit 1; }
+          test "$(docker run --rm --network "$NET" postgres:18-bookworm psql "postgresql://fit_app:$FIT_APP_PASSWORD@db:5432/fitworkoutfoodtracker_staging?sslmode=require" -Atc 'select 1')" = 1 && echo "PASS  the app role connects over TLS" || { echo "FAIL  the app role connects over TLS"; exit 1; }
           set +e; T=unapproved dc --profile migrate run --rm migrate; rc=$?; set -e
           test "$rc" = 4 && echo "PASS  the guarded migrate step refuses the unapproved migrations (exit 4)" || { echo "FAIL  the guarded migrate step refuses the unapproved migrations (exit 4)"; exit 1; }
           test "$(psql_ "SELECT to_regclass('public._prisma_migrations') IS NULL")" = t && echo "PASS  and applied nothing" || { echo "FAIL  and applied nothing"; exit 1; }
@@ -151,10 +151,11 @@ jobs:
         working-directory: deploy
         run: |
           dc() { APP_IMAGE_TAG=ci-a docker compose -f compose.production.yml -f compose.single-server.yml -f compose.ci.yml --env-file production.env --env-file single-server.env "$@"; }
-          psql_() { dc exec -T db psql -U postgres -d fitworkoutfoodtracker -X -At -v ON_ERROR_STOP=1 -c "$1"; }
+          psql_() { dc exec -T db psql -U postgres -d fitworkoutfoodtracker_staging -X -At -v ON_ERROR_STOP=1 -c "$1"; }
           want=$(ls -d ../prisma/migrations/2*/ | wc -l)
           got=$(psql_ 'SELECT count(*) FROM "_prisma_migrations" WHERE finished_at IS NOT NULL AND rolled_back_at IS NULL')
           test "$got" = "$want" && echo "PASS  all $got migrations applied, from empty" || { echo "FAIL  all $got migrations applied, from empty"; exit 1; }
+          test "$(psql_ 'SELECT count(*) FROM "Exercise" WHERE "userId" IS NULL')" = 47 && echo "PASS  the 47 built-in exercises are seeded" || { echo "FAIL  the built-in exercises aren't seeded"; exit 1; }
           test "$(psql_ "SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace WHERE n.nspname = 'public' AND contype = 'f' AND NOT convalidated")" = 0 && echo "PASS  every foreign key validated ($(psql_ "SELECT count(*) FROM pg_constraint c JOIN pg_namespace n ON n.oid = c.connamespace WHERE n.nspname = 'public' AND contype = 'f'"))" || { echo "FAIL  a foreign key is not validated"; exit 1; }
           test "$(psql_ "SELECT count(*) FROM pg_tables WHERE schemaname = 'public' AND tableowner <> 'fit_migrator'")" = 0 && echo "PASS  fit_migrator owns every table" || { echo "FAIL  fit_migrator owns every table"; exit 1; }
           test "$(psql_ "SELECT has_table_privilege('fit_app', '_prisma_migrations', 'INSERT,UPDATE,DELETE,TRUNCATE')")" = f && echo "PASS  fit_app can't change the migration history" || { echo "FAIL  fit_app can't change the migration history"; exit 1; }
@@ -180,7 +181,7 @@ jobs:
         working-directory: deploy
         run: |
           dc() { APP_IMAGE_TAG=ci-a docker compose -f compose.production.yml -f compose.single-server.yml -f compose.ci.yml --env-file production.env --env-file single-server.env "$@"; }
-          psql_() { dc exec -T db psql -U postgres -d fitworkoutfoodtracker -X -At -v ON_ERROR_STOP=1 -c "$1"; }
+          psql_() { dc exec -T db psql -U postgres -d fitworkoutfoodtracker_staging -X -At -v ON_ERROR_STOP=1 -c "$1"; }
           before=$(psql_ "SELECT (SELECT count(*) FROM \"User\") || '/' || (SELECT count(*) FROM \"GymLocation\") || '/' || (SELECT count(*) FROM \"WorkoutSession\") || '/' || (SELECT count(*) FROM \"FoodEntry\")")
           dc restart db
           dc restart app
@@ -195,15 +196,15 @@ jobs:
         run: |
           dc() { APP_IMAGE_TAG=ci-a docker compose -f compose.production.yml -f compose.single-server.yml -f compose.ci.yml --env-file production.env --env-file single-server.env "$@"; }
           ./backup.sh
-          f=$(ls -t "$BACKUP_DIR"/fitworkoutfoodtracker-*.dump.age | head -1)
+          f=$(ls -t "$BACKUP_DIR"/fitworkoutfoodtracker_staging-*.dump.age | head -1)
           head -c 22 "$f" | grep -q 'age-encryption.org/v1' && echo "PASS  the backup is age-encrypted" || { echo "FAIL  the backup is age-encrypted"; exit 1; }
           if dc exec -T db pg_restore --list < "$f" > /dev/null 2>&1; then echo "FAIL  the encrypted file is readable as a dump"; exit 1; fi
           echo "PASS  without the key it can't be read"
           ./restore.sh "$f" "$RUNNER_TEMP/backup.key" restore_check
-          live=$(dc exec -T db psql -U postgres -d fitworkoutfoodtracker -X -At -c 'SELECT count(*) FROM "User"')
+          live=$(dc exec -T db psql -U postgres -d fitworkoutfoodtracker_staging -X -At -c 'SELECT count(*) FROM "User"')
           copy=$(dc exec -T db psql -U postgres -d restore_check -X -At -c 'SELECT count(*) FROM "User"')
           test "$live" = "$copy" && echo "PASS  the restored copy matches ($copy accounts)" || { echo "FAIL  the restored copy matches ($copy accounts)"; exit 1; }
-          set +e; ./restore.sh "$f" "$RUNNER_TEMP/backup.key" fitworkoutfoodtracker; rc=$?; set -e
+          set +e; ./restore.sh "$f" "$RUNNER_TEMP/backup.key" fitworkoutfoodtracker_staging; rc=$?; set -e
           test "$rc" = 4 && echo "PASS  a restore over the live database is refused" || { echo "FAIL  a restore over the live database is refused"; exit 1; }
           dc exec -T db dropdb -U postgres restore_check && echo "PASS  restore_check dropped" || { echo "FAIL  restore_check dropped"; exit 1; }
 

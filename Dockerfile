@@ -23,7 +23,11 @@ COPY scripts/lib/approved-migrations.cjs ./scripts/lib/approved-migrations.cjs
 COPY prisma/approved-migrations.json ./prisma/approved-migrations.json
 # Staging only, run by hand: one synthetic account at a reserved test domain (see the script).
 COPY scripts/create-staging-account.cjs ./scripts/create-staging-account.cjs
-CMD ["node", "scripts/migrate-approved.cjs"]
+# The built-in exercise library (prisma/seed.ts, which only adds what's missing) needs the generated client. Without it
+# a fresh database has no exercises, so nobody could add one to a workout (found by the staging rehearsal).
+RUN npx prisma generate
+# Guarded migrations, then the seed, only if they succeeded: a refusal still exits 4 and changes nothing.
+CMD ["sh", "-c", "node scripts/migrate-approved.cjs && node node_modules/tsx/dist/cli.mjs prisma/seed.ts"]
 
 FROM node:24.21.0-bookworm-slim AS runner
 WORKDIR /app
