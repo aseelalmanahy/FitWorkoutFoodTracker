@@ -51,6 +51,7 @@ async function activate(t, engine) {
   await page.waitForURL(/\/activate$/);
   const pressed = await page.getByTestId("activate-day").evaluateAll((els) => els.map((e) => [...e.querySelectorAll("[aria-pressed=true]")].map((b) => b.textContent)));
   assert.deepEqual(pressed, [["Mon"], ["Wed"], ["Fri"]], "a spread is suggested");
+  assert.equal(await page.getByTestId("activate-help").innerText(), "Select one or more days. Select a day again to remove it.");
   assert.match(await page.getByTestId("activate-removed").innerText(), /Removed from the schedule \(1\)[\s\S]*Sunday: Mobility and recovery/, "the assignment that would go is shown");
   await page.getByTestId("activate-day").nth(2).getByRole("button", { name: /^Friday/ }).click();
   await page.getByTestId("activate-day").nth(2).getByRole("button", { name: /^Saturday/ }).click();
@@ -75,12 +76,37 @@ async function scheduleEditor(t, engine) {
   assert.match(await page.getByTestId("schedule-day").nth(1).innerText(), /Rest day/);
 
   await page.getByRole("button", { name: "Add a workout to Tuesday" }).click();
-  const chooser = page.getByTestId("schedule-chooser");
+  const chooser = page.locator("dialog[open][data-testid=schedule-chooser]");
+  await chooser.waitFor();
+  const checked = () => chooser.locator("input[type=radio]:checked").count();
   assert.equal(await chooser.getByRole("button", { name: "Choose" }).isDisabled(), true, "nothing is preselected");
   assert.equal(await chooser.getByTestId("chooser-option").count(), 3, "only the active program's workouts");
+  // UI-03 owner report: showModal() had focused the first workout's radio, and one key press chose it.
+  assert.equal(await page.evaluate(() => document.activeElement?.tagName), "H2", "the title has focus, not a workout");
+  for (const key of ["Space", "ArrowDown"]) await page.keyboard.press(key);
+  assert.equal(await checked(), 0, "a stray key press chooses nothing");
+  assert.equal(await chooser.getByRole("button", { name: "Choose" }).isDisabled(), true);
+  await chooser.getByRole("radio", { name: /Legs/ }).check();
+  assert.equal(await chooser.getByRole("button", { name: "Choose" }).isDisabled(), false, "Choose is enabled once a workout is picked");
+  await chooser.getByRole("button", { name: "Cancel" }).click();
+  await chooser.waitFor({ state: "hidden" });
+  await page.getByRole("button", { name: "Add a workout to Tuesday" }).click();
+  await chooser.waitFor();
+  assert.equal(await checked(), 0, "reopening starts with nothing selected again");
+  assert.equal(await chooser.getByRole("button", { name: "Choose" }).isDisabled(), true);
   await page.keyboard.press("Escape");
   await chooser.waitFor({ state: "hidden" });
   assert.equal(await page.getByTestId("schedule-state").innerText(), "No changes");
+
+  await page.getByRole("button", { name: /Change the workout on Wednesday/ }).click();
+  await chooser.waitFor();
+  assert.equal(await chooser.getByRole("radio", { name: /Pull/ }).isChecked(), true, "Change keeps the current workout selected");
+  assert.equal(await checked(), 1);
+  assert.equal(await chooser.getByRole("button", { name: "Choose" }).isDisabled(), true, "nothing to choose until it's a different workout");
+  await page.keyboard.press("Space");
+  assert.equal(await chooser.getByRole("radio", { name: /Pull/ }).isChecked(), true);
+  await page.keyboard.press("Escape");
+  await chooser.waitFor({ state: "hidden" });
 
   await page.getByRole("button", { name: "Add a workout to Tuesday" }).click();
   await chooser.getByRole("radio", { name: /Pull/ }).check();
@@ -119,6 +145,82 @@ async function phoneLayout(browser) {
   assert.ok(fits, "Change, Move and Remove are full-size and inside the row");
   for (const label of ["Change", "Move", "Remove"]) assert.equal(await t.page.getByTestId("schedule-slot").first().getByRole("button", { name: new RegExp(`^${label}`) }).count(), 1);
   step("UI-04 at 375 px: the long name wraps, the actions are labelled, full-size and inside the row, no sideways scrolling");
+}
+
+/**
+ * UI-05 (owner report) and UI-09, on a separate disposable user: removing a workout from a program asks first, and
+ * Cancel changes nothing; Confirm keeps the plan, its exercises, its schedule assignment and its history. The
+ * management rows at 320, 375 and 390 px and on a desktop: the name has room, the actions are on their own row at
+ * touch size, the reorder controls are labelled, and nothing spills sideways.
+ */
+async function programPage(browser) {
+  const t = await signedIn(browser, "progpage");
+  const { page, user, program, push } = t;
+  await prisma.scheduleSlot.create({ data: { userId: user.id, weekday: 0, templateId: push.id } });
+  const snapshot = async () => ({
+    plan: await prisma.workoutTemplate.findUnique({ where: { id: push.id }, select: { name: true, programId: true, _count: { select: { exercises: true } } } }),
+    slots: await slots(user.id),
+    sessions: await prisma.workoutSession.count({ where: { userId: user.id, templateId: push.id, status: "COMPLETED" } }),
+    sets: await prisma.setEntry.count({ where: { sessionExercise: { session: { userId: user.id } } } }),
+  });
+  const before = await snapshot();
+  assert.equal(before.plan.programId, program.id);
+  const writes = [];
+  page.on("request", (r) => { if (r.method() !== "GET") writes.push(`${r.method()} ${new URL(r.url()).pathname}`); });
+
+  for (const [width, height] of [[320, 760], [375, 800], [390, 844], [1280, 900]]) {
+    await page.setViewportSize({ width, height });
+    await page.goto(`${BASE}/workouts/programs/${program.id}`);
+    const row = page.getByTestId("program-page-day").first();
+    await row.waitFor();
+    const m = await row.evaluate((el) => {
+      const r = (x) => x.getBoundingClientRect();
+      const name = el.querySelector("[data-testid=program-day-name]");
+      const actions = el.querySelector("[data-testid=program-day-actions]");
+      const controls = [...actions.querySelectorAll("button, a")];
+      return {
+        overflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+        rowWidth: r(el).width, nameWidth: r(name).width, nameBottom: r(name).bottom, actionsTop: r(actions).top,
+        small: controls.filter((c) => r(c).height < 44 || r(c).width < 44).map((c) => c.textContent),
+        outside: controls.filter((c) => r(c).right > r(el).right + 1).length,
+      };
+    });
+    assert.ok(m.overflow <= 0, `${width}px: no sideways scrolling (${m.overflow}px)`);
+    assert.deepEqual(m.small, [], `${width}px: every control is at least 44 px`);
+    assert.equal(m.outside, 0, `${width}px: the actions stay inside the row`);
+    if (width < 1024) {
+      assert.ok(m.nameWidth >= m.rowWidth * 0.6, `${width}px: the name has room (${Math.round(m.nameWidth)} of ${Math.round(m.rowWidth)} px)`);
+      assert.ok(m.actionsTop >= m.nameBottom, `${width}px: the actions are on their own row`);
+    }
+    assert.equal(await row.getByRole("group", { name: "Reorder Push" }).count(), 1);
+    for (const n of ["Move Push up", "Move Push down", "Remove Push from the program"]) assert.equal(await row.getByRole("button", { name: n }).count(), 1, n);
+    assert.equal(await row.getByRole("link", { name: "Edit Push" }).count(), 1);
+  }
+  step("UI-09 Program management at 320, 375, 390 px and desktop: the name has room, actions on their own row at 44 px or more, reorder labelled, no sideways scrolling");
+
+  await page.getByRole("button", { name: "Remove Push from the program" }).click();
+  const dialog = page.locator("dialog[open][data-testid=program-remove-dialog]");
+  await dialog.waitFor();
+  const text = await dialog.innerText();
+  assert.match(text, /Remove Push from Push Pull Legs\?/);
+  assert.match(text, /workout plan and its 1 exercise stay[\s\S]*weekly schedule \(Mon\) stays[\s\S]*completed workout and its exercise history stay/);
+  assert.deepEqual(writes, [], "nothing is sent before confirming");
+  await dialog.getByTestId("confirm-cancel").click();
+  await dialog.waitFor({ state: "hidden" });
+  assert.deepEqual(await snapshot(), before, "Cancel changes nothing");
+  assert.equal(await page.getByTestId("program-page-day").count(), 3);
+
+  await page.getByRole("button", { name: "Remove Push from the program" }).click();
+  await dialog.getByTestId("confirm-ok").click();
+  await dialog.waitFor({ state: "hidden" });
+  await page.getByText("“Push” was removed from the program").waitFor();
+  const after = await snapshot();
+  assert.equal(after.plan.programId, null, "only the program link is cleared");
+  assert.deepEqual({ ...after, plan: { ...after.plan, programId: program.id } }, before, "the plan, its exercises, its schedule assignment, its sessions and sets are all kept");
+  assert.equal(await page.getByTestId("program-page-day").count(), 2);
+  assert.deepEqual(writes, [`PATCH /api/programs/${program.id}`], "one change, after confirming");
+  assert.deepEqual(t.errors, []);
+  step("UI-05 Remove from program: a confirmation that names what's kept; Cancel changes nothing; Confirm keeps the plan, exercises, schedule and history");
 }
 
 /** UI-05: every program and plan has visible actions; deleting explains, can be cancelled, and keeps history. */
@@ -224,6 +326,7 @@ async function nutrition(t) {
         await manage(t);
         await nutrition(t);
         await phoneLayout(browser);
+        await programPage(browser);
       }
       assert.deepEqual(t.errors, [], `${engine}: no page errors`);
     } finally { await browser.close(); }

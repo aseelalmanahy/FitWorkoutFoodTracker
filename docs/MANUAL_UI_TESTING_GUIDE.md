@@ -299,7 +299,7 @@ On http://localhost:3400. The Exercise progress cards and badges are meant to lo
 | P.1 | Progress | Open it | Three tabs: **Training programs** (selected), **Exercise progress**, **Body weight** |
 | P.2 | Training programs | Look at it | Each program with its workout count and last date, then months (the latest open), then each workout's date and exercises, each with a badge. Workouts not from a program are under **Not in a program** |
 | P.3 | Training programs | Tap a workout's name, then go back and tap an exercise | The finished workout opens; the exercise opens its progress detail |
-| P.4 | Workouts → a program → take a day out, then Progress | Look at it | That day's past workouts move to Not in a program, as the note under the list says. Put it back afterwards |
+| P.4 | Workouts → a program → **Remove from program** on a day, then Progress | Read the confirmation, Confirm, then look | That day's past workouts move to Not in a program, as the note under the list says. (Only on a program you don't mind changing) |
 | P.5 | Exercise progress | Look at it | The same cards and badges as before: Improved green, Down orange, Matched blue, Baseline neutral. A card opens its exercise |
 | P.6 | Body weight | Tap it | The weight log opens |
 | P.7 | Progress, on a phone width | Look at it | All three tabs visible, and no sideways scrolling |
@@ -320,6 +320,10 @@ On http://localhost:3400, once MIG-ACTIVE is applied. Your existing schedule is 
 | A.7 | Weekly schedule, on a phone | Look at it | Names wrap; the three buttons are full-size; no sideways scrolling |
 | A.8 | Workouts → an individual plan or a program day → **Delete** | Read it, then **Cancel** | It says which schedule days lose it and that logged workouts stay. Cancel deletes nothing. (Try deleting only a plan you don't need.) |
 | A.9 | Workouts → a program → **Delete** | Read it, then Cancel | Its plans stay as individual plans, with their schedule and history; if active, no program will be active |
+| A.10 | Weekly schedule → **Add workout** on a rest day | Press Space or an arrow key, then Cancel and open it again | No workout is highlighted or chosen by itself; Choose stays disabled; reopening is empty. **Change** on a day opens with its current workout selected |
+| A.11 | Workouts → a program → **Manage** → **Remove from program** | Read it, then **Cancel** | The dialog names the program and says the plan, its exercises, its schedule days and its history are kept. Cancel changes nothing |
+| A.12 | The same page on a phone (320 to 390 px) | Look at it | Each name has the row's full width; ↑, ↓, Edit and Remove from program sit on their own row and are easy to tap; no sideways scrolling |
+| A.13 | A program → **Set as active** | Look under the weekday chips | "Select one or more days. Select a day again to remove it." |
 | N.1 | Nutrition → the date in the middle | Pick another day, then **Jump to today** | That day's meals and totals load; Jump to today returns |
 | N.2 | Nutrition → History → the period in the middle | Choose a start after the end | It says the start is after the end, and Apply is disabled |
 | N.3 | The same, with a valid range of a few weeks | Apply | "Averages for this period", that period's days and chart (labelled by date); the trend still says 8 weeks, with its dates. **Back to this week** returns |

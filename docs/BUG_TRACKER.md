@@ -6,15 +6,16 @@
 
 | ID | Found by | Defect | Severity | Status | Evidence |
 |---|---|---|---|---|---|
-| **UI-03** | Owner, 2026-11-09 | Weekly schedule controls were unclear: Add workout filled in the first plan by itself; Move and Remove weren't self-explanatory; plans from different programs were mixed | High | **FIXED / PENDING OWNER REVIEW**. Live on http://localhost:3400 (`73ea754`) | See "UI-03 to UI-08" below |
-| **UI-04** | Owner, 2026-11-09 | Weekly schedule layout was broken: workout selectors shrank to tiny empty boxes, the Move control took most of the row, names couldn't be read | High | **FIXED / PENDING OWNER REVIEW**. Live on 3400 | See below |
-| **UI-05** | Owner, 2026-11-09 | Program and plan management actions (edit, delete) were hard to find | Medium | **FIXED / PENDING OWNER REVIEW**. Live on 3400 | See below |
-| **UI-06** | Owner, 2026-11-09 | No single active training program: the weekly schedule could mix plans from any program, and nothing said which program it followed | High | **FIXED / PENDING OWNER REVIEW**. Live on 3400; MIG-ACTIVE applied to `fitdb_test` with the owner's approval, 2026-11-09 | See below |
-| **UI-07** | Owner, 2026-11-09 | Nutrition: no way to jump to a date other than one day at a time | Medium | **FIXED / PENDING OWNER REVIEW**. Live on 3400 | See below |
-| **UI-08** | Owner, 2026-11-09 | Nutrition history: only whole weeks, one at a time; no custom date range | Medium | **FIXED / PENDING OWNER REVIEW**. Live on 3400 | See below |
+| **UI-03** | Owner, 2026-11-09; **re-reported 2026-11-09** in acceptance testing | Weekly schedule controls were unclear. Then, confirmed by the owner: Tuesday → **Add workout** opened with **Lower Body B** apparently selected | High | **FIXED / PENDING OWNER REVIEW** (the re-report). Cause: the dialog put keyboard focus on the first workout, which looked selected and was chosen by one key press | See "Owner acceptance testing" below |
+| **UI-04** | Owner, 2026-11-09 | Weekly schedule layout was broken: workout selectors shrank to tiny empty boxes, the Move control took most of the row, names couldn't be read | High | **FIXED / PENDING OWNER REVIEW**. The owner's desktop and phone visual check passed (layouts, Change and Move dialogs, draft and Discard changes); acceptance pending | See below |
+| **UI-05** | Owner, 2026-11-09; **re-reported 2026-11-09** | Management actions were hard to find. Then: **Take out** removed Upper Body A from the active program at once, with no confirmation (4 workouts became 3) | Medium | **FIXED / PENDING OWNER REVIEW**: now **Remove from program**, with a confirmation; nothing is sent before Confirm. Upper Body A investigated: intact, see below. **Not restored**: the owner decides | See "Owner acceptance testing" below |
+| **UI-06** | Owner, 2026-11-09 | No single active training program: the weekly schedule could mix plans from any program, and nothing said which program it followed | High | **FIXED / PENDING OWNER REVIEW**. The owner's check of the activation preview passed (Removed, Added and Unchanged correct); acceptance pending. Added the line "Select one or more days. Select a day again to remove it." | See below |
+| **UI-07** | Owner, 2026-11-09 | Nutrition: no way to jump to a date other than one day at a time | Medium | **VERIFIED / CLOSED**: accepted by the owner, 2026-11-09 | See below |
+| **UI-08** | Owner, 2026-11-09 | Nutrition history: only whole weeks, one at a time; no custom date range | Medium | **VERIFIED / CLOSED**: accepted by the owner, 2026-11-09 | See below |
+| **UI-09** | Owner, 2026-11-09 (phone view) | Program management on a phone: workout names squeezed into a column a few letters wide (11 px at 320 px), words broken over several lines, Edit, Take out and the reorder arrows crowded together and too small (12 controls under 40 px) | Medium | **FIXED / PENDING OWNER REVIEW** | See "Owner acceptance testing" below |
 | **UI-01** | Owner, 2026-11-09 | Imported plans were mixed with unrelated plans: each imported day became its own plan named "Program – Day", listed among the person's own plans, and was put on the weekly schedule whenever the file named a weekday | High | **Fixed** in `bd86e47`; owner review pending | See below |
 | **IM-02** | Owner, 2026-11-09 | A text import ("workout 1.txt") saved exercises that weren't in the file | High | **Fixed** in `bd86e47` (cause found and closed); owner review pending | See below |
-| **UI-02** | Owner, 2026-11-09 | Progress had no view by program: workouts couldn't be followed program by program and month by month; then (2026-11-09) no expandable exercise history | Medium: a missing view, nothing wrong | **FIXED / PENDING OWNER REVIEW**: the view in `418fdc7` (on 3400 now); the expandable history live on 3400 | See below |
+| **UI-02** | Owner, 2026-11-09 | Progress had no view by program: workouts couldn't be followed program by program and month by month; then (2026-11-09) no expandable exercise history | Medium: a missing view, nothing wrong | **VERIFIED / CLOSED**: Progress and exercise history accepted by the owner, 2026-11-09 | See below |
 | **IMG-01** | Owner, 2026-11-09 | A real plan image gave "No exercises with sets and repetitions were found" | High | **Fixed** in `2411496`, `7fec302`. The owner confirmed the reading works; **full acceptance is still separate** | [DECISION_REGISTER.md](DECISION_REGISTER.md) §7 |
 | CON-01 | Owner, 2026-11-09 (Chrome console) | "Banner not shown: beforeinstallpromptevent.preventDefault() called" | None: an information message, by design | **Not a defect, no change.** The install flow was verified | See below |
 | CON-02 | Owner, 2026-11-09 (Chrome console) | Repeated "A listener indicated an asynchronous response by returning true, but the message channel closed before a response was received" | None for the app: it comes from a browser extension | **Not an app defect, no change.** Reproduced only with an extension | See below |
@@ -135,6 +136,26 @@ Checked on 2026-11-09 against http://localhost:3400 (`fd6f67b`), as the demo acc
 **Limits.**
 - A workout from a plan that was later moved to another program shows under the plan's current program, not the one it had then.
 - With years of workouts, the view lists them all, by month, with only the latest month open.
+
+## Owner acceptance testing (2026-11-09): UI-03, UI-05, UI-09
+
+Built on `feature/owner-fixes` from `feature/ux-consolidated`, then integrated into `feature/multi-gym-exercise-alternatives`. No migration.
+
+**UI-03, Add workout appeared to choose a workout.**
+- **Reproduced** on the demo account in Chromium and Firefox, without saving anything: on opening, nothing was checked, but `showModal()` puts keyboard focus on the dialog's first control, the radio of the program's first workout, **Lower Body B**. Its focus ring looked like a selection, and a single Space or arrow key press then checked it.
+- **Fix:** the dialog focuses its title on opening, so no workout is focused or chosen until the person picks one. **Choose** stays disabled until then. Each opening starts afresh: Cancel or Escape, then reopening, shows nothing selected. **Change** still opens with the current workout selected.
+- **Tests** (`e2e-ux`, three browsers): the title has focus; Space and ArrowDown choose nothing; Choose is enabled only after picking; reopening is empty; Change keeps its current workout.
+
+**UI-05, Take out removed a workout from the program without asking.**
+- **The owner's data, read only, on `fitdb_test`:** **Upper Body A** still exists as an individual plan with its 5 exercises; its **Wednesday** schedule assignment is in place; its **7 completed workouts** (21 Sep to 2 Nov 2026, 36 logged exercises) are intact. Only its program link was cleared. "oldest training program" is still the active program, with Lower Body B, Lower Body A and Upper Body B. The account still has 4 plans, 30 completed workouts, 519 logged sets, 4 schedule entries and 190 food entries: nothing else was deleted. **It hasn't been put back:** that's the owner's decision. The program page has no button to add a plan back; with the owner's approval it can be put back in its old place through the app's own program update, which changes only its program link.
+- **Fix:** the button is now **Remove from program**, and it opens a confirmation naming the program, saying that the plan and its exercises, its weekly schedule assignment (with its days) and its completed history are all kept, and, for the active program, that the schedule will mark it as outside the program. **Cancel** and **Remove from program**. Nothing is sent until it's confirmed. A program's only workout isn't offered for removal; **Delete** (which keeps every plan) covers that.
+- **Tests** (`e2e-ux`, a disposable user): the dialog's wording; no request before confirming; Cancel changes nothing in the database; Confirm sends one request and keeps the plan, exercises, schedule entry, completed workouts and sets, clearing only the program link.
+
+**UI-09, program management on a phone.**
+- **Fix:** each workout gets a two-line row on phones and tablets: the number and the **full-width name** (wrapping between words), with exercises and weekdays below; then a separate **action row**: **↑** and **↓** (labelled "Move … up/down", in a group named "Reorder …"), **Edit**, **Remove from program**, all at least 44 by 44 px. On a wide screen (1024 px and up) the actions sit beside the name again.
+- **Tests** (`e2e-ux`) at 320, 375, 390 and 1280 px: no sideways scrolling; every control at least 44 px; actions inside the row; on phones the name has at least 60 % of the row and the actions are on their own row; the labels are present. **Measured on the demo account:** the first name's width at 320 / 375 / 390 px went from 11 / 66 / 81 px to the full row; controls under 40 px went from 12 to 0.
+
+**Screenshots:** `docs/screenshots/owner-fixes/`, before and after, demo account, read-only.
 
 ## UI-03 to UI-08, and the rest of UI-02 (consolidated owner fixes, 2026-11-09)
 
