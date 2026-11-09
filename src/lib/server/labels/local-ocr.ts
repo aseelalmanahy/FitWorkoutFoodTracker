@@ -4,6 +4,7 @@ import type { LabelExtraction } from "@/lib/label-extraction";
 import { LabelExtractionError, type LabelExtractor, type LabelImage } from "./extractor";
 import { mergeReadings, parseLabelText } from "./text-parse";
 import { parseWorkoutText } from "@/lib/workout-import/parse";
+import { fillMissingReps, rowsMissingReps } from "@/lib/workout-import/merge-readings";
 
 /**
  * Label reading on this server, with no paid service and no network request (AI-01): tesseract.js 6.0.1 with its
@@ -111,22 +112,33 @@ export async function recognizePlanText(bytes: Uint8Array, signal: AbortSignal):
   }
   const sharp = (await import("sharp")).default;
   const meta = await sharp(bytes).metadata();
-  let best = { text: "", rows: 0 };
-  for (const angle of ORIENTATIONS) {
+  const read = async (angle: number, minWidth: number) => {
     if (signal.aborted) throw new LabelExtractionError("timeout");
-    const width = (angle % 180 === 0 ? meta.width : meta.height) ?? PLAN_OCR_MIN_WIDTH;
+    const width = (angle % 180 === 0 ? meta.width : meta.height) ?? minWidth;
     const pipeline = sharp(bytes).rotate(angle);
-    if (width < PLAN_OCR_MIN_WIDTH) pipeline.resize({ width: PLAN_OCR_MIN_WIDTH, kernel: "lanczos3" });
+    if (width < minWidth) pipeline.resize({ width: minWidth, kernel: "lanczos3" });
     const prepared = await pipeline.grayscale().normalize().png().toBuffer();
-    let text: string;
     try {
-      text = (await w.recognize(prepared)).data.text;
+      return (await w.recognize(prepared)).data.text;
     } catch {
       throw new LabelExtractionError("unavailable");
     }
+  };
+  let best = { text: "", rows: 0, angle: 0 };
+  for (const angle of ORIENTATIONS) {
+    const text = await read(angle, PLAN_OCR_MIN_WIDTH);
     const rows = exerciseRows(text);
-    if (rows > best.rows || (rows === best.rows && letters(text) > letters(best.text))) best = { text, rows };
+    if (rows > best.rows || (rows === best.rows && letters(text) > letters(best.text))) best = { text, rows, angle };
     if (best.rows > 0) break;
+  }
+  // Rows read with their sets but not their reps: read once more at another size, and take a row's reps from it
+  // only where both readings agree on the exercise and its sets (merge-readings.ts). Small images only, where the
+  // enlargement is what the misreads depend on; at most one extra reading.
+  const width = (best.angle % 180 === 0 ? meta.width : meta.height) ?? PLAN_OCR_SECOND_WIDTH;
+  if (best.rows > 0 && width < PLAN_OCR_SECOND_WIDTH && rowsMissingReps(best.text).length > 0) {
+    best.text = fillMissingReps(best.text, await read(best.angle, PLAN_OCR_SECOND_WIDTH)).text;
   }
   return best.text.slice(0, MAX_PLAN_TEXT_CHARS);
 }
+/** The second reading's size, when the first left some rows without their repetitions. */
+export const PLAN_OCR_SECOND_WIDTH = 1600;

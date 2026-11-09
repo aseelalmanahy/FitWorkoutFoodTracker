@@ -6,6 +6,7 @@ import path from "node:path";
 import sharp from "sharp";
 import { describe, expect, it } from "vitest";
 import { recognizePlanText } from "./local-ocr";
+import { validateImage } from "../images/validate";
 import { parseWorkoutText } from "@/lib/workout-import/parse";
 
 const read = async (png: Buffer) => parseWorkoutText(await recognizePlanText(new Uint8Array(png), new AbortController().signal), { ocr: true });
@@ -56,9 +57,13 @@ describe("plan images through the real recognizer (IMG-01)", { timeout: 120_000 
   });
 
   const REAL = path.join(process.cwd(), ".cache", "plan-images", "failed-3day.jpg");
-  it.skipIf(!existsSync(REAL))("the owner's real image that failed: 3 days, 18 exercises, 3 x 8-12 each", async () => {
-    const d = await read(readFileSync(REAL));
-    expect(d.days.map((x) => [x.name, x.weekday, x.exercises.length])).toEqual([["MONDAY", 0, 6], ["WEDNESDAY", 2, 6], ["FRIDAY", 4, 6]]);
-    expect(d.days.flatMap((x) => x.exercises).every((e) => e.sets === 3 && e.repsMin === 8 && e.repsMax === 12)).toBe(true);
+  it.skipIf(!existsSync(REAL))("the owner's real image that failed, as uploaded (through the upload's own re-encoding): 3 days, 18 exercises, 3 x 8-12 each", async () => {
+    const v = await validateImage(new Uint8Array(readFileSync(REAL)));
+    if (!v.ok) throw new Error(`the upload check refused it: ${v.code}`);
+    for (const bytes of [v.sanitized, new Uint8Array(readFileSync(REAL))]) {
+      const d = parseWorkoutText(await recognizePlanText(bytes, new AbortController().signal), { ocr: true });
+      expect(d.days.map((x) => [x.name, x.weekday, x.exercises.length])).toEqual([["MONDAY", 0, 6], ["WEDNESDAY", 2, 6], ["FRIDAY", 4, 6]]);
+      expect(d.days.flatMap((x) => x.exercises).map((e) => `${e.sets}x${e.repsMin}-${e.repsMax}`)).toEqual(Array(18).fill("3x8-12"));
+    }
   });
 });
