@@ -7,7 +7,7 @@
 //      machine's secret values (found by value, never printed)
 //   3. a throwaway PostgreSQL 18 container on a private network, with TLS (the preflight requires it off-host)
 //   4. the startup preflight refuses weak settings: a weak database password, and an http origin
-//   5. migrations with the migrate image; then the app, read-only, no capabilities, 1536 MB, as in Compose
+//   5. migrations with the migrate image; then the app, read-only, no capabilities, at Compose's memory limit, its heap pinned
 //   6. /api/health; sign-in; one label scan and one meal photo, read on-device
 //   7. memory (cgroup, current and peak) after each step; an export at MAX_EXPORT_ROWS while a second is refused, one over it (413)
 //   8. docker stop: a clean exit within its grace period
@@ -80,7 +80,10 @@ async function sampleAnonWhile(work) {
   try { return { result: await work(), maxAnonMB: Math.round(max / 2 ** 20) }; } finally { done = true; await loop; }
 }
 const appEnv = (over = {}) => Object.entries({ NODE_ENV: "production", APP_ORIGIN: ORIGIN, DATABASE_URL: `postgresql://postgres:${DB_PW}@${DB}:5432/${DB_NAME}?sslmode=require`, TRUST_PROXY_HOPS: "1", LABEL_OCR: "local", MEAL_RECOGNITION: "local", ...over }).flatMap(([k, v]) => ["-e", `${k}=${v}`]);
-const HARDENED = ["--read-only", "--tmpfs", "/tmp", "--tmpfs", "/app/.next/cache", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true", "--memory", "1536m", "--cpus", "1.5", "--pids-limit", "256"];
+// The app's memory limit comes from Compose (the app service's mem_limit, the first one in the file), so G1 always
+// checks what would be deployed.
+const APP_MEMORY_MB = Number(fs.readFileSync(path.join(ROOT, "deploy", "compose.production.yml"), "utf8").match(/^\s+mem_limit:\s*(\d+)m\s*$/m)[1]);
+const HARDENED = ["--read-only", "--tmpfs", "/tmp", "--tmpfs", "/app/.next/cache", "--cap-drop", "ALL", "--security-opt", "no-new-privileges:true", "--memory", `${APP_MEMORY_MB}m`, "--cpus", "1.5", "--pids-limit", "256"];
 const psql = (sql) => must(docker(["exec", "-e", `PGPASSWORD=${DB_PW}`, DB, "psql", "-U", "postgres", "-d", DB_NAME, "-v", "ON_ERROR_STOP=1", "-At", "-c", sql]), "psql");
 const BASE = `http://127.0.0.1:${PORT}`;
 const headers = (cookie) => ({ Origin: ORIGIN, "X-Forwarded-For": "203.0.113.10", "X-Forwarded-Proto": "https", ...(cookie ? { Cookie: cookie } : {}) });
@@ -167,8 +170,12 @@ async function waitHealthy(name, seconds) {
     }
     must(docker(["run", "-d", "--name", APP, "--network", NET, "-p", `127.0.0.1:${PORT}:3000`, ...HARDENED, ...appEnv(), IMAGE]), "app container");
     const healthy = await waitHealthy(APP, 90);
-    record("5b. app starts, read-only, no capabilities, 1536 MB", healthy, { memory: healthy ? memory() : null });
+    record(`5b. app starts, read-only, no capabilities, ${APP_MEMORY_MB} MB`, healthy, { memory: healthy ? memory() : null });
     if (!healthy) throw new Error(`the app didn't become healthy: ${scrub(docker(["logs", "--tail", "40", APP]).stdout + docker(["logs", "--tail", "40", APP]).stderr).slice(-800)}`);
+    // 5c. The heap is pinned as the image says: the running server's own environment has it, and Node applies it.
+    const pid1Env = docker(["exec", APP, "sh", "-c", "tr '\\0' '\\n' < /proc/1/environ | grep '^NODE_OPTIONS='"]).stdout.trim();
+    const heapMB = Math.round(Number(docker(["exec", APP, "node", "-e", "console.log(require('v8').getHeapStatistics().heap_size_limit)"]).stdout.trim()) / 2 ** 20);
+    record("5c. Node's heap is pinned at 768 MB in the running server", pid1Env === "NODE_OPTIONS=--max-old-space-size=768" && heapMB >= 768 && heapMB <= 900, { note: `${pid1Env || "NODE_OPTIONS not set"}; heap limit ${heapMB} MB` });
 
     // 6. Health, sign-in, label, meal.
     const h = await fetch(`${BASE}/api/health`);
@@ -219,8 +226,8 @@ async function waitHealthy(name, seconds) {
     const m = memory();
     const alive = docker(["inspect", "-f", "{{.State.Running}} {{.State.OOMKilled}} {{.RestartCount}}", APP]).stdout.trim();
     // Pass: the right answers, the process alive with no restart, no OOM kill in the cgroup, and anonymous memory (what
-    // the kernel can't reclaim) at least 256 MB below the 1536 MB limit at its highest.
-    const ANON_CEILING_MB = 1536 - 256;
+    // the kernel can't reclaim) at least 256 MB below the container's limit at its highest.
+    const ANON_CEILING_MB = APP_MEMORY_MB - 256;
     record(`7. an export at the ${maxRows.toLocaleString("en")}-row limit while a second is refused (429), then the second; anonymous memory under ${ANON_CEILING_MB} MB, no OOM kill, process alive`,
       statuses === "200,429" && second.status === 200 && maxAnonMB > 0 && maxAnonMB < ANON_CEILING_MB && m.oomKills === 0 && alive === "true false 0",
       { note: `at once: ${statuses}; then ${second.status}, ${Math.round(second.bytes / 2 ** 20)} MiB; ${Math.round((Date.now() - t0) / 1000)} s; highest anonymous ${maxAnonMB} MB; OOM kills ${m.oomKills}; running/oom/restarts ${alive}`, memory: { ...m, maxAnonMB } });

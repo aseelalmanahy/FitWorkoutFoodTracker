@@ -23,7 +23,10 @@ CMD ["node", "scripts/migrate-approved.cjs"]
 
 FROM node:24.21.0-bookworm-slim AS runner
 WORKDIR /app
-ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1
+# The heap is pinned, so it doesn't follow the container's size: an export grows it and V8 keeps what it grew to
+# (measured in G1, S-13). 768 MB holds an export at its row limit; the rest of the container is for native memory
+# (the meal model, image processing).
+ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 NODE_OPTIONS=--max-old-space-size=768
 COPY package.json package-lock.json ./
 COPY prisma ./prisma
 RUN npm ci --omit=dev && rm -rf /root/.npm

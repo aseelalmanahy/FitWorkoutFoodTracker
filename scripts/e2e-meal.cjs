@@ -321,10 +321,13 @@ async function runBrowser(name, buffer) {
   assert.equal(await items().count(), 3);
   assert.equal(await item(0).getByTestId("meal-name").inputValue(), "7 Up");
   await item(0).getByTestId("meal-accept").click();
+  // Wait for the search itself, which the box sends 500 ms after its last change. A fixed 450 ms wait used to let step
+  // 11's navigation start just as that timer fired, and WebKit reports the request it cancels as a page error (M-WK-1).
+  const searched = page.waitForResponse((r) => new URL(r.url()).pathname === "/api/foods/search", { timeout: 10_000 });
   await item(0).getByTestId("meal-find").click();
   await page.getByTestId("meal-type").selectOption("LUNCH");
   assert.equal(await page.getByTestId("meal-food-search").getByLabel("Search foods").inputValue(), "7 Up");
-  await page.waitForTimeout(450);
+  assert.equal(new URL((await searched).url()).searchParams.get("q"), "7 Up", "the name was searched as it is");
   assert.equal(await page.getByRole("dialog").count(), 0, "the number selects nothing");
   assert.deepEqual(await diary(), []);
   step("a number in a food's own name stays a name");

@@ -1092,7 +1092,13 @@ test("the G1 image check refuses to start anything without the owner's G1 approv
   assert.match(code, /Docker isn't running\. Starting Docker Desktop is part of the G1 approval/, "it never starts Docker itself");
   assert.doesNotMatch(code, /Docker Desktop\.exe|com\.docker|Start-Process/, "nothing starts Docker Desktop");
   assert.match(code, /"--read-only", "--tmpfs", "\/tmp", "--tmpfs", "\/app\/\.next\/cache", "--cap-drop", "ALL"/, "the app runs hardened, as in Compose");
-  assert.match(code, /"--memory", "1536m"/);
+  // G1 runs the app at Compose's own memory limit (read from the file), and Compose and the image agree with what G1
+  // measured (S-13): 2048 MB for the container, Node's heap pinned at 768 MB.
+  assert.match(code, /"--memory", `\$\{APP_MEMORY_MB\}m`/);
+  assert.match(code, /compose\.production\.yml/);
+  const compose = fs.readFileSync(path.join(SCRIPTS, "..", "deploy", "compose.production.yml"), "utf8");
+  assert.equal(compose.match(/^\s+mem_limit:\s*(\d+)m\s*$/m)?.[1], "2048", "the app service's limit, the first mem_limit");
+  assert.match(fs.readFileSync(path.join(SCRIPTS, "..", "Dockerfile"), "utf8"), /^ENV .*NODE_OPTIONS=--max-old-space-size=768/m);
   assert.match(code, /sslmode=require/);
   // --disposable-migrations: the guarded image must refuse first (exit 4, no history table), the unguarded deploy
   // targets only the throwaway container, the approved list is never written, and the result says so.

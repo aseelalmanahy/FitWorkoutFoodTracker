@@ -40,7 +40,10 @@ services:
     cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true
-    mem_limit: 1536m
+    # Measured in G1 on Linux (2026-11-09): about 720 MB with the meal model loaded, and an export at its row limit
+    # takes it to about 1,330 MB, which V8 then keeps. The image pins Node's heap at 768 MB, so this leaves room for
+    # image processing beside an export. G1 reads this value, so its checks always match it.
+    mem_limit: 2048m
     cpus: 1.5
     pids_limit: 256
     logging:
