@@ -10,11 +10,13 @@ type Model = keyof typeof dataMap;
 export const EXPORT_FORMAT = "fitworkoutfoodtracker-export";
 export const EXPORT_VERSION = 1;
 /**
- * Far beyond years of real use, and a bound on what one request can load. Measured (S-13, G1 on Linux, 2026-11-09):
- * in the production container (1536 MB, Node's default heap of about 770 MB there), one export of 249,000 rows
- * exhausted the heap and crashed the whole app. G1 checks an export at this limit while a second one is refused.
+ * About a decade of heavy logging, and a bound on what one request can load. Measured (S-13, G1 on Linux, 2026-11-09)
+ * in the production container (1536 MB): the export is held in memory at about 6.8 KB of anonymous memory per row.
+ * 249,000 rows exhausted Node's heap and crashed the whole app; 100,000 reached 1,517 MB, 19 MB from the limit, with
+ * the meal model loaded. G1 checks an export at this limit stays at least 256 MB under it. Raising it needs a
+ * streamed export first.
  */
-export const MAX_EXPORT_ROWS = 100_000;
+export const MAX_EXPORT_ROWS = 50_000;
 export const MAX_EXPORT_BYTES = 128 * 1024 * 1024;
 /**
  * One at a time in the process. Measured in G1: with the meal model loaded the container uses about 850 MB, and each
