@@ -4,7 +4,11 @@
 
 **Code is frozen.** Development is closed. Only a reproducible critical or high-severity defect, a data-loss risk or a release-blocking regression would reopen it.
 
-**Release verdict (2026-11-09): NOT READY** for an invited beta, and not yet ready for staging. G1 on Linux found and led to the fix of a High availability defect, EXP-01: a large export crashed the app (Part 8.4). The fix is in code, but G1's check of it didn't complete (Part 8.3). Also missing: database recovery on real data, role isolation, the migrations, hosting, email, phones, the privacy review and your acceptance. Each item and its owner action is in Part 8.9's approval package, which supersedes 7.7.
+**Release verdict (2026-11-09): NOT READY** for an invited beta, and not yet ready for staging.
+- **What passed:** G1 on Linux (17 of 17), and the final regression at `caca244` (56/56 guarded, 2,309 unit tests).
+- **EXP-01:** verified fixed (Part 9).
+- **Still missing:** database recovery on real data, role isolation, the migrations (and with them G1's guarded path), hosting, email, phones, the privacy review and your acceptance.
+- **Next step:** one approval covers the three next database operations (9.6). The rest is in 8.9.
 
 **Nothing in this document is approved.** Every approval is the owner's, and so is every acceptance. Nothing has been merged or deployed. No migration has been applied to `fitdb`, `fitdb_test`, `fitdb_review` or production.
 
@@ -551,9 +555,13 @@ Run from `FitWorkoutFoodTracker-beta`, which was at `37198a8`; local equalled `o
 - Afterwards: no Codex SID on any item below; the owner can still write and read; `pg_restore --list` still reads `fitdb_review-2026-11-07-21-52-51.dump` (114 TOC entries, 17 tables of data).
 - Desktop itself and the repositories were left alone, because Codex needs them as its workspace.
 
-**Rollback:**
-- `icacls "$HOME\Desktop\FitWorkoutFoodTracker-backups" /reset /T /C` restores the original exactly, since every original entry was inherited;
-- or `icacls "$HOME\Desktop" /restore "<…>\sec-acl-2026-11-08\acl-before-20261108-203742.icacls"`;
+**Rollback (corrected 2026-11-09, after a rehearsal; the first version of this section claimed more than had been tested):**
+- **`icacls "$HOME\Desktop\FitWorkoutFoodTracker-backups" /reset /T /C`, rehearsed.**
+  - The rehearsal used a scratch folder on the Desktop with a file and a subfolder inside, so it inherited exactly what the backup folder had. The same change was applied, then `/reset /T /C`.
+  - Result: the folder, subfolder and both files were **identical** to the originals.
+  - **Condition:** `/reset` re-inherits whatever Desktop grants *at that moment*. It matches the original only while Desktop's own permissions are unchanged, as they were on 2026-11-09. It doesn't change file owners.
+  - Not rehearsed on the real folder's 103 items, which stay secured.
+- **`icacls "$HOME\Desktop" /restore "<…>\acl-before-20261108-203742.icacls"` FAILS in a normal shell.** The rehearsal returned "Not all privileges or groups referenced are assigned to the caller", and nothing changed. It would need an elevated shell, which hasn't been tested and is outside the no-Windows-changes rule. The saved file is kept only as a record of the original permissions.
 - `sddl-before-20261108-203742.txt` and `sddl-after.txt` are kept beside it.
 
 **Remaining risk:**
@@ -831,3 +839,131 @@ Seven runs on Docker 29.8.2 (Linux engine) with disposable data only, each again
 | 12 | **NOTICE-B** | None | `noticeIsFinal()` with a dated review | n/a | Decisions plus a legal review |
 | 13 | **Security sign-off**, including EXP-01's new limits | n/a | Dated, written | n/a | "sign-off given", or what to fix |
 | 14 | **G3–G7**, then the merge | Each its own approval | Each gate's checks | Previous image tag | In order |
+
+**8.9 is superseded by 9.6.**
+
+---
+
+## Part 9. Release completion round (2026-11-09)
+
+Evidence: `FitWorkoutFoodTracker-backups\diagnostics\release-execution-caca244\`, which includes both Linux runs' artifacts.
+
+### 9.1 G1 on Linux: PASSED, 17 of 17 (disposable-migration path)
+
+This PC couldn't run G1 safely:
+- **Commit charge:** 39.1 of its 47.2 GB commit limit was in use, 12.4 GB of it by one other application.
+- **What G1 needs:** Docker's VM needs about 7 GB.
+- **Constraint:** no Windows settings can be changed.
+
+So G1 ran on an isolated Linux machine instead:
+- **Where:** a GitHub-hosted Ubuntu 24.04 runner, through `.github/workflows/g1-linux.yml` (`b7d0cc7`): 4 vCPU, 16 GB, Docker 28.0.4, cgroup v2.
+- **Isolation:** synthetic data, throwaway containers, a read-only token, no secrets, and no pull-request trigger.
+- **Same limits:** the app container has the production limits, so its memory figures mean the same as on the server.
+
+| Run | Commit | Result | Step 7 (the export) |
+|---|---|---|---|
+| [42557578695](https://github.com/aseelalmanahy/FitWorkoutFoodTracker/actions/runs/42557578695) | `b7d0cc7` (1536 MB, heap not pinned) | **FAIL, 15 of 16** | Correct answers, no OOM kill, but anonymous memory peaked at **1,326 MB** of 1,536 and **stayed at 1,267 MB** afterwards: V8 kept the heap it grew |
+| [42558272013](https://github.com/aseelalmanahy/FitWorkoutFoodTracker/actions/runs/42558272013) | `caca244` (2048 MB, heap pinned at 768 MB) | **PASS, 17 of 17** | Peak **1,360 MB** of 2,048 (688 MB margin; 256 required); **1,138 MB** afterwards; 0 OOM kills; 0 restarts |
+
+**Memory at `caca244`** (anonymous, MB):
+
+| Point | MB |
+|---|---|
+| Started | 184 |
+| After a label scan | 286 |
+| After the meal model loads | 774 |
+| Export at the limit, highest | 1,360 |
+| Afterwards | 1,138 |
+
+**Export behaviour verified:**
+- An export at 50,000 rows succeeds while a simultaneous second one is refused (429). The second then succeeds (30 MiB, 6 s).
+- An account over the limit is refused with 413 and not loaded.
+- **New 7c:** after both refusals, an ordinary account exports whole (25 of 25 entries), health answers, and the process hasn't restarted. Nothing is held by a refused export.
+- **New 5c:** the running server's own environment has `NODE_OPTIONS=--max-old-space-size=768`, and Node reports an 864 MB heap limit (768 old space plus the young generation).
+
+**Qualifications:**
+- **Secret-value scan:** on the runner it had no local values to search for. The local run at `d832521` searched for 5 and found 0. The file checks ran in both.
+- **Guarded migration path:** still to run, after MIG-FB and MIG-GYM are approved (`--disposable-migrations` dropped).
+
+### 9.2 EXP-01: VERIFIED FIXED on Linux
+
+The final fix has three parts:
+- `MAX_EXPORT_ROWS` 50,000 (`749ca8b`);
+- one export at a time (`dbcdf4c`);
+- Node's heap pinned at 768 MB and the app container at 2,048 MB (`caca244`).
+
+All three were verified by run 42558272013 above. The unit test in `deploy-config.test.ts` now pins `mem_limit: 2048m` and the heap setting, in the commit that adds this part.
+
+**Hosting impact:** still fits the recommended 4 GB server (`BETA_HOSTING.md`).
+
+**Follow-up EXP-02:** a streamed export, before the limit is raised.
+
+### 9.3 M-WK-1: ROOT CAUSE FOUND, FIXED (test defect)
+
+- **Cause:** step 10b of `e2e-meal.cjs` put "7 Up" in the food search, waited a fixed 450 ms, then navigated (step 11, `page.goto`). The search box sends its request 500 ms after its last change. When the timer fired as the navigation began, WebKit reported the request the navigation cancelled as a page error: "Fetch API cannot load … due to access control checks". The app catches that failure (`api()` turns it into an `ApiError`, and the search records it). The suite already exempted the identical WebKit message for Next.js's own router requests.
+- **Evidence:** in the failed run's proxy trace, all 12 searches completed with 200, and none was the "7 Up" search, in any browser. It never reached the server. The window (450 ms plus about 50 ms of assertions, against a 500 ms debounce) explains why it was intermittent, and why only WebKit failed.
+- **Fix (`caca244`):** the suite waits for the search response itself, then asserts the query was "7 Up" and that nothing was selected. That's a stronger check than before.
+- **Result:** 3 of 3 isolated, and passing in the full regression below.
+
+### 9.4 Security
+
+- **SEC-ACL:** the folder stays secured. Its rollback documentation is corrected in 7.2: `/reset` was rehearsed and is identical while Desktop's permissions are unchanged; `/restore` fails without elevation.
+- **Demo password rotated (2026-11-09)**, through the app's own route on 3000:
+  - change 200; the new password logs in;
+  - the old password is refused (401), and the session from before the change is revoked (401);
+  - `demo-account.cjs --status` reports the password works, with every row count identical;
+  - the new value is only in the Git-ignored `demo-account.local.md` and was never printed.
+
+### 9.5 Final regression, on `caca244`
+
+| Check | Result |
+|---|---|
+| Production build | Exit 0 |
+| Guarded regression (throwaway cluster) | **56 ran, 56 passed, 0 failed, 0 blocked.** 5 excluded, on demand as before: `migration-snapshot`, `migration-verify`, `profile-migration-snapshot`, `profile-migration-verify`, `demo-account-e2e`. Includes `meal`, `account-data` 26/26, `account-data-e2e`, `production-startup` 19/19, `safety-no-marker` (7 passed, 1 skipped, POSIX-only), `db-guard-scoped` 6/6 |
+| Unit tests | 71 files, **2,309 passed, 1 skipped** (the on-request evaluation runner), after one expectation was updated for the measured 2048 MB limit (first run: 1 failed, `deploy-config.test.ts`, which pinned `1536m`) |
+| Script audit | 60/60, which also checks Compose and the Dockerfile agree with G1 |
+| Type check; `npm audit` | Clean; 0 vulnerabilities |
+| Linux image | **G1 PASSED** (9.1) |
+| Physical phones | Not run |
+
+**Why the 5 are excluded:**
+- the four migration snapshot and verify suites check a specific migration against a specific database, with that migration's approval;
+- `demo-account-e2e` writes the demo account on `fitdb_test`.
+
+**Code since the regression:** only `deploy-config.test.ts` (a test) and documentation.
+
+### 9.6 Databases and the one approval request
+
+**Which local databases hold synthetic data** (read-only; accounts classified by email domain, counts only):
+
+| Database | Accounts | Data |
+|---|---|---|
+| `fitdb_test` | 5,698, all on reserved test domains | **Synthetic** |
+| `fitdb_test_isolated` | 1,713, all on reserved test domains | **Synthetic** |
+| `fitdb_test_other` | 0 | Empty |
+| `fitdb_review` | 3, on one real domain | **Real** (the owner's) |
+| `fitdb` | 1, on a real domain, unmarked | Treated as **real** |
+
+**One approval covers the three operations, run in order, each stopping everything on failure:**
+1. **B2** (8.5):
+   - restore the **existing** `fitdb_review` dump into a new, empty `fitdb_restore_check`, with no fresh dump;
+   - check: "RESTORE VERIFIED", and `fitdb_review`'s fingerprint and counts unchanged;
+   - **drop the scratch database immediately**.
+   - Real data: a transient plaintext copy, for minutes.
+2. **B1b** (Part 2):
+   - from the release folder (8 migrations), create `fitdb_test_isolated_other`;
+   - run `safety-no-marker` and `db-guard-scoped`;
+   - check the other databases' markers and counts.
+   - Synthetic data only.
+3. **MIG-FB + MIG-GYM on `fitdb_test`** (8.6 runbook, rehearsed 9/9):
+   - backup, then `pg_restore --list` on it;
+   - fingerprint;
+   - `migrate deploy`;
+   - fingerprint compare, null links, foreign keys, drift;
+   - `gyms-api`, `feedback-api`;
+   - demo status.
+   - Synthetic data only.
+
+**Wording that approves all three:** "B2, B1b and MIG-FB + MIG-GYM on fitdb_test approved; B2's transient copy accepted." Any part can be approved alone.
+
+**Still behind their own gates:** A4, the migrations on `fitdb_review`, the guarded G1 run (after `fitdb_review`), and everything from 8.9 rows 8–14.

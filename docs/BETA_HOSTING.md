@@ -2,7 +2,7 @@
 
 For a small invited beta: one Next.js instance, PostgreSQL, Caddy for HTTPS, encrypted offsite backups, lightweight monitoring. No microservices or Kubernetes. **Nothing here is provisioned or bought, and nothing here is approved.**
 
-**Sizing, measured on this PC (Windows):** about 0.8 GB for the app with both on-device readers loaded, and an export of a very large account peaked at about 700 MB (S-13). Linux figures come from G1, which hasn't run yet. Plan on 4 GB RAM for the app host.
+**Sizing, measured on Linux in G1 (2026-11-09, `caca244`):** the app's container is limited to **2,048 MB**, with Node's heap pinned at 768 MB. It uses about 0.8 GB with both on-device readers loaded, and peaked at 1,360 MB during an export at the 50,000-row limit. On option A's 4 GB server that leaves about 2 GB for PostgreSQL (plan on 0.5–1 GB), Caddy (256 MB) and the system. Plan on 4 GB RAM; don't go smaller.
 
 ## Prices, checked 2026-11-08 on the providers' own pages
 

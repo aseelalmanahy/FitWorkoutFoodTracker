@@ -51,7 +51,9 @@ describe("Compose", () => {
     const app = compose.slice(compose.indexOf("\n  app:\n"), compose.indexOf("\n  proxy:\n"));
     expect(app).not.toMatch(/^\s+ports:/m);
     expect(app).toMatch(/expose:/);
-    expect(app).toMatch(/mem_limit: 1536m/);
+    // Measured on Linux in G1 (S-13): the container needs 2048 MB, with Node's heap pinned at 768 MB in the image.
+    expect(app).toMatch(/^\s+mem_limit: 2048m$/m);
+    expect(read("Dockerfile")).toMatch(/^ENV .*NODE_OPTIONS=--max-old-space-size=768/m);
     expect(app).toMatch(/read_only: true/);
     expect(app).toMatch(/cap_drop: \[ALL\]/);
     expect(app).toMatch(/TRUST_PROXY_HOPS: "1"/);
