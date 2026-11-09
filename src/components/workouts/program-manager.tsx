@@ -106,7 +106,6 @@ export function ProgramManager({ id, name: initialName, days: initialDays, activ
             <li>every completed workout and its exercise history stay.</li>
           </ul>
           {active && removing.weekdays !== "Not scheduled" && <p>Because this is your active program, the schedule will mark it as outside the program until you change that day.</p>}
-          <p>You can add it back to a program later.</p>
         </>}
       </ConfirmDialog>
     </div>
