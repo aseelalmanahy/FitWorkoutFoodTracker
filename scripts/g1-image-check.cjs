@@ -32,6 +32,9 @@ if (!args.includes("--approval=G1") || args.some((a) => !["--approval=G1", "--ke
 // the fit-g1-* containers, and the result says the guarded path must be run again once the migrations are approved.
 const DISPOSABLE_MIGRATIONS = args.includes("--disposable-migrations");
 
+// Windows' own tar (bsdtar). Run from Git Bash, a bare "tar" is GNU tar, which reads "C:\..." as a remote host:path
+// ("Cannot connect to C: resolve failed"), so G1 failed at step 2 there.
+const TAR = process.platform === "win32" ? path.join(process.env.SystemRoot || "C:\\Windows", "System32", "tar.exe") : "tar";
 const docker = (a, opts = {}) => spawnSync("docker", a, { encoding: "utf8", windowsHide: true, maxBuffer: 64 * 2 ** 20, ...opts });
 if (docker(["version", "--format", "{{.Server.Version}}"]).status !== 0) refuse("Docker isn't running. Starting Docker Desktop is part of the G1 approval.");
 const sha = spawnSync("git", ["rev-parse", "--short", "HEAD"], { cwd: ROOT, encoding: "utf8" }).stdout.trim();
@@ -88,7 +91,7 @@ async function waitHealthy(name, seconds) {
       must(docker(["save", "-o", tar, IMAGE]), "docker save");
       const outer = path.join(scanDir, "outer");
       fs.mkdirSync(outer);
-      must(spawnSync("tar", ["-xf", tar, "-C", outer], { encoding: "utf8" }), "unpack the image");
+      must(spawnSync(TAR, ["-xf", tar, "-C", outer], { encoding: "utf8" }), "unpack the image");
       fs.rmSync(tar);
       const files = [];
       const walk = (d) => { for (const e of fs.readdirSync(d, { withFileTypes: true })) { const f = path.join(d, e.name); if (e.isDirectory()) walk(f); else files.push(f); } };
@@ -105,7 +108,7 @@ async function waitHealthy(name, seconds) {
         layers++;
         const dir = path.join(scanDir, `layer-${layers}`);
         fs.mkdirSync(dir);
-        spawnSync("tar", ["-xf", f, "-C", dir], { encoding: "utf8" }); // whiteouts and device files may warn; files are what's scanned
+        spawnSync(TAR, ["-xf", f, "-C", dir], { encoding: "utf8" }); // whiteouts and device files may warn; files are what's scanned
         findings.push(...scanTree(dir, values).map((x) => ({ layer: layers, ...x })));
         fs.rmSync(dir, { recursive: true, force: true });
       }
