@@ -40,16 +40,17 @@
 - the merge to `main`;
 - the clinical and legal items R-02, R-03, R-06 and R-12 ([DECISION_REGISTER.md](DECISION_REGISTER.md) §5).
 
-## Local environments (the owner's PC; for development and demonstrations only)
+## Environments (ENV-01, owner directive 2026-11-09)
 
-| Database | Data | State |
+Two permanent environments only. Temporary databases are for automated tests, never a third environment.
+
+| Environment | Database | State |
 |---|---|---|
-| `fitdb` | Development, 1 account on a real domain | 4 migrations (B-07: it lacks MIG-01..04) |
-| `fitdb_review` | **Real**: the owner's, 3 accounts | 8 migrations. MIG-FB and MIG-GYM **not** applied (a separate approval). Backup restore verified (B2) |
-| `fitdb_test` | Synthetic (5,698 accounts), plus the demo account | **10 migrations** (MIG-FB and MIG-GYM applied 2026-11-09). Demo account with 2 gyms and 11 machines and equipment items |
-| `fitdb_test_isolated`, `…_other` | Synthetic | 8 migrations; the B1b safety suites pass |
+| **LOWER**: development, testing, demonstrations | `fitdb_test`, on the owner's PC | **11 migrations** (MIG-PROG applied 2026-11-09 with the owner's approval; backup `fitdb_test-pre-mig-prog-20261109T182643Z.dump`, restore verified; every existing row unchanged against the fingerprint). Synthetic accounts plus the one demo account, `fitworkoutfoodtracker-demo@test.dev` |
+| **PRODUCTION**: real users only | A separate cloud PostgreSQL, with its own credentials, backups and security | **Doesn't exist yet** (blockers above) |
 
-- **Servers:** 3000 (demo, an older build), 3001 (UX-01 preview), 3002 and 3003 (review). All bound to 127.0.0.1 only (A1).
+- **One local application: http://localhost:3400**, started with `npm run local` from `FitWorkoutFoodTracker-programs` ([MANUAL_UI_TESTING_GUIDE.md](MANUAL_UI_TESTING_GUIDE.md)). It refuses a stale build, a migration mismatch or a missing demo account, and never migrates or seeds. Live USDA and Open Food Facts; paid AI off. Bound to 127.0.0.1 only (A1).
+- **Retired, not deleted:** the servers on 3000–3003, 3401 and 3402 were stopped on 2026-11-09. Their folders stay, and so do these databases, which are no longer environments: `fitdb` (development, 4 migrations), `fitdb_review` (**real**: the owner's 3 review accounts, 8 migrations; MIG-FB, MIG-GYM and MIG-PROG not applied). The throwaway test cluster (port 55434) holds the automated-test databases.
 - **Network:** the firewall rules are closed (A2), and PostgreSQL listens on loopback only (A3).
 - **Not set up:** private phone access. **Tailscale isn't installed** on the PC (checked 2026-11-09).
 

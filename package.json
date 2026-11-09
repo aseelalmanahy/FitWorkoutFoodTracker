@@ -9,6 +9,7 @@
     "dev": "next dev",
     "build": "prisma generate && next build",
     "start": "next start",
+    "local": "node --env-file=.env.test scripts/demo-server.cjs --confirm=fitdb_test",
     "lint": "tsc --noEmit",
     "test": "vitest run",
     "db:migrate": "prisma migrate dev",

@@ -265,11 +265,58 @@ test("demo-server.cjs starts the chosen folder's own Next.js, from that folder, 
   assert.match(code, /path\.join\(APP_DIR, "\.next", "BUILD_ID"\)/);
 });
 
-test("demo-server.cjs keeps registration closed, AI off and providers stubbed", () => {
+// ENV-01: the one local application. Live USDA and Open Food Facts, paid AI off, registration closed; it only reads.
+test("demo-server.cjs keeps registration closed and paid AI off, and uses the live food services", () => {
   const code = fs.readFileSync(path.join(__dirname, "demo-server.cjs"), "utf8");
-  assert.doesNotMatch(code, /FIT_TEST_OPEN_REGISTRATION/, "registration isn't opened");
-  assert.match(code, /ANTHROPIC_API_KEY: ""/);
-  assert.match(code, /FDC_BASE_URL: `\$\{stub\.url\}/);
-  assert.match(code, /OFF_BASE_URL: `\$\{stub\.url\}/);
-  assert.match(code, /MAIL_STUB_DIR: mailDir/);
+  const live = code.replace(/^\s*\/\/.*$/gm, "");
+  assert.doesNotMatch(live, /FIT_TEST_OPEN_REGISTRATION/, "registration isn't opened");
+  assert.match(live, /ANTHROPIC_API_KEY: ""/);
+  assert.match(live, /for \(const k of \["FDC_BASE_URL", "OFF_BASE_URL", "ANTHROPIC_BASE_URL", "FOOD_RATE_LIMIT_MULTIPLIER"\]\) delete process\.env\[k\];/, "no stand-in address replaces the live services");
+  assert.doesNotMatch(live, /startStub|FDC_BASE_URL:|OFF_BASE_URL:/);
+  assert.match(live, /MAIL_STUB_DIR: mailDir/);
+  assert.match(live, /const DEFAULT_PORT = 3400;/);
+  assert.match(JSON.parse(fs.readFileSync(path.join(ROOT, "package.json"), "utf8")).scripts.local, /^node --env-file=\.env\.test scripts\/demo-server\.cjs --confirm=fitdb_test$/);
+});
+
+test("demo-server.cjs only reads the database: it never migrates, creates an account or writes", () => {
+  const code = fs.readFileSync(path.join(__dirname, "demo-server.cjs"), "utf8").replace(/^\s*\/\/.*$/gm, "");
+  assert.match(code, /await tx\.\$executeRawUnsafe\("SET TRANSACTION READ ONLY"\);/);
+  assert.doesNotMatch(code, /migrate (deploy|dev|reset)|db push|\.(create|createMany|update|updateMany|upsert|delete|deleteMany)\(|INSERT |UPDATE |DELETE |demo-account\.cjs/);
+  assert.match(code, /This never migrates/);
+  assert.match(code, /This never creates accounts/);
+  for (const line of code.split("\n").filter((l) => /console\.(log|error)/.test(l))) assert.doesNotMatch(line, /\$\{\s*(FDC_KEY|DB)\s*\}/, "neither the key nor the address is printed");
+});
+
+/** A folder that looks like a built copy of the app, for the refusals that come after the build checks. */
+function builtApp({ sourceAfterBuild = false } = {}) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "fit-built-"));
+  fs.writeFileSync(path.join(dir, "package.json"), JSON.stringify({ name: "fit-workout-food-tracker" }));
+  fs.mkdirSync(path.join(dir, "node_modules", "next", "dist", "bin"), { recursive: true });
+  fs.writeFileSync(path.join(dir, "node_modules", "next", "dist", "bin", "next"), "");
+  fs.mkdirSync(path.join(dir, "src"));
+  fs.writeFileSync(path.join(dir, "src", "page.tsx"), "");
+  fs.mkdirSync(path.join(dir, ".next"));
+  fs.writeFileSync(path.join(dir, ".next", "BUILD_ID"), "x");
+  const hourAgo = new Date(Date.now() - 3_600_000);
+  if (sourceAfterBuild) fs.utimesSync(path.join(dir, ".next", "BUILD_ID"), hourAgo, hourAgo);
+  else fs.utimesSync(path.join(dir, "src", "page.tsx"), hourAgo, hourAgo);
+  return dir;
+}
+
+test("demo-server.cjs refuses a build older than its code, before connecting", () => {
+  const dir = builtApp({ sourceAfterBuild: true });
+  try {
+    const r = run("demo-server.cjs", [...SERVE, `--app-dir=${dir}`], CLOSED);
+    assert.equal(r.code, 4, r.text);
+    assert.match(r.text, /the build is older than src[\\/]page\.tsx/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
+
+test("demo-server.cjs refuses without a USDA key in .env.test, before connecting", () => {
+  const dir = builtApp();
+  try {
+    const r = run("demo-server.cjs", [...SERVE, `--app-dir=${dir}`], CLOSED);
+    assert.equal(r.code, 4, r.text);
+    assert.match(r.text, /FDC_API_KEY isn't in \.env\.test/);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });

@@ -33,7 +33,7 @@
 - The full guarded regression, 56/56.
 - Screenshots: [docs/screenshots/ui01](screenshots/ui01).
 
-**Not yet on the owner's demo account.** The demo account's database (`fitdb_test`) doesn't have MIG-PROG. Applying it there needs the owner's approval; the new version runs meanwhile on a throwaway database.
+**On the owner's demo account since 2026-11-09.** MIG-PROG was applied to `fitdb_test` with the owner's approval; every existing row was unchanged. The new version runs at http://localhost:3400 ([PROJECT_STATUS.md](PROJECT_STATUS.md)).
 
 ## IM-02: wrong exercises from a text import
 

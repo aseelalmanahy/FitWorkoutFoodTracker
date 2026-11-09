@@ -6,6 +6,24 @@ Phones get a bottom bar. From 768 px a wider column, and from 1024 px a side bar
 
 ## Starting the application
 
+**There is one local application: http://localhost:3400** (ENV-01, 2026-11-09). It runs the newest verified build from `FitWorkoutFoodTracker-programs`, on `fitdb_test`, with the demo account and the live USDA and Open Food Facts services. Paid AI is off. Earlier ports (3000–3003, 3401, 3402) are retired; their folders and databases are kept.
+
+To start it, in PowerShell. Leave the window open; Ctrl+C stops it:
+
+```powershell
+cd $HOME\Desktop\FitWorkoutFoodTracker-programs
+Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue
+npm run local
+```
+
+Before starting, it checks, only reading: the build is newer than the code; `fitdb_test` has exactly this code's migrations; the demo account exists; the USDA key is in `.env.test`; and USDA and Open Food Facts answer. It never migrates, creates an account or adds data: if a migration is missing, it refuses and says which. It prints no password or key. **If the window was closed without stopping it,** this stops whatever is on port 3400:
+
+```powershell
+Get-NetTCPConnection -State Listen -LocalPort 3400 | ForEach-Object { Stop-Process -Id $_.OwningProcess }
+```
+
+**After new code arrives in that folder,** stop it, run the build in step 1 below, and start it again. The steps below are the same thing written out (`npm run local` runs step 2).
+
 In PowerShell, from the repository root. **Don't run `npm run dev` at the same time:** it overwrites the production build these steps need. It also reads `.env` rather than `fitdb_test`, so the demo account doesn't exist there.
 
 **1. Once, and again after changing branches or code. Stop the app first with Ctrl+C,** as Windows won't let Prisma replace a file the running app is using:
@@ -27,7 +45,7 @@ Remove-Item Env:DATABASE_URL -ErrorAction SilentlyContinue
 node --env-file=.env.test scripts/demo-server.cjs --confirm=fitdb_test
 ```
 
-Wait for `Running at http://localhost:3000, verified on fitdb_test`, and use the address it prints. If port 3000 is taken, it refuses: stop what's using it, or add `--port=3001`.
+Wait for `Running at http://localhost:3400, verified on fitdb_test`, and use the address it prints. If port 3400 is taken, it refuses: stop what's using it.
 
 **3. Open that address in Chrome, Edge or Firefox.** Safari and other WebKit browsers can't stay signed in over plain `http://localhost`, as the session cookie is `Secure`.
 
@@ -79,7 +97,7 @@ All of it is made up for demonstration. **The foods aren't a nutrition reference
 |---|---|---|---|
 | 2.1 | Nutrition | Look at today | Breakfast and lunch, with calories and macros against the 2,150 kcal target |
 | 2.2 | Nutrition → the arrows at the top | Go back a day | That day's meals |
-| 2.3 | Nutrition → add food → search "banana" | Look at the results | Your demo food, and a USDA-labelled result, with a "Test data" note. **That result comes from a local stand-in, and not from USDA** |
+| 2.3 | Nutrition → add food → search "banana" | Look at the results | Your demo food, and live USDA results (on http://localhost:3400; an older stand-in setup showed a "Test data" note instead) |
 | 2.4 | Add food → pick a food | Save it | It appears in that meal, and the totals rise |
 | 2.5 | Nutrition → Targets | Look at it | The current target, with carbs worked out from the rest |
 | 2.6 | Nutrition → History | Look at this week | Daily calories against the target, and weekly averages |
@@ -90,7 +108,7 @@ All of it is made up for demonstration. **The foods aren't a nutrition reference
 
 ## The review environment: real data, real food databases
 
-**This is the one to use for hands-on testing.** It runs the redesigned app on its own database, `fitdb_review`, with the real USDA FoodData Central and Open Food Facts services. What you enter is kept, including across restarts. It's in its own folder, `FitWorkoutFoodTracker-review`, beside this one, and doesn't affect the demo on port 3000 or 3001.
+**Retired (ENV-01, 2026-11-09).** Use http://localhost:3400 instead. `fitdb_review` and its folder are kept, not deleted, and not started. This section is kept for history. It ran the redesigned app on its own database, `fitdb_review`, with the real USDA FoodData Central and Open Food Facts services. What you enter is kept, including across restarts. It's in its own folder, `FitWorkoutFoodTracker-review`, beside this one, and doesn't affect the demo on port 3000 or 3001.
 
 | | |
 |---|---|
@@ -141,7 +159,7 @@ node --env-file=.env.review scripts/review-account.cjs --mail-tester --email=<yo
 
 ## UX-01: food search, layout, design and notes
 
-On `feature/ux-reliability-redesign`. To try it without disturbing the demo on port 3000, build and run it from its own folder, `FitWorkoutFoodTracker-ux`, beside this one, with the same two steps above and `--port=3001`, and with `--env-file=..\FitWorkoutFoodTracker\.env.test`, as `.env.test` stays in this folder only.
+UX-01 is part of the build on http://localhost:3400; the separate preview below is retired (ENV-01). On `feature/ux-reliability-redesign`. To try it without disturbing the demo on port 3000, build and run it from its own folder, `FitWorkoutFoodTracker-ux`, beside this one, with the same two steps above and `--port=3001`, and with `--env-file=..\FitWorkoutFoodTracker\.env.test`, as `.env.test` stays in this folder only.
 
 **After A1 (this computer only).** The UX-01 preview keeps its own build, but is served by the release folder's launcher, which listens on this computer only. Stop the old preview on 3001 first, then:
 
