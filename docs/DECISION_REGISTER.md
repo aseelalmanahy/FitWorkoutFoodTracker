@@ -174,6 +174,7 @@ So "Decision 8" in FD:416 and EP means PD-D8 (link-first registration), not PS-Q
 | WT-07 | A React hydration error (#418) once on the workout page | Low | **Not reproduced; monitored**. The clock hypothesis was tested and ruled out | [RA Part 12](RELEASE_ACCEPTANCE.md) | re-check if it recurs |
 | WT-08 | Repeated controls or rows | Cosmetic | **Fixed** in `cb346ff` (Log out, Close, Recent PRs); a possibly duplicate package candidate is left | [RA Part 12](RELEASE_ACCEPTANCE.md) | — |
 | WT-09 | Unlabelled create-exercise selects; the muscle defaulted to Chest | Low | **Fixed** in `cb346ff` | [RA Part 12](RELEASE_ACCEPTANCE.md) | — |
+| IMG-01 | A real plan image (399 px wide, three-day table) gave "No exercises with sets and repetitions were found": read at its own size (text ~7 px), and the parser couldn't split a table row's day, name and sets | **High** (found by the owner) | **Fixed** in `2411496` and `7fec302`: small images enlarged in one lossless pass; OCR rows split at column gaps; a row missing its reps re-read at 1600 px and filled only where both readings agree; a review step to add an unread line or split a day. Through the app: 3 days, 18 of 18 rows, all 3 x 8-12; 12 matched for certain, 6 offered with the right exercise first. Unit, real-recognizer, and browser tests in 3 engines; G1 and the rehearsal (108/108) passed | commits `2411496`, `7fec302` | owner to retest at the review URL |
 
 **Closed defects, kept here for history:**
 - EXP-01: a large export crashed the app (High). Fixed and verified on Linux.

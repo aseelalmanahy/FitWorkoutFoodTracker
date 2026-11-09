@@ -7,7 +7,7 @@
 | | Commit | Notes |
 |---|---|---|
 | `main` | `5434f90` (2026-11-06) | Ends at Phase 4.0.4. One pull request ever: #1 (Phase 1), merged. No issues are open. |
-| **Release candidate** `feature/multi-gym-exercise-alternatives` | Application code at **`cb346ff`** (the walkthrough defect fixes, [RELEASE_ACCEPTANCE.md](RELEASE_ACCEPTANCE.md) Part 12) | 150+ commits ahead of `main`. It contains every phase branch from 3.x to the cloud stack (verified with `git merge-base --is-ancestor`). The exceptions are `feature/ten-user-qa-fixtures` (3 unique commits: 10 QA accounts and a browser test) and `phase-2.5-review` (a review diff only) |
+| **Release candidate** `feature/multi-gym-exercise-alternatives` | Application code at **`7fec302`**: the walkthrough defect fixes ([RELEASE_ACCEPTANCE.md](RELEASE_ACCEPTANCE.md) Part 12), then IMG-01, the plan-image import fix ([DECISION_REGISTER.md](DECISION_REGISTER.md) §7; G1 and the staging rehearsal 108/108 passed at `7fec302`) | 150+ commits ahead of `main`. It contains every phase branch from 3.x to the cloud stack (verified with `git merge-base --is-ancestor`). The exceptions are `feature/ten-user-qa-fixtures` (3 unique commits: 10 QA accounts and a browser test) and `phase-2.5-review` (a review diff only) |
 | Not merged to `main` | Phase 4.0.5, 4.1, 4.0.6, UX-01, release completion, beta capabilities, multi-gym, the deployment stack | Merging is a separate owner approval ([RELEASE_ACCEPTANCE.md](RELEASE_ACCEPTANCE.md) Part 11.5 B6) |
 | Deployed | **Nothing** | No server, domain, email account or cloud database exists |
 | Owner accepted | **Nothing** | Many owner approvals are recorded ([DECISION_REGISTER.md](DECISION_REGISTER.md) §1); no owner acceptance of any delivered work is recorded |
