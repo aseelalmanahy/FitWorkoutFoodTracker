@@ -4,7 +4,7 @@
 
 **Code is frozen.** Development is closed. Only a reproducible critical or high-severity defect, a data-loss risk or a release-blocking regression would reopen it.
 
-**Release verdict (2026-11-08): NOT READY** for an invited beta, and not yet ready for staging. The code passes its full regression (Part 7). What's missing is database recovery on real data, role isolation, the migrations, the Linux image, hosting, email, phones, the privacy review and your acceptance. Each item and its owner action is in Part 7's approval package.
+**Release verdict (2026-11-09): NOT READY** for an invited beta, and not yet ready for staging. G1 on Linux found and led to the fix of a High availability defect, EXP-01: a large export crashed the app (Part 8.4). The fix is in code, but G1's check of it didn't complete (Part 8.3). Also missing: database recovery on real data, role isolation, the migrations, hosting, email, phones, the privacy review and your acceptance. Each item and its owner action is in Part 8.9's approval package, which supersedes 7.7.
 
 **Nothing in this document is approved.** Every approval is the owner's, and so is every acceptance. Nothing has been merged or deployed. No migration has been applied to `fitdb`, `fitdb_test`, `fitdb_review` or production.
 
@@ -665,3 +665,169 @@ Only actions that need your access, authorization, device, money or acceptance. 
 | 12 | **NOTICE-B** | Real registration stays closed without it | None | `noticeIsFinal()` true, with a dated review | n/a | Decide the open gaps (7.4) and have the notice reviewed by a lawyer |
 | 13 | **Security sign-off** | Required before the beta | n/a | A dated, written sign-off | n/a | Read Part 1's limitations and Part 7's remaining risks; sign off or list what must be fixed |
 | 14 | **G3–G7**, then the merge | Staging through the invited beta | Each its own approval | Each gate's checks | Previous image tag | Approve each in order; the merge is approved separately at G7 |
+
+**7.7 is superseded by 8.9.**
+
+---
+
+## Part 8. Staging round (2026-11-08 night to 2026-11-09)
+
+### 8.1 Owner decisions recorded
+
+The owner wrote on 2026-11-08:
+
+- **No further changes to this Windows PC:** no encryption, Windows security settings, firewall, user permissions, system software or PostgreSQL network settings. A1, A2, A3 and SEC-ACL are complete and not repeated. **Owner action 1 in 7.7 (the encryption check) is withdrawn.**
+- **The unencrypted C: drive is an accepted limitation** of this local development environment. It is **not** approval to store more sensitive data insecurely: **no new unencrypted copy of real review data without separate approval.**
+- **G1 using the existing infrastructure.** Starting the already-installed Docker Desktop (its WSL2 distribution was present, so nothing was installed or configured) is recorded as the G1 approval.
+- **Persistent database operations** run only after their own approval is recorded. None was recorded in this round, so none ran.
+
+### 8.2 Read-only database verification (counts only, no row content)
+
+| | `fitdb_test` | `fitdb_review` |
+|---|---|---|
+| Marker | `…test-database:v1:fitdb_test` | `…review-database:v1:fitdb_review` |
+| Migrations applied | 8, through `…_body_metrics` | 8, through `…_body_metrics` |
+| Tables | 16 | 16 |
+| Foreign keys | 20, all validated | 20, all validated |
+| Rows | User 5,698; WorkoutSession 1,635; SessionExercise 4,152; SetEntry 780,388; FoodEntry 10,507; Food 4,220; and so on (832,592 in all) | User 3; WorkoutSession 7; SessionExercise 13; SetEntry 31; FoodEntry 17; Food 15; Exercise 47; and so on |
+
+These are the "before" figures for B2 and the migrations.
+
+### 8.3 G1, the production image on Linux: 14 of 15, not yet passed
+
+Seven runs on Docker 29.8.2 (Linux engine) with disposable data only, each against the commit it names. Evidence is in `FitWorkoutFoodTracker-backups\diagnostics\g1\<time>\results.json`.
+
+| Step | Result (last complete run, `d832521`) |
+|---|---|
+| 1. Build | **PASS**: 3,307 MB image, about 60 s |
+| 2. Layer scan | **PASS**: 16 layers, the 5 local secret values searched for, 0 findings (no env file, account file, Git folder or dump) |
+| 3. Throwaway database with TLS | **PASS** |
+| 4. Startup refuses a weak database password, and an http origin | **PASS**, both (exit 1). The logs show Next.js's "Ready" line, but G1 joins stderr and stdout, so the order isn't chronological. `production-startup` (in the regression) proves a refused start never listens |
+| 5a. The **guarded** migrate image refuses the unapproved migrations, applying nothing | **PASS**: exit 4, no history table. Evidence that the guard works inside the image |
+| 5a2. Migrations applied to the throwaway container only (`--disposable-migrations`, `a239a9a`) | **PASS**: 1 s |
+| 5b. App starts read-only, with no capabilities, at 1536 MB | **PASS**: 187 MB anonymous |
+| 6a–6b. Health; sign-in | **PASS** |
+| 6c–6d. Label scan and meal photo, read on the server | **PASS**: 552 ms and 3.6 s. Anonymous memory after the meal model loads: about 833 MB |
+| 7. One export at the row limit while a second is refused (429), then the second | **FAIL at 100,000 rows** (`d832521`): answers correct (200 and 429, then 200, 61 MiB); process alive; no OOM kill. But **anonymous memory peaked at 1,517 MB**, against the 1,280 MB required (256 MB under the limit) |
+| 7b. An account over the limit is refused with 413 | **PASS** |
+| 8. Clean stop | **PASS**: exit 0 in 1 s |
+
+**Run 7 (`749ca8b`, the 50,000-row limit) didn't complete.** Claude Code stopped it after the image build, because the PC was critically low on memory: Docker's VM was holding about 7 GB beside four local app servers. Docker Desktop and its VM were then stopped, returning them to how they were before this round.
+
+**Left for G1:**
+- re-run once at `749ca8b` or later;
+- one stopped `fit-g1` container and its app image are left on Docker's virtual disk; remove them first: `docker ps -a` to find the container using `fitworkoutfoodtracker:g1-749ca8b`, `docker rm -f` it, then `docker image rm fitworkoutfoodtracker:g1-749ca8b`;
+- after MIG-FB and MIG-GYM are approved, run again **without** `--disposable-migrations` for the guarded path.
+
+**G1 tooling defects found and fixed** (test scripts only):
+- `57a055c`: layers unpacked with Windows' `tar.exe` (Git Bash's GNU tar read `C:\…` as a remote host);
+- `3342345`: the synthetic user gets a profile, as the access gate requires, and the app's logs are kept on failure;
+- `d832521`: memory is judged by sampled anonymous memory and OOM kills. The cgroup peak counts file cache; here that cache was 0, so the peak was real.
+
+### 8.4 Defect EXP-01: a large export crashed the production app (FIXED in code; the G1 check is pending)
+
+- **Severity: High (availability).** The beta has one app instance, so one export by one account took the service down for everyone until the container restarted.
+- **Repro (G1, `57a055c`):** an account with 249,000 food entries exports in the 1536 MB container: "FATAL ERROR: Reached heap limit … JavaScript heap out of memory", exit 139.
+  - The earlier 250,000-row limit was judgement ("not measurement").
+  - The Windows measurement (about 700 MB, S-13) missed it, because Node on Windows doesn't size its heap from a container limit.
+- **Root cause:** the export is deliberately buffered (so a cut-off download can't look complete). It holds about 6.8 KB of anonymous memory per row while it's built. On top of the meal model's about 833 MB, the container has room for only so many rows.
+- **Fix:**
+  - `MAX_EXPORT_ROWS` 250,000 → **50,000** (`c26775b`, `749ca8b`): about a decade of heavy logging; the beta's real accounts hold under 200 rows;
+  - `MAX_CONCURRENT_EXPORTS` 2 → **1** (`dbcdf4c`): a second export gets the existing 429 with `Retry-After: 5`.
+  - The unit test now fills exactly that many slots, and checks the next person is refused and then served.
+- **Evidence so far:**
+  - 100,000 rows: 1,517 MB, alive, no OOM kill;
+  - over the limit: 413;
+  - 50,000 rows: measurement pending (run 7, above). By the measured rate it's about 1,175 MB, under the 1,280 MB bar.
+- **Behaviour change (owner to note):** an account with more than 50,000 rows can't download its export in one file, and is told to contact support. Raising the limit needs a **streamed export**, recorded as follow-up EXP-02. It's needed before the beta grows beyond invited testers.
+
+### 8.5 B2, prepared under the "no new unencrypted copy" rule
+
+- `restore-check.cjs` restores a plain dump into `fitdb_restore_check` on the same server. **Any real-data restore creates a plaintext database copy on C:** for the minutes until it's dropped. No mechanism avoids that without installing software, which is ruled out.
+- **The procedure with the fewest copies:**
+  - **no fresh dump**: restore the **existing** `fitdb_review-2026-11-07-21-52-51.dump` (in the folder fixed by SEC-ACL). `restore-check.cjs` reports row counts beside the source's, and allows for growth since the backup;
+  - create the empty scratch database, check, and **drop it immediately**;
+  - **the only new copy is the transient scratch database.**
+- **Needs:** the owner's approval of that transient copy (8.9, action 1).
+- **The alternative needs no approval but proves less:** the mechanism has already been proven twice on throwaway data (Part 2).
+
+### 8.6 The `fitdb_test` migrations, ready to run on approval
+
+**New:** `scripts/table-fingerprint.cjs` (`57a055c`), read-only. Before a migration it records each table's row count and an MD5 over its original columns in key order, then compares after.
+- **Self-test on the throwaway cluster, 7 of 7:** an added column and an added migration read as unchanged; an edited value, a NULL changed to a value, a deleted row and a dropped column are each detected.
+- **Trial on `fitdb_test`:** 16 tables and 832,592 rows in about 7 s, UNCHANGED.
+
+**Full rehearsal on a current copy of `fitdb_test`** (synthetic test data; `fitdb_test` only read; the copy was restored into the throwaway cluster, then dropped, and the dump deleted): **9 of 9.**
+1. Dump: 12 MiB in 1 s.
+2. Restored: 8 migrations.
+3. Fingerprint saved.
+4. `migrate deploy` applied `…_feedback` and `…_multi_gym` in 1.1 s.
+5. Every existing row unchanged over its original columns.
+6. 0 of 1,635 workouts with a gym; 0 of 4,152 exercises with a machine, swap or plan link.
+7. `Feedback`, `GymLocation` and `GymEquipment` exist, and are empty.
+8. 31 foreign keys, 0 unvalidated; 4 indexes on the new columns, as in the migration (`plannedExerciseId` has none, by design: it only slows the rare deletion of an exercise).
+9. No drift from `schema.prisma`.
+
+**Runbook, on approval** (from `FitWorkoutFoodTracker-beta`, with `fitdb_test`'s own env file; test data only):
+1. `pg_dump -Fc` of `fitdb_test` into `FitWorkoutFoodTracker-backups\` (the protected folder), then `pg_restore --list` on it.
+2. `node --env-file=../FitWorkoutFoodTracker/.env.test scripts/table-fingerprint.cjs --save=<backups>\fp-fitdb_test-before.json`
+3. `node --env-file=../FitWorkoutFoodTracker/.env.test node_modules/prisma/build/index.js migrate deploy`. `fitdb_test` is a test database, so the approved list doesn't apply, as `local-db.cjs` documents.
+4. `table-fingerprint.cjs --compare=…`: UNCHANGED. Then the null-link and new-table checks, and `migrate diff --exit-code` (as in the rehearsal).
+5. `demo-account.cjs --status`: identical. 3000 and 3001 still answer (older builds don't read the new columns).
+6. Then GYM-ACCEPT: populate the demo account's gyms (`demo-account.cjs --populate`, which writes only the demo account's rows), and serve this branch's build for MG.1–MG.15.
+
+**`fitdb_review` (later, separately):** the same steps after B2, with the two names and hashes recorded in `prisma/approved-migrations.json` in a commit that names the approval. Run through `local-db.cjs --init --confirm=fitdb_review`, which then allows them. Smoke test: sign in, a workout, a food, a gym.
+
+### 8.7 B1b and A4: unchanged, ready
+
+- **B1b:** as in Part 2, from the release folder (8 migrations). It creates only a test database, with no real data.
+- **A4:** `--verify` NOT ISOLATED, as expected; the six env files and the roles are unchanged (7.3). Prerequisites still open: B2, then the owner's approval, and the superuser password typed by the owner. No credential was changed.
+
+### 8.8 Final regression
+
+**Final candidate tested: `749ca8b`.** Evidence: `FitWorkoutFoodTracker-backups\diagnostics\release-execution-749ca8b\`.
+
+| Check | Result |
+|---|---|
+| Production build | Exit 0 |
+| Guarded regression (throwaway cluster) | **56 ran: 55 passed, 1 failed (`meal`), 0 blocked.** 5 excluded, on demand as before (the four migration snapshot and verify suites; `demo-account-e2e`). Passed: `account-data` 26/26, `account-data-e2e`, `production-startup` 19/19, `production-security` 14/14, `production-security-e2e`, `safety-no-marker` (7 passed, 1 skipped, POSIX-only), `db-guard-scoped` 6/6, and the rest |
+| `meal`, then on its own | Failed once in the full run; **passed 3 of 3 on its own** right after (`meal-reruns\`) |
+| Unit tests | 71 files: **2,309 passed, 0 failed, 1 skipped** (the on-request evaluation runner) |
+| Script tests | Script audit 60/60, `migration-safety` 8/8, `mig-04` 103/103, `local-security` 2/2, `demo-account` 33/33, `account-facts` 18/18 |
+| Type check | Clean |
+| `npm audit` | 0 (at `8c520a0`; no dependency changed since) |
+| Linux image (G1) | 14 of 15 at `d832521`; the run at `749ca8b` didn't complete (8.3) |
+| Physical phones | Not run |
+
+**Observation M-WK-1** (open, Low, intermittent, cause not determined):
+- **What failed:** in the full run, every functional check of `meal` passed in Chromium, Firefox and WebKit. Then its final "no page errors" assertion caught one WebKit error: a food-search request (`/api/foods/search?q=7 Up…`) "cancelled due to access control checks". That is how WebKit reports an in-flight request that was aborted.
+- **The server log** has no error.
+- **Not RC-08:** proxy connection resets appear in every browser suite, passing ones included, so they don't explain this.
+- **Frequency:** once in the four full regressions recorded on this branch (`5c5d7d2`, `e35f76d`, `8c520a0`, `749ca8b`); three isolated runs since are clean.
+- **Not caused by this round's changes:** `meal` doesn't use the export.
+- **Next step:** if it recurs, trace that run's request timing.
+
+**RC-08 and QA-05:**
+- RC-08 (proxy connection failures): no recurrence of its own failure mode. Still VERIFIED as test-only.
+- QA-05: `safety-no-marker` passes; on the real server it's still blocked by B1b.
+
+**What this regression covers:** application code changed only in `export.ts` (and its test) since `8c520a0`, and every suite that exports passed.
+
+### 8.9 Approval package (dependency order; replaces 7.7)
+
+| # | Action | Risk, data, interruption | Verify | Rollback | Owner says |
+|---|---|---|---|---|---|
+| 1 | **B2** with the existing dump (8.5) | A transient plaintext copy of review data in `fitdb_restore_check`, dropped immediately; no interruption | "RESTORE VERIFIED"; `fitdb_review` unchanged; scratch dropped | Drop the scratch database | "B2 approved, transient copy accepted" |
+| 2 | **B1b** | One test database, no real data; no interruption | Both suites pass; other databases unchanged | Drop `fitdb_test_isolated_other` | "B1b approved" |
+| 3 | **MIG-FB + MIG-GYM on `fitdb_test`** (8.6) | Adds 3 tables and 5 nullable columns to test data; no interruption | Fingerprint UNCHANGED; nulls; no drift; suites | Forward-only, from the backup | "MIG-FB and MIG-GYM approved for fitdb_test" |
+| 4 | **G1 re-run** | Starts Docker Desktop; disposable containers only; uses about 7 GB of RAM while it runs, so close other heavy apps first | "G1 CHECK PASSED", with step 7 under 1,280 MB anonymous at 50,000 rows | n/a | "re-run G1" |
+| 5 | **A4** | Every server's credentials change; a few seconds per restart; no data changes | `--verify` ISOLATED; servers work; counts equal | `--rollback --state=…` | After 1: "A4 approved"; you type the superuser password |
+| 6 | **MIG-FB + MIG-GYM on `fitdb_review`** | Your review data gains the new tables and columns; restart 3002 and 3003 | As 3, plus the smoke test | Forward-only, from the backup | After 1 and 3: "approved for fitdb_review" |
+| 7 | **G1, guarded path** | As 4 | "G1 CHECK PASSED" without `--disposable-migrations` | n/a | After 6: "run G1 guarded" |
+| 8 | **GYM-ACCEPT** and **UX-01** | None | Your judgement | n/a | "accepted", or what's wrong |
+| 9 | **E1** on both phones (7.6) | Tailscale's certificate publishes the machine and tailnet name | The 7.6 checklist | Stop `tailscale serve` | The results |
+| 10 | **G2** decisions | About €14/month and $12/year (verified prices) | Recorded in `FEATURE_DECISIONS.md` | n/a | Provider and region, ceiling, data access, domain, RPO/RTO/retention |
+| 11 | **C1 + C2** email | Domain purchase; Resend free tier | Verified domain; G.1–G.6 | Revoke the key | Buy the domain; you enter the key |
+| 12 | **NOTICE-B** | None | `noticeIsFinal()` with a dated review | n/a | Decisions plus a legal review |
+| 13 | **Security sign-off**, including EXP-01's new limits | n/a | Dated, written | n/a | "sign-off given", or what to fix |
+| 14 | **G3–G7**, then the merge | Each its own approval | Each gate's checks | Previous image tag | In order |
