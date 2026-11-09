@@ -39,11 +39,19 @@ wait_healthy() { # the app container's own health check (Dockerfile HEALTHCHECK,
   return 1
 }
 
+# Caddy checks the app itself (health_uri, every 30 s) and keeps an upstream it saw fail out of rotation until its
+# next check, so right after a restart the proxy can answer 503 while the app is healthy. Wait (at most 60 s) for the
+# proxy to route again, quietly, then run the smoke test once for the record.
+smoke_settled() {
+  for _ in $(seq 1 20); do ./smoke.sh "$APP_ORIGIN_FOR_SMOKE" > /dev/null 2>&1 && break; sleep 3; done
+  ./smoke.sh "$APP_ORIGIN_FOR_SMOKE"
+}
+
 rollback() {
   log "FAILED: $1"
   if [ -z "$PREVIOUS" ]; then log "no previous tag to go back to; the app is left stopped"; compose "$TAG" stop app || true; exit 1; fi
   log "rolling back to $PREVIOUS"
-  if compose "$PREVIOUS" up -d --no-deps app && wait_healthy "$PREVIOUS" && ./smoke.sh "${APP_ORIGIN_FOR_SMOKE:-}"; then
+  if compose "$PREVIOUS" up -d --no-deps app && wait_healthy "$PREVIOUS" && smoke_settled; then
     log "ROLLED BACK to $PREVIOUS, which is healthy. $TAG is not deployed."; exit 1
   fi
   log "ROLLBACK ALSO FAILED: see 'docker compose logs app'. Restore from backup if the database is at fault."; exit 2
@@ -81,6 +89,6 @@ fi
 # The proxy waits for a healthy app, so a release that can't start fails here: that's a rollback, not an abort.
 compose "$TAG" up -d app proxy || rollback "the new app didn't start"
 wait_healthy "$TAG" || rollback "the new app didn't become healthy"
-./smoke.sh "$APP_ORIGIN_FOR_SMOKE" || rollback "the smoke test failed"
+smoke_settled || rollback "the smoke test failed"
 echo "$TAG" > "$STATE"
 log "DEPLOYED $TAG"
