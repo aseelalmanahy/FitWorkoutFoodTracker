@@ -6,3 +6,6 @@ prisma/migrations/20261103155557_init/migration.sql text eol=crlf
 prisma/migrations/20261103155823_profile_timezone/migration.sql text eol=crlf
 prisma/migrations/20261103164718_nutrition/migration.sql text eol=crlf
 prisma/migrations/20261103172723_food_origin/migration.sql text eol=crlf
+# Shell scripts and the provisioning file run on Linux servers and in CI: always LF, whatever the editing machine.
+*.sh text eol=lf
+deploy/provision/*.yml text eol=lf

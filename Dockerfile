@@ -4,7 +4,9 @@ FROM node:24.21.0-bookworm-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
 COPY prisma ./prisma
-RUN npm ci
+# onnxruntime-node (on-device meal reading) would download optional CUDA GPU binaries from GitHub at install: unused
+# (there is no GPU; its CPU runtime ships in the package) and a release-build failure whenever that download fails.
+RUN npm_config_onnxruntime_node_install_cuda=skip npm ci
 
 FROM deps AS build
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1
@@ -31,7 +33,7 @@ WORKDIR /app
 ENV NODE_ENV=production NEXT_TELEMETRY_DISABLED=1 NODE_OPTIONS=--max-old-space-size=768
 COPY package.json package-lock.json ./
 COPY prisma ./prisma
-RUN npm ci --omit=dev && rm -rf /root/.npm
+RUN npm_config_onnxruntime_node_install_cuda=skip npm ci --omit=dev && rm -rf /root/.npm
 COPY --from=build /app/node_modules/.prisma ./node_modules/.prisma
 COPY --from=build /app/.next ./.next
 # next.config.ts is read at startup, with the one module it imports.

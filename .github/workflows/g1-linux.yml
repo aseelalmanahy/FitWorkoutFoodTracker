@@ -40,6 +40,8 @@ jobs:
           docker version --format 'docker {{.Server.Version}} {{.Server.Os}}'
           docker info --format 'cgroup {{.CgroupVersion}} driver {{.CgroupDriver}}'
       - run: npm ci
+        env:
+          npm_config_onnxruntime_node_install_cuda: skip
       - name: G1 (the guarded migrate image must refuse; migrations then go to the throwaway container only)
         run: node scripts/g1-image-check.cjs --approval=G1 --disposable-migrations
       - name: Collect the evidence

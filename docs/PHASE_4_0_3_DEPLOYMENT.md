@@ -145,3 +145,116 @@ The design's minimum, with no vendor chosen:
 **Rollback** is unchanged: redeploy the previous image tag. No migration was added on this branch, so a rollback needs no database step. Turning off `LABEL_OCR` or `MEAL_RECOGNITION` hides each feature without a redeploy of code.
 
 **Backups:** `scripts/restore-check.cjs` proves a restore into an empty scratch database, comparing schema, migration history and representative records, and checking the source is untouched. It's ready, and waits for the owner's approval to create and drop `fitdb_restore_check` locally (group B).
+
+
+## Single-server deployment, option A (2026-11-09)
+
+**Status: rehearsed in CI on a disposable machine (`.github/workflows/staging-rehearsal.yml`), never run on a real server.** It supersedes "There's no permanent staging" above: staging is a server of its own, built the same way as production, with synthetic data only. The managed-database template (`compose.production.yml` alone) stays valid for option B.
+
+**Files** (all in `deploy/`):
+- `compose.single-server.yml`, with `postgres/10-roles.sh`;
+- `deploy.sh`, `smoke.sh`, `backup.sh`, `restore.sh`;
+- `provision/cloud-init.yml`;
+- `single-server.env.example`, beside `production.env.example`.
+
+The images come from `.github/workflows/release-image.yml` (run by hand): `ghcr.io/aseelalmanahy/fitworkoutfoodtracker:<sha>` and `…-migrate:<sha>`. They're built in CI, never on the server.
+
+**Memory, measured in G1 on Linux:**
+
+| | Limit | Measured |
+|---|---|---|
+| App (heap pinned at 768 MB) | 2,048 MB | about 0.8 GB with the meal model loaded, 1.36 GB peak during an export at the 50,000-row limit |
+| PostgreSQL | 768 MB | |
+| Caddy | 256 MB | |
+| **Limits in total** | **about 3.1 GB** | |
+
+### First deployment of a server (staging or production)
+
+1. **Create the server.** Hetzner Cloud, Ubuntu 24.04, x86 (CX).
+   - Paste `provision/cloud-init.yml`, with the deploy user's SSH public key put in.
+   - Attach a Cloud Firewall: inbound 22 from your own IP only, 80 and 443 from anywhere; nothing else.
+2. **Point the domain's records at the server** (below). Caddy gets the certificate itself when it first starts.
+3. **As `deploy`, put the release commit's `deploy/` folder in `/opt/fitworkoutfoodtracker/deploy`.**
+4. **Fill in the env files.** `production.env` from its example, and `single-server.env` from its own; `chmod 600` both.
+   - Generate every password as `single-server.env.example` shows; the three must differ.
+   - On staging: no `MAIL_*`, an empty `REGISTRATION_ALLOWLIST`, `LABEL_OCR=local` and `MEAL_RECOGNITION=local`.
+5. **Record the migrations as approved.** The images refuse any migration not recorded as approved in `prisma/approved-migrations.json` (the owner's approval; `RELEASE_ACCEPTANCE.md` Part 11).
+6. **Publish the images** for the approved commit (Actions, then Release image), then run `./deploy.sh <tag>`.
+7. **Staging only, synthetic test accounts:**
+   ```sh
+   docker compose -f compose.production.yml -f compose.single-server.yml --env-file production.env \
+     --env-file single-server.env --profile migrate run --rm --entrypoint node migrate \
+     scripts/create-staging-account.cjs --email=tester1@staging.example.com
+   ```
+   - The password is shown once.
+   - Then run `SMOKE_EMAIL=… SMOKE_PASSWORD=… ./smoke.sh https://<host>`, and, from any computer with Node, `STAGING_EMAIL=… STAGING_PASSWORD=… node scripts/staging-journey.cjs https://<host>`.
+8. **Backups:** `systemctl list-timers fit-backup.timer` shows the nightly run. Run `sudo systemctl start fit-backup.service` once by hand, and check it writes an `.age` file.
+
+### Releases and rollback
+
+`./deploy.sh <new-tag>` does this, in order:
+1. a backup;
+2. the guarded migrate step (a refusal changes nothing);
+3. the new app;
+4. its health check, then `smoke.sh`.
+
+**Rollback is automatic.** If the new app doesn't start, isn't healthy or fails the smoke test, the script restarts the previous tag and prints `ROLLED BACK`.
+- Migrations are forward-only. A rollback runs the previous app on the migrated schema, which works while migrations only add.
+- A migration that removes anything needs its own plan: restore the pre-deploy backup with `restore.sh`.
+
+### Backup and recovery
+
+- **The nightly backup** (03:15 UTC) is a `pg_dump`, checked with `pg_restore --list`, then encrypted with **age** to the owner's public key. It's kept 14 days locally and offsite (Hetzner Object Storage through `rclone`, configured on the server by the owner).
+- **The private key** is created on the owner's own computer, kept in a password manager with an offline copy, and **never** put on the server. The server can write backups, but never read them.
+- **`restore.sh <file> <key> <new-name>`** restores only into a new database, makes it service-ready, and refuses the live one.
+- **Monthly drill:** restore the latest backup into `restore_check`, see "RESTORE VERIFIED", then drop it.
+- **Proposed targets:** RPO 24 h, RTO 4 h.
+- **Recovering the live service:** restore into a new name, point both database URLs at it, then run `deploy.sh` with the current tag.
+
+### Domain, HTTPS and email DNS
+
+One domain, bought by the owner, for example `fitworkoutfoodtracker.com`:
+
+| Record | Name | Value | For |
+|---|---|---|---|
+| A (and AAAA) | `app` | the production server's IPv4 (and IPv6) | production at `https://app.<domain>` |
+| A (and AAAA) | `staging` | the staging server's IP | staging at `https://staging.<domain>` |
+| CAA | `@` | `0 issue "letsencrypt.org"` | only Let's Encrypt may issue certificates |
+| MX | `send` | the value Resend's dashboard shows (priority 10) | bounces for the sending subdomain |
+| TXT | `send` | Resend's SPF value (`v=spf1 include:amazonses.com ~all`) | SPF |
+| TXT | `resend._domainkey` | the DKIM key Resend shows | DKIM |
+| TXT | `_dmarc` | `v=DMARC1; p=none; rua=mailto:<owner address>` | optional at first; later `quarantine` |
+
+- **Nameservers:** the registrar's own are fine.
+- **HTTPS:** Caddy obtains and renews the certificate for `APP_DOMAIN` (HTTP-01 on port 80), redirects HTTP to HTTPS, and sends HSTS.
+- **Cookies:** the app sets `Secure`, `HttpOnly` and `SameSite=Lax`; `smoke.sh` checks them.
+- **Settings:** `APP_ORIGIN=https://app.<domain>`, or `https://staging.<domain>` on staging. `APP_DOMAIN` is the host name alone.
+- **A temporary address without a domain isn't reliable.** sslip.io and nip.io share one Let's Encrypt limit of 50 certificates a week with every user, so staging also waits for the domain.
+
+### Real email (Resend), once the domain is verified
+
+**Settings, all three or none (the preflight enforces this):**
+- `MAIL_PROVIDER=resend`;
+- `RESEND_API_KEY=re_…`, a sending-only key, on the server only;
+- `MAIL_FROM=FitWorkoutFoodTracker <no-reply@send.<domain>>`.
+
+**Already implemented, and tested against a stand-in (the `account-tokens` suite):**
+- sign-up links last 24 hours and reset links 60 minutes, and each works once;
+- answers never reveal whether an address has an account;
+- limits per address and per client, with a cooldown;
+- a failed delivery is logged without the address;
+- a password change ends the other sessions.
+
+**Registration stays closed until NOTICE-B is final,** whatever `REGISTRATION_ALLOWLIST` says. So real sign-up and reset emails are tested once the notice is final, with checklist G.1–G.6, in a real inbox.
+
+### An export over the 50,000-row limit (until EXP-02, a streamed export)
+
+The app answers that the account has too much data for one file, and asks the person to contact support. No beta account is expected to reach the limit: it's about a decade of heavy logging. Until then:
+
+1. **Confirm the request comes from the account itself.** It signs in and asks through feedback. Reply only in the app or to its own address.
+2. **On the server, for that one user ID:**
+   - For each model in `src/lib/account-data-map.json`, export its listed fields with `COPY (SELECT <fields> FROM "<table>" WHERE "userId" = '<id>') TO STDOUT WITH CSV HEADER`, through `docker compose … exec -T db psql -U postgres -d <db>`.
+   - Write the files into a `chmod 700` folder.
+   - Child tables (sets, servings, plan entries) join to their parent's `userId`.
+3. **Encrypt the folder** with `age -p` or `zip -e`, and give the passphrase separately. Remove the plaintext with `shred`.
+4. **Record** that the request was fulfilled, and when, but not its contents.
